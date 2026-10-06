@@ -1,0 +1,32 @@
+# ---- 依赖 ----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ---- 敏感凭据（绝不入库） ----
+# 链上钱包私钥库：只应存在于运行节点本地
+server/keystore.json
+.env
+.env.*
+!.env.example
+
+# ---- 运行时产物 ----
+artifacts/.edge-profile*/
+artifacts/.edge-debug/
+artifacts/**/*.tmp
+logs/
+*.log
+
+# ---- 采集/录制的原始帧（体积大，成品在 artifacts/video） ----
+artifacts/video/frames/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 交付物的打包中间态 ----
+_stage_zip/
+*.zip
