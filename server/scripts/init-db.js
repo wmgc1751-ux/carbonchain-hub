@@ -49,6 +49,21 @@ async function runSchema(conn, file, managed = false) {
       .replace(/DROP\s+DATABASE[^;]*;/gi, '')
       .replace(/CREATE\s+DATABASE[^;]*;/gi, '')
       .replace(/USE\s+`?[\w$]+`?\s*;/gi, '');
+
+    /* 云托管模式下没有 DROP DATABASE 兜底，若上一次执行中断（或重复执行），
+     * 残留的表会让 CREATE TABLE 直接撞 ER_TABLE_EXISTS_ERROR。
+     * 这里先按【逆序】DROP 掉结构文件里出现的所有表，保证可重复执行。
+     * 逆序是为了让有外键依赖的表先被删除。 */
+    const created = [...sql.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?`?([\w$]+)`?/gi)]
+      .map((m) => m[1]);
+    if (created.length) {
+      await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+      for (const t of created.reverse()) {
+        await conn.query(`DROP TABLE IF EXISTS \`${t}\``);
+      }
+      await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+      console.log(`   ↺ 已清理 ${created.length} 张可能残留的表（保证可重复执行）`);
+    }
   } else {
     sql = sql.replace(/USE\s+`?carbon_chain`?\s*;/gi, `USE \`${dbName}\`;`);
   }

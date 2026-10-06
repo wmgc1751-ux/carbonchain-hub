@@ -157,6 +157,10 @@ function diagnose(err) {
   console.log('④ 开始建表并灌入数据（复用 init-db.js）…');
   line('');
 
+  /* 云端一律使用 managed 模式：
+   * 即便账号恰好有 CREATE/DROP DATABASE 权限，也不应去 DROP 整个库
+   * （库里可能有别人的表，且 TiDB Starter 的 test 库是共享的实例级库）。
+   * managed 模式下会逐表清理，同样保证可重复执行。 */
   const env = {
     ...process.env,
     DB_HOST: HOST,
@@ -165,7 +169,7 @@ function diagnose(err) {
     DB_PASSWORD: PASS,
     DB_NAME: NAME,
     DB_SSL: 'no-verify',
-    DB_MANAGED: canCreateDb ? '' : 'true',
+    DB_MANAGED: 'true',
   };
 
   const res = spawnSync(process.execPath, [path.join(ROOT, 'server', 'scripts', 'init-db.js')], {
