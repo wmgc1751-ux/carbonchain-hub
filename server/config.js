@@ -20,15 +20,26 @@ function dbSsl() {
   return undefined;
 }
 
+/**
+ * 解析数字型环境变量，带"空字符串/非法值"兜底。
+ * 注意：Number('') === 0，直接写 Number(process.env.PORT || 8300) 在
+ * 某些平台把变量注入为空串时会导致监听端口 0（随机端口），从而部署失败。
+ */
+function num(v, fallback) {
+  const n = Number(v);
+  return v === undefined || v === null || v === '' || !Number.isFinite(n) ? fallback : n;
+}
+
 module.exports = {
   /* ---- HTTP 服务 ---- */
-  port: Number(process.env.PORT || 8300),
+  port: num(process.env.PORT, 8300),
+  /* 云平台（Render 等）要求监听 0.0.0.0 才能接收外部请求；本地也适用。 */
   host: process.env.HOST || '0.0.0.0',
 
   /* ---- MySQL ---- */
   db: {
     host: process.env.DB_HOST || '127.0.0.1',
-    port: Number(process.env.DB_PORT || 3306),
+    port: num(process.env.DB_PORT, 3306),
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '123456',
     database: process.env.DB_NAME || 'carbon_chain',
