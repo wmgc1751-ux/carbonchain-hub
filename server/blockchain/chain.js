@@ -230,6 +230,37 @@ class Blockchain {
   }
 
   /**
+   * 批量落库为 PENDING（性能优化）
+   * ------------------------------------------------------------------
+   * 与 persistTx 写入完全相同的行，但用单条 INSERT ... VALUES (...),(...) 提交。
+   * 用途：初始化脚本一次要灌 900+ 笔存证，逐条 await 在跨地域（如本机 → 云端 MySQL）
+   * 场景下光是网络往返就要数分钟；批量后往返次数从 N 降到 N/50。
+   * 单进程高频提交时同样受益。业务语义与逐条写入完全一致。
+   */
+  async persistTxBatch(txs, chunk = 50) {
+    if (!txs || !txs.length) return 0;
+    const cols = ['tx_id', 'tx_type', 'biz_no', 'from_address', 'to_address', 'payload_hash',
+      'payload_json', 'signature', 'pub_key', 'nonce', 'gas_fee'];
+    let n = 0;
+    for (let i = 0; i < txs.length; i += chunk) {
+      const slice = txs.slice(i, i + chunk);
+      const ph = slice.map(() => "(?,?,?,?,?,?,?,?,?,?,?,'PENDING',NOW())").join(',');
+      const params = slice.flatMap((tx) => [
+        tx.txId, tx.txType, tx.bizNo, tx.fromAddress, tx.toAddress, tx.payloadHash,
+        JSON.stringify(tx.payload), tx.signature, tx.pubKey, tx.nonce, tx.fee,
+      ]);
+      await this.db.query(
+        `INSERT INTO chain_tx (${cols.join(',')}, status, created_at)
+         VALUES ${ph}
+         ON DUPLICATE KEY UPDATE tx_id = tx_id`,
+        params
+      );
+      n += slice.length;
+    }
+    return n;
+  }
+
+  /**
    * 提交交易：入池，并在满足批大小时自动出块
    * @returns {Promise<{tx:object, block:object|null}>}
    */

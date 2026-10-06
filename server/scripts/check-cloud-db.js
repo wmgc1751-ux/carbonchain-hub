@@ -140,16 +140,14 @@ function diagnose(err) {
   // 2.3 权限探测
   console.log('③ 探测账号权限…');
   const c = await mysql.createConnection({ host: HOST, port: PORT, user: USER, password: PASS, ...sslOpt });
-  let canCreateDb = false;
   try {
     const [g] = await c.query('SHOW GRANTS');
     const txt = JSON.stringify(g);
-    canCreateDb = /ALL PRIVILEGES/i.test(txt) && !/WITH GRANT OPTION/i.test(txt) ? true : /CREATE/i.test(txt);
     console.log('   权限：' + txt.replace(/[{}[\]"]/g, ' ').replace(/,/g, ' ').slice(0, 160));
   } catch (e) {
     console.log('   权限查询被拒绝（多数免费云库如此，属正常）');
   }
-  console.log(canCreateDb ? '   → 账号可建库，将使用常规模式' : '   → 账号无建库权限，将使用 DB_MANAGED 模式');
+  console.log('   → 将使用 DB_MANAGED 模式（逐表清理重建，不触碰整个库）');
   await c.end();
   console.log('');
 

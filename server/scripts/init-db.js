@@ -771,8 +771,8 @@ async function main() {
       payload: p.payload, privateKey: p.privateKey, publicKey: p.publicKey,
       fee: round(rng.d(0.001, 0.02, 4), 4),
     }));
-    // 落库 PENDING
-    for (const tx of batchTxs) await chain.persistTx(tx);
+    // 落库 PENDING（批量提交，跨地域灌数时显著减少网络往返）
+    await chain.persistTxBatch(batchTxs);
     // 时间戳一律取整到秒，且严格递增，保证链上时间线单调
     const prevSec = chain.blocks.length ? chain.blocks[chain.blocks.length - 1].timestamp : 0;
     const wantSec = Math.floor(new Date(batchPlan[batchPlan.length - 1].at).getTime() / 1000);
