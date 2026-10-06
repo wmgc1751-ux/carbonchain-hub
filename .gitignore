@@ -9,6 +9,9 @@ server/keystore.json
 .env
 .env.*
 !.env.example
+# 云端数据库连接信息（含密码）
+cloud-db.env
+!cloud-db.env.example
 
 # ---- 运行时产物 ----
 artifacts/.edge-profile*/

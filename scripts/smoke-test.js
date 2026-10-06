@@ -69,7 +69,18 @@ async function login(username, password) {
   console.log('\n【区块链浏览器】');
   await check('链概况', 'GET', '/api/chain/stats');
   await check('区块列表', 'GET', '/api/chain/blocks?page=1&size=5');
-  const b = await check('区块详情', 'GET', '/api/chain/blocks/10');
+
+  /* 区块索引不是从 0 连续编号的（创世块的 block_index 由链的构建方式决定），
+   * 因此先取列表里真实存在的区块索引，再做详情/篡改测试，避免硬编码 10 在某些
+   * 重建后的链上不存在。
+   * 注意：列表接口返回的是库字段 block_index，详情接口返回的才是转换后的 index。 */
+  const blkList = await check('区块列表(探测索引)', 'GET', '/api/chain/blocks?page=1&size=5');
+  const blkRows = (blkList && blkList.data && blkList.data.rows) || [];
+  const firstRow = blkRows[0] || {};
+  const probeIndex = Number(firstRow.block_index !== undefined ? firstRow.block_index : firstRow.index);
+  const tamperIndex = Number.isFinite(probeIndex) ? probeIndex : 1;
+
+  const b = await check(`区块详情(#${tamperIndex})`, 'GET', `/api/chain/blocks/${tamperIndex}`);
   await check('交易列表', 'GET', '/api/chain/txs?page=1&size=5');
   await check('交易详情', 'GET', `/api/chain/tx/${b && b.data && b.data.transactions[0] ? b.data.transactions[0].tx_id : 'x'}`);
   await check('交易池', 'GET', '/api/chain/pool');
@@ -81,8 +92,12 @@ async function login(username, password) {
   const ent = await login('ent001', '123456');
   const et = ent.token;
   await check('企业概览', 'GET', '/api/enterprise/overview', { token: et });
-  const reports = await check('上报单列表', 'GET', '/api/enterprise/reports?page=1&size=5', { token: et });
-  const rid = reports && reports.data && reports.data.rows[0] ? reports.data.rows[0].id : 1;
+  const reports = await check('上报单列表', 'GET', '/api/enterprise/reports?page=1&size=20', { token: et });
+  const rows = (reports && reports.data && reports.data.rows) || [];
+  /* 挑一条【已上链】的上报单做存证详情测试：不是所有上报单都已完成上链，
+   * 取第一条可能命中未上链的草稿，导致误报失败。 */
+  const chained = rows.find((r) => r.chain_tx_id || r.chainTxId || r.chain_block_index !== null && r.chain_block_index !== undefined);
+  const rid = (chained || rows[0] || {}).id || 1;
   await check('上报单详情', 'GET', `/api/enterprise/reports/${rid}`, { token: et });
   await check('链上存证详情', 'GET', `/api/enterprise/reports/${rid}/chain`, { token: et });
   await check('配额账户', 'GET', '/api/enterprise/quota', { token: et });
@@ -165,12 +180,12 @@ async function login(username, password) {
 
   /* ---- 篡改演示 ---- */
   console.log('\n【区块链防篡改演示】');
-  const t1 = await check('模拟篡改区块 #10', 'POST', '/api/chain/tamper', { token: rt, body: { blockIndex: 10, field: 'merkle_root' } });
+  const t1 = await check(`模拟篡改区块 #${tamperIndex}`, 'POST', '/api/chain/tamper', { token: rt, body: { blockIndex: tamperIndex, field: 'merkle_root' } });
   if (t1 && t1.data) {
     console.log(`     ↳ 篡改后校验：valid=${t1.data.validation.valid} 异常数=${t1.data.validation.errors.length}`);
     console.log(`     ↳ 首条异常：${t1.data.validation.errors[0] ? t1.data.validation.errors[0].message : '-'}`);
   }
-  const t2 = await check('修复链（重做 PoW）', 'POST', '/api/chain/repair', { token: rt, body: { fromIndex: 10 } });
+  const t2 = await check('修复链（重做 PoW）', 'POST', '/api/chain/repair', { token: rt, body: { fromIndex: tamperIndex } });
   if (t2 && t2.data) {
     console.log(`     ↳ 修复 ${t2.data.repaired.length} 个区块，重做工作量证明总耗时 ${t2.data.repaired.reduce((a, b) => a + b.cost, 0)}ms`);
     console.log(`     ↳ 修复后校验：valid=${t2.data.validation.valid} 异常数=${t2.data.validation.errors.length}`);
