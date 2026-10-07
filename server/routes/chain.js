@@ -92,7 +92,10 @@ router.get('/blocks/:index', wrap(async (req, res) => {
     block,
     recomputedHash: recomputed,
     hashMatch: recomputed === block.hash,
-    merkle: { root: proof.root, rootMatches: proof.root === block.merkle_root, samplePath: proof.path },
+    // 注意：这里的 block 是上面重塑过的驼峰对象，字段名是 merkleRoot；
+    // 早前误写成 block.merkle_root（那是原始行 b 的字段名），
+    // 导致恒为 undefined、rootMatches 永远是 false。改回 merkleRoot 后与 b 同源一致。
+    merkle: { root: proof.root, rootMatches: proof.root === block.merkleRoot, samplePath: proof.path },
     transactions: txs.map((t) => ({
       ...t,
       txTypeCn: TX_TYPE_CN[t.tx_type] || t.tx_type,

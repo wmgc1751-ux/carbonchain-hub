@@ -138,6 +138,66 @@ function generateWallet() {
 }
 
 /**
+ * 生成【确定性】secp256k1 钱包：同一 label 任意时刻、任意机器都得到同一对密钥。
+ * ------------------------------------------------------------------
+ * 做法：把 label 用 SHA-256 摘要成 32 字节确定性标量，取其模曲线阶的余数作为私钥 d，
+ * 再用 PKCS#8 DER 手写封装（INTEGER d / OID secp256k1 / BIT STRING 公钥点），最后包装成 PEM。
+ *
+ * 为什么要它：
+ *   数据库初始化脚本需要在「本机 MySQL」和「云端 TiDB」跑出**完全一致**的存证数据，
+ *   否则同一套 SQL 备份在两端重算出来的签名不同，链下比对必然失败。
+ *   随机密钥做不到这一点。固定算法种子 ⇒ 可复现的密钥 ⇒ 可复现的链。
+ *
+ * @param {string} label 形如 'ent:12' / 'verifier:3' / 'regulator:system'
+ * @returns {{address:string, publicKey:string, privateKey:string}}
+ */
+function generateWalletDeterministic(label) {
+  const ORDER = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141');
+  // 把 label 摘要成 32 字节，再对曲线阶取模，得到合法私钥标量（0 < d < n）
+  const hex = sha256(`carbonchain-hub/keystore/v1|${label}`);
+  const d = (BigInt('0x' + hex) % (ORDER - 1n)) + 1n;
+  const dBytes = Buffer.from(d.toString(16).padStart(64, '0'), 'hex');
+
+  // DER 封装 PKCS#8（RFC 5915 内层 + RFC 5208 外层），Node 的 openssl 可直接解析
+  const der = pkcs8FromScalar(dBytes);
+  const privateKey = derToPem('EC PRIVATE KEY', der);
+  const keyObj = crypto.createPrivateKey(privateKey);
+  const publicKey = crypto.createPublicKey(keyObj).export({ type: 'spki', format: 'pem' });
+
+  return { address: deriveAddress(publicKey), publicKey, privateKey };
+}
+
+/** 把 32 字节私钥标量封装成 SEC1(PKCS#1) EC PRIVATE KEY 的 DER */
+function pkcs8FromScalar(scalar) {
+  const seq = (...parts) => {
+    const body = Buffer.concat(parts);
+    const len = body.length < 0x80
+      ? Buffer.from([body.length])
+      : Buffer.from([0x81, body.length]);
+    return Buffer.concat([Buffer.from([0x30]), len, body]);
+  };
+  const int = (buf) => {
+    const b = buf[0] & 0x80 ? Buffer.concat([Buffer.from([0x00]), buf]) : buf;
+    return Buffer.concat([Buffer.from([0x02, b.length]), b]);
+  };
+  const octet = (buf) => Buffer.concat([Buffer.from([0x04, buf.length]), buf]);
+  const secp256k1Oid = Buffer.from([0x06, 0x05, 0x2b, 0x81, 0x04, 0x00, 0x0a]);
+  // ECPrivateKey ::= SEQUENCE { version INTEGER 1, privateKey OCTET STRING, parameters [0] secp256k1 }
+  return seq(
+    int(Buffer.from([0x01])),
+    octet(scalar),
+    Buffer.concat([Buffer.from([0xa0, secp256k1Oid.length]), secp256k1Oid]),
+  );
+}
+
+/** DER 字节 → PEM 文本 */
+function derToPem(label, der) {
+  const b64 = Buffer.from(der).toString('base64');
+  const lines = b64.match(/.{1,64}/g) || [];
+  return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
+}
+
+/**
  * 由公钥派生钱包地址：addr = '0x' + sha256(DER公钥).slice(0,40)
  * 单向派生 —— 拿地址无法还原公钥，拿公钥无法还原私钥。
  * @param {string} publicKeyPem
@@ -226,6 +286,7 @@ module.exports = {
   merkleProof,
   verifyMerkleProof,
   generateWallet,
+  generateWalletDeterministic,
   deriveAddress,
   sign,
   verify,

@@ -379,14 +379,21 @@ router.get('/statistics', wrap(async (req, res) => {
      FROM emission_report WHERE status <> 'DRAFT' GROUP BY period ORDER BY period`
   );
 
+  /* 注意：q.available / q.total_allocated 未参与聚合，若直接与 GROUP BY e.id 并用，
+   * 在开启了 only_full_group_by 的库（TiDB 默认开启）上会报
+   *   Expression #6 of SELECT list is not in GROUP BY clause ...
+   * 本机 MySQL 某些版本默认关闭该模式，因此本地不报错、云端必报。
+   * 这里统一用 MAX() 包一层：q 已按 (ent_id, year) 唯一，MAX() 不改变取值，
+   * 但让语句满足严格模式，两端行为一致。 */
   const rank = await db.query(
     `SELECT e.ent_name AS name, e.industry, e.region,
             IFNULL(SUM(r.total_emission),0) AS emission, IFNULL(AVG(r.intensity),0) AS intensity,
-            IFNULL(q.available,0) AS quota_available, IFNULL(q.total_allocated,0) AS quota_allocated
+            IFNULL(MAX(q.available),0) AS quota_available, IFNULL(MAX(q.total_allocated),0) AS quota_allocated
      FROM enterprise e
      LEFT JOIN emission_report r ON r.ent_id = e.id AND r.year = ? AND r.status <> 'DRAFT'
      LEFT JOIN carbon_quota q ON q.ent_id = e.id AND q.year = ?
-     GROUP BY e.id ORDER BY emission DESC LIMIT 20`, [year, year]
+     GROUP BY e.id, e.ent_name, e.industry, e.region
+     ORDER BY emission DESC LIMIT 20`, [year, year]
   );
 
   const compliance = await db.one(

@@ -45,8 +45,27 @@ class Blockchain {
    * 初始化
    * ================================================================ */
 
-  /** 从数据库装载链与交易池；链为空时创建创世块 */
+  /**
+   * 从数据库装载链与交易池；链为空时创建创世块
+   *
+   * ⚠ 关于时间戳与时区（本文件最关键的一处约定）
+   * ------------------------------------------------------------------
+   * 区块哈希的输入包含 timestamp（绝对秒数），因此"从 DATETIME 反解出秒数"
+   * 这一步必须在**任何机器上都得到同一个答案**。原实现用
+   *   UNIX_TIMESTAMP(block_time)
+   * 但 MySQL 的 UNIX_TIMESTAMP() 是按【会话时区】解释 DATETIME 的：
+   *   · 本机 MySQL 会话时区 = +08:00 → 2026-01-01 10:00 视作 02:00Z
+   *   · TiDB Cloud 会话时区   = +00:00 → 同一个字面量视作 10:00Z
+   * 结果同一个字面量在两端反解出相差 28800 秒的 timestamp，重算哈希必然失败。
+   * 解法两步（缺一不可）：
+   *   (1) 连接建立后立刻 `SET time_zone = '+00:00'`，让两端会话统一按 UTC 解释；
+   *   (2) 写入时不再做本地→UTC 的换算，直接把秒数按 UTC 格式化成字面量。
+   * 这样"写进去的字符串"与"读出来的秒数"在 MySQL 与 TiDB 上完全一致。
+   */
+  static TIME_ZONE_UTC = true;
+
   async init() {
+    await this.syncTimeZone();
     const [rows] = await this.db.query(
       'SELECT block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, tx_count, miner, size_bytes, mine_time, UNIX_TIMESTAMP(block_time) AS ts FROM chain_block ORDER BY block_index ASC'
     );
@@ -61,6 +80,24 @@ class Blockchain {
     );
     this.pool = pend.map((r) => this._rowToTx(r));
     this.ready = true;
+    return this;
+  }
+
+  /**
+   * 把当前连接的会话时区固定为 UTC。
+   * 池化连接下必须逐条连接生效，故先取一条连接执行；mysql2 每次从池里取到的连接
+   * 都会带着初始化指令（在 pool 上用 connectionAttributes/initSql 不可用时，这里
+   * 采用"每次查询前确保"的轻量策略：连接池是长连接，设一次即可长期生效；
+   * 若中途因超时重连，这里都会被 init() / 校验入口再次调用覆盖）。
+   */
+  async syncTimeZone() {
+    try {
+      await this.db.query("SET time_zone = '+00:00'");
+    } catch (e) {
+      // 个别托管库不允许改会话时区（极少见）；此时退化为依赖 dateStrings 与写入格式化，
+      // 不影响本机 MySQL，也不阻断启动。
+      this._tzWarned = true;
+    }
     return this;
   }
 
@@ -111,6 +148,19 @@ class Blockchain {
       b.index, b.timestamp, b.merkleRoot, b.prevHash, b.difficulty, b.nonce,
     ].join('|');
     return cu.sha256(raw);
+  }
+
+  /**
+   * 绝对秒数 → UTC 的 'YYYY-MM-DD HH:mm:ss' 字面量。
+   * 与 `SET time_zone = '+00:00'` 配对使用：写入即 UTC，读出按 UTC 解释，
+   * 于是 timestamp 的往返在任何服务器时区下都恒等。
+   * @param {number} sec epoch 秒
+   */
+  static utcDateString(sec) {
+    const d = new Date(Number(sec) * 1000);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())} `
+      + `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
   }
 
   /**
@@ -330,7 +380,9 @@ class Blockchain {
         [
           block.index, block.hash, block.prevHash, block.merkleRoot, block.nonce,
           block.difficulty, block.txCount, block.miner, block.sizeBytes, block.mineTime,
-          new Date(block.timestamp * 1000),
+          // 传字符串而不是 Date 对象：驱动不再做任何本地时区换算，
+          // 配合会话 time_zone='+00:00'，写入值与读出秒数在 MySQL / TiDB 上完全一致。
+          Blockchain.utcDateString(block.timestamp),
         ]
       );
 
@@ -361,12 +413,29 @@ class Blockchain {
    * @returns {Promise<object>}
    */
   async validateChain(opts = {}) {
+    await this.syncTimeZone();
     const from = opts.fromIndex || 0;
     const [blocks] = await this.db.query(
       'SELECT *, UNIX_TIMESTAMP(block_time) AS ts FROM chain_block WHERE block_index >= ? ORDER BY block_index ASC', [from]
     );
     const errors = [];
     let checked = 0;
+
+    /* 一次性把所有区块的交易取回来，按 block_index 分组，避免"每块一次查询"。
+     * 原实现是 for 循环里逐块 SELECT，本地 MySQL 上无所谓（<1 ms），
+     * 但部署到云端后数据库与 Web 服务跨地域，155 块 = 155 次网络往返，
+     * 实测一次全链校验要跑几十分钟，接口必然超时。
+     * 改成单条查询 + 内存分组后，往返次数恒为 1。 */
+    const [allTx] = await this.db.query(
+      'SELECT block_index, tx_id FROM chain_tx WHERE block_index >= ? ORDER BY block_index ASC, id ASC',
+      [from]
+    );
+    const txByBlock = new Map();
+    for (const t of allTx) {
+      const k = Number(t.block_index);
+      if (!txByBlock.has(k)) txByBlock.set(k, []);
+      txByBlock.get(k).push(t.tx_id);
+    }
 
     for (let i = 0; i < blocks.length; i++) {
       const raw = blocks[i];
@@ -409,11 +478,9 @@ class Blockchain {
         }
       }
 
-      // (4) Merkle 根与交易表比对
-      const [txRows] = await this.db.query(
-        'SELECT tx_id FROM chain_tx WHERE block_index = ? ORDER BY id ASC', [b.index]
-      );
-      const root = cu.merkleRoot(txRows.map((t) => t.tx_id));
+      // (4) Merkle 根与交易表比对（交易已在上方一次性取回）
+      const txRows = txByBlock.get(b.index) || [];
+      const root = cu.merkleRoot(txRows);
       if (root !== b.merkleRoot) {
         errors.push({
           index: b.index, type: 'MERKLE_ROOT_MISMATCH',
@@ -484,6 +551,7 @@ class Blockchain {
    * @returns {Promise<object>}
    */
   async repairChain(fromIndex) {
+    await this.syncTimeZone();
     const [rows] = await this.db.query(
       'SELECT *, UNIX_TIMESTAMP(block_time) AS ts FROM chain_block WHERE block_index >= ? ORDER BY block_index ASC', [fromIndex]
     );
@@ -495,11 +563,20 @@ class Blockchain {
       );
       prevHash = p.length ? p[0].block_hash : GENESIS_PREV_HASH;
     }
+    // 同 validateChain：交易一次性取回并按块分组，避免逐块查询造成的 N 次网络往返
+    const [allTx] = await this.db.query(
+      'SELECT block_index, tx_id FROM chain_tx WHERE block_index >= ? ORDER BY block_index ASC, id ASC',
+      [fromIndex]
+    );
+    const txByBlock = new Map();
+    for (const t of allTx) {
+      const k = Number(t.block_index);
+      if (!txByBlock.has(k)) txByBlock.set(k, []);
+      txByBlock.get(k).push(t.tx_id);
+    }
     for (const raw of rows) {
-      const [txRows] = await this.db.query(
-        'SELECT tx_id FROM chain_tx WHERE block_index = ? ORDER BY id ASC', [raw.block_index]
-      );
-      const merkle = cu.merkleRoot(txRows.map((t) => t.tx_id));
+      const txRows = txByBlock.get(Number(raw.block_index)) || [];
+      const merkle = cu.merkleRoot(txRows);
       const header = {
         index: Number(raw.block_index),
         timestamp: Number(raw.ts),

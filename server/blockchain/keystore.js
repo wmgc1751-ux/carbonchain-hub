@@ -41,12 +41,17 @@ function reindex() {
 }
 
 /**
- * 取某个主体的钱包，不存在则新建并落盘
- * @param {string} label 形如 'ent:12' / 'verifier:3' / 'regulator'
+ * 取某个主体的钱包，不存在则新建并落盘。
+ * ------------------------------------------------------------------
+ * 用【确定性】密钥派生：私钥由 label 摘要而来，因此
+ *   · 同一 label 在任何机器、任何次重跑都得到完全相同的地址与密钥；
+ *   · 数据库初始化脚本在本机 MySQL 与云端 TiDB 上跑出的存证签名逐字节一致，
+ *     同一份数据在两端重算哈希 / 验签都会通过 —— 这是跨环境可复现的前提。
+ * @param {string} label 形如 'ent:12' / 'verifier:3' / 'regulator:system'
  */
 function walletFor(label) {
   if (!store[label]) {
-    store[label] = { label, ...cu.generateWallet(), createdAt: new Date().toISOString() };
+    store[label] = { label, ...cu.generateWalletDeterministic(label), createdAt: new Date().toISOString() };
     save();
   }
   byAddr.set(store[label].address, store[label]);
