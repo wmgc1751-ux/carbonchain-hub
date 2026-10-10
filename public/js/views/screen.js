@@ -154,14 +154,14 @@
             h('div', { class: 'tick' }, ['成交金额 ', h('b', {}, App.fmt.big(k.turnover)), h('span', { class: 'tiny dim' }, '元')]),
             h('div', { class: 'tick' }, ['控排企业 ', h('b', {}, k.entCount), h('span', { class: 'tiny dim' }, '家')]),
             h('div', { class: 'tick' }, ['覆盖省份 ', h('b', {}, k.regionCount)]),
-            h('div', { class: 'tick', style: 'margin-left:auto' }, ['链上存证 ', h('b', {}, App.fmt.num(c.totalTxs)), h('span', { class: 'tiny dim' }, '笔 · PoW 难度 ' + c.difficulty)]),
+            h('div', { class: 'tick', style: 'margin-left:auto' }, ['链上存证 ', h('b', {}, App.fmt.num(c.totalTxs)), h('span', { class: 'tiny dim' }, '笔 · ' + (c.difficulty ? 'PoW 难度 ' + c.difficulty : 'PoA 共识'))]),
           ]),
 
           /* KPI */
           h('div', { class: 'grid g4 mb-16' }, [
             h('x-kpi', { label: '本年度排放总量', value: App.fmt.num(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: `已纳入 ${k.reportCount} 份上报单` }),
             h('x-kpi', { label: '核查通过率', value: k.verifiedRate, unit: '%', icon: 'shield', tone: 'sky', foot: '第三方机构核证结论' }),
-            h('x-kpi', { label: '区块高度', value: App.fmt.num(c.height), icon: 'block', tone: 'chain', foot: `${c.totalBlocks} 个区块 · 平均出块 ${c.avgMineTime}ms` }),
+            h('x-kpi', { label: '区块高度', value: App.fmt.num(c.height), icon: 'block', tone: 'chain', foot: `${c.totalBlocks} 个区块 · 平均出块 ${c.avgMineTime ? c.avgMineTime + 'ms' : '—'}` }),
             h('x-kpi', { label: '累计交易额', value: App.fmt.big(k.turnover), unit: '元', icon: 'trade', tone: 'violet', foot: `${App.fmt.num(k.dealCount)} 笔成交` }),
           ]),
 
