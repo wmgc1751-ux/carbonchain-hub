@@ -160,7 +160,22 @@
           if (!d) return null;
           const v = d.verify || {}, m = d.merkle || {}, b = d.block || {}, t = d.tx || {};
 
+          /* 全流程可信流水线：物理采集 → 边缘签名 → 合约核算 → 机构背书上链 */
+          const flow = [
+            { k: '物理电表采集', ok: true },
+            { k: '边缘 TEE 签名', ok: v.signatureValid !== false },
+            { k: '合约核算', ok: v.dataIntact !== false && m.rootMatches !== false },
+            { k: '机构背书上链', ok: v.sealMatches !== false && !!(b && b.index) },
+          ];
+
           return h('div', {}, [
+            h('div', { class: 'trust-flow mb-16' }, flow.flatMap((s, i) => {
+              const node = h('div', { class: ['tf-step', s.ok ? 'ok' : 'bad'] }, [
+                h('i', { class: 'tf-dot' }),
+                h('span', { class: 'tf-txt' }, s.k),
+              ]);
+              return i < flow.length - 1 ? [node, h('i', { class: 'tf-line' })] : [node];
+            })),
             h('div', { class: 'flex gap-12 wrap mb-16' }, [
               v.signatureValid !== undefined && h('x-readout', { pass: v.signatureValid, label: 'ECDSA 数字签名验签', detail: v.signatureValid ? '验签通过' : '验签失败' }),
               v.dataIntact !== undefined && h('x-readout', { pass: v.dataIntact, label: '存证数据摘要比对', detail: v.dataIntact ? '一字未改' : '数据已变动' }),
