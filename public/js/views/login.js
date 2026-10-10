@@ -13,6 +13,51 @@
     ADMIN: '/reg/overview',
   };
 
+  /* Hero 背景视频：已验证可用的直链（原 preview 路径已返回 403，作为兜底保留） */
+  const HERO_VIDEO = 'https://assets.mixkit.co/videos/41484/41484-720.mp4';
+  const HERO_VIDEO_FALLBACK = 'https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-41484-large.mp4';
+  const HERO_POSTER = 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1600&q=80';
+
+  /* Bento Grid：4 块不对称核心能力卡片（背景图 + 动态数据徽章） */
+  const BENTO = [
+    {
+      span: 'lg',
+      img: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1200&q=80',
+      tag: 'Scope 1 / 2 / 3 实时接入',
+      title: '碳排因子与多源数据采集',
+      desc: '对接 IoT 智能电表、CEMS 在线监测与 ERP 物料台账，按权威排放因子库自动折算，多源数据统一入湖、分钟级同步。',
+    },
+    {
+      span: 'md',
+      img: 'https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=1200&q=80',
+      tag: 'ISO-14067 合规认证',
+      title: '智能核算与低碳供应链',
+      desc: '生命周期 LCA 核算引擎覆盖范围一 / 二 / 三，自动生成核算底稿与减排建议。',
+    },
+    {
+      span: 'md',
+      img: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
+      tag: '哈希验证通过',
+      title: '链上可信存证与防篡改',
+      desc: 'SHA-256 哈希链 + Merkle 树 + secp256k1 签名，任何改动都会导致全链校验失败。',
+    },
+    {
+      span: 'wide',
+      img: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80',
+      tag: 'CBAM 就绪',
+      title: '国际合规与 CBAM 报告生成',
+      desc: '一键导出欧盟碳边境调节机制申报数据包与第三方可核验的存证证书。',
+    },
+  ];
+
+  /* Carbon Flow：端到端碳链溯源流程轴 */
+  const FLOW = [
+    { icon: 'db', t: 'IoT / ERP 数据采集' },
+    { icon: 'chart', t: '生命周期 LCA 智能核算' },
+    { icon: 'block', t: '节点共识哈希上链' },
+    { icon: 'shield', t: 'CBAM 报告 / 存证证书' },
+  ];
+
   const PageLogin = defineComponent({
     name: 'page-login',
     setup() {
@@ -63,55 +108,78 @@
       return () => h('div', { class: 'login' }, [
         /* 左：品牌区 */
         h('div', { class: 'login-hero' }, [
-          h('div', { class: 'flex gap-12 mb-16' }, [
-            h('div', { class: 'brand-mark' }, [h('x-icon', { name: 'leaf', size: 21 })]),
-            h('div', { class: 'brand-txt' }, [
-              h('strong', {}, '碳链通 CarbonChain Hub'),
-              h('span', {}, 'Blockchain · Carbon · Compliance'),
+          /* ---------- Hero 首屏：沉浸式科技多媒体背景 ---------- */
+          h('section', { class: 'hero' }, [
+            h('div', { class: 'hero-media' }, [
+              h('video', {
+                class: 'hero-video', autoplay: true, muted: true, loop: true,
+                playsinline: true, preload: 'auto', poster: HERO_POSTER,
+              }, [
+                h('source', { src: HERO_VIDEO, type: 'video/mp4' }),
+                h('source', { src: HERO_VIDEO_FALLBACK, type: 'video/mp4' }),
+              ]),
+              h('div', { class: 'hero-mask' }),
+            ]),
+            h('div', { class: 'hero-inner' }, [
+              h('div', { class: 'hero-brand' }, [
+                h('div', { class: 'brand-mark' }, [h('x-icon', { name: 'leaf', size: 21 })]),
+                h('div', { class: 'brand-txt' }, [
+                  h('strong', {}, '碳链通 CarbonChain Hub'),
+                  h('span', {}, 'Blockchain · Carbon · Compliance'),
+                ]),
+              ]),
+              h('h1', { class: 'hero-title' }, [
+                '让每一克碳足迹，', h('br'), h('em', {}, '都有迹可循'),
+              ]),
+              h('p', { class: 'hero-sub' },
+                '基于区块链的供应链碳数据要素流通平台 —— 排放数据、核查结论、配额划转与成交清算全部上链，形成不可篡改、可公开核验的碳数据账本。'),
+              h('div', { class: 'hero-cta' }, [
+                h('button', { class: 'cta cta-primary', onClick: () => App.go('/screen') }, [
+                  h('x-icon', { name: 'globe', size: 16 }), '进入数据公示大屏',
+                ]),
+                h('button', { class: 'cta cta-ghost', onClick: () => App.go('/explorer') }, [
+                  h('x-icon', { name: 'block', size: 16 }), '查看链上存证',
+                ]),
+              ]),
+              h('div', { class: 'hero-chain' }, [
+                h('span', { class: 'chip live' }, [
+                  h('x-icon', { name: 'chain', size: 14 }),
+                  pact.value ? `链高度 ${pact.value.height} · ${App.fmt.num(pact.value.totalTxs)} 笔存证` : '节点连接中…',
+                ]),
+              ]),
             ]),
           ]),
-          h('h1', { class: 'hero-title' }, ['让每一吨碳排', h('br'), '都可被', h('em', {}, '追溯与信任')]),
-          h('p', { class: 'hero-sub' },
-            '面向全国碳排放权交易市场的企业碳足迹存证与配额交易一体化平台。排放数据、核查结论、配额划转与成交清算全部上链，形成不可篡改、可公开核验的碳数据账本。'),
 
-          h('div', { class: 'hero-points' }, [
-            h('div', { class: 'hero-point' }, [
-              h('div', { class: 'n' }, '01'),
-              h('div', {}, [
-                h('b', {}, '数据上链存证 · 一改就露馅'),
-                h('p', {}, 'SHA-256 哈希链 + Merkle 树 + secp256k1 数字签名，任何篡改都会导致全链校验失败。'),
-              ]),
+          /* ---------- Core Capabilities：Bento Grid ---------- */
+          h('section', { class: 'sec' }, [
+            h('div', { class: 'sec-head' }, [
+              h('h2', {}, '核心能力'),
+              h('p', {}, '从物理计量到跨境合规申报，端到端打通的碳数据要素基础设施。'),
             ]),
-            h('div', { class: 'hero-point' }, [
-              h('div', { class: 'n' }, '02'),
-              h('div', {}, [
-                h('b', {}, '四方协同 · 企业 / 核查 / 监管 / 公众'),
-                h('p', {}, '排放上报由企业签名，核查结论由机构签名，配额分配由监管签名，职责分离、各留痕迹。'),
+            h('div', { class: 'bento-grid' }, BENTO.map((b) => h('article', { class: ['bento-item', b.span] }, [
+              h('div', { class: 'bento-bg', style: `background-image:url("${b.img}")` }),
+              h('div', { class: 'bento-veil' }),
+              h('div', { class: 'bento-body' }, [
+                h('span', { class: 'bento-tag' }, [h('i', { class: 'dot' }), b.tag]),
+                h('h3', {}, b.title),
+                h('p', {}, b.desc),
               ]),
-            ]),
-            h('div', { class: 'hero-point' }, [
-              h('div', { class: 'n' }, '03'),
-              h('div', {}, [
-                h('b', {}, '配额交易撮合与链上清算'),
-                h('p', {}, '价格优先、时间优先连续撮合，成交即存证，账实相符、可审计。'),
-              ]),
-            ]),
+            ]))),
           ]),
 
-          h('div', { class: 'hero-chain' }, [
-            h('span', { class: 'hero-block' }, '#1542'),
-            h('span', { class: 'hero-arrow' }, '→'),
-            h('span', { class: 'hero-block' }, '#1543'),
-            h('span', { class: 'hero-arrow' }, '→'),
-            h('span', { class: 'hero-block' }, '#1544'),
-            h('span', { class: 'hero-arrow' }, '→'),
-            h('span', { class: 'hero-block' }, '#1545'),
-            h('span', {
-              class: 'chip live', style: 'margin-left:8px',
-            }, [
-              h('x-icon', { name: 'chain', size: 14 }),
-              pact.value ? `链高度 ${pact.value.height} · ${App.fmt.num(pact.value.totalTxs)} 笔存证` : '节点连接中…',
+          /* ---------- Carbon Flow：端到端碳链溯源流程轴 ---------- */
+          h('section', { class: 'sec' }, [
+            h('div', { class: 'sec-head' }, [
+              h('h2', {}, '端到端碳链溯源'),
+              h('p', {}, '一次采集、全程留痕：从物理计量到跨境合规申报的完整证据链。'),
             ]),
+            h('div', { class: 'flow-track' }, FLOW.flatMap((f, i) => {
+              const node = h('div', { class: 'flow-node' }, [
+                h('div', { class: 'flow-ico' }, [h('x-icon', { name: f.icon, size: 18 })]),
+                h('div', { class: 'flow-txt' }, f.t),
+              ]);
+              return i < FLOW.length - 1 ? [node, h('i', { class: 'flow-link' })] : [node];
+            })),
           ]),
         ]),
 
