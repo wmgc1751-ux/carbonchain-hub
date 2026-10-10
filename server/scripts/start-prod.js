@@ -96,22 +96,33 @@ async function main() {
   console.log('  碳链通 CarbonChain Hub —— 启动自检');
   console.log(`  运行模式：${config.isCloud ? '云平台' : (config.isProd ? '生产' : '开发')}`);
 
-  const latest = await schemaIsLatest();
-  if (latest) {
-    console.log('✔ 数据库结构已是最新版，跳过初始化（冷启动快速通道）');
-  } else {
-    const okInit = runInitDb();
-    if (okInit) {
-      console.log('✔ 数据库初始化完成');
-    } else {
-      console.error('⚠ 数据库初始化未成功完成。服务仍将启动，但部分功能可能不可用；');
-      console.error('   请检查上方日志中的具体报错（常见原因：数据库连接失败 / 建表权限不足）。');
-    }
-  }
-
+  /* ── 端口优先级最高 ──
+     app.bootstrap() 内部会先 app.listen() 再后台预热；这里同样把数据库结构自检
+     挪到 listen 之后异步执行。原因：云平台（Render 等）的健康检查依赖端口尽早
+     可用，若在端口之前同步连远程库（跨区可能数分钟），新实例会被判定「启动过慢」，
+     结果是部署显示成功、流量却不切换（线上仍是上一版代码）。 */
   console.log('▶ 正在启动 HTTP 服务…');
   const app = require('../app');
   app.bootstrap();
+
+  setImmediate(async () => {
+    try {
+      const latest = await schemaIsLatest();
+      if (latest) {
+        console.log('✔ 数据库结构已是最新版，跳过初始化（端口已就绪，初始化不阻塞访问）');
+        return;
+      }
+      console.log('▶ 检测到数据库结构落后，开始初始化（后台执行，不阻塞端口）…');
+      const okInit = runInitDb();
+      if (okInit) console.log('✔ 数据库初始化完成');
+      else {
+        console.error('⚠ 数据库初始化未成功完成。服务仍将运行，但部分功能可能不可用；');
+        console.error('   请检查上方日志中的具体报错（常见原因：数据库连接失败 / 建表权限不足）。');
+      }
+    } catch (e) {
+      console.error('⚠ 数据库自检异常（不影响服务）：', e && e.message ? e.message : e);
+    }
+  });
 }
 
 if (require.main === module) {

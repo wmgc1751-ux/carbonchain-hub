@@ -130,6 +130,31 @@ function assertSecureConfig() {
 
 async function bootstrap() {
   assertSecureConfig();
+
+  /* ── 启动顺序很关键：先把 HTTP 端口监听起来 ──
+     数据库 / 联盟链 / 动态核算的初始化全部放进 warmup()，在 listen 之后异步执行。
+     原因：云平台（Render 等）的健康检查依赖端口尽早可用；若在这里同步 await 远程
+     数据库（跨区连接可能耗时数分钟），新实例会被判定「启动过慢」，结果是部署虽然
+     显示成功、流量却没有切到新实例 —— 表现为线上仍是上一版代码。 */
+  app.listen(config.port, config.host, () => {
+    console.log('─'.repeat(64));
+    console.log('  碳链通 CarbonChain Hub 已启动');
+    console.log(`  访问地址: http://localhost:${config.port}`);
+    console.log(`  API 前缀: http://localhost:${config.port}/api`);
+    console.log(`  运行模式: ${config.isCloud ? '云平台' : (config.isProd ? '生产' : '开发')}` +
+      ` · 演示账号接口${config.demoAccounts ? '开放' : '关闭'}` +
+      ` · 跨域${CORS_ORIGINS.length ? `白名单(${CORS_ORIGINS.length})` : (config.isProd ? '仅同源' : '宽松')}`);
+    console.log('─'.repeat(64));
+  });
+
+  /* 后台预热：幂等、失败仅告警，绝不阻塞端口可用性 */
+  warmup().catch((e) => {
+    console.error('⚠ 后台初始化异常（服务继续运行）：', e && e.message ? e.message : e);
+  });
+}
+
+/** 链 / 联盟链 / 动态核算的幂等预热 —— 在 HTTP 已监听之后异步执行 */
+async function warmup() {
   try {
     const chain = await getChain();
     const stats = await chain.stats();
@@ -160,16 +185,6 @@ async function bootstrap() {
     console.error('⚠ 区块链初始化失败（数据库未初始化？请先执行 npm run initdb）：', e.message);
   }
 
-  app.listen(config.port, config.host, () => {
-    console.log('─'.repeat(64));
-    console.log('  碳链通 CarbonChain Hub 已启动');
-    console.log(`  访问地址: http://localhost:${config.port}`);
-    console.log(`  API 前缀: http://localhost:${config.port}/api`);
-    console.log(`  运行模式: ${config.isCloud ? '云平台' : (config.isProd ? '生产' : '开发')}` +
-      ` · 演示账号接口${config.demoAccounts ? '开放' : '关闭'}` +
-      ` · 跨域${CORS_ORIGINS.length ? `白名单(${CORS_ORIGINS.length})` : (config.isProd ? '仅同源' : '宽松')}`);
-    console.log('─'.repeat(64));
-  });
 }
 
 if (require.main === module) bootstrap();
