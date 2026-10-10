@@ -6,7 +6,8 @@
   "main": "server/app.js",
   "scripts": {
     "initdb": "node server/scripts/init-db.js",
-    "start": "node server/app.js",
+    "start": "node server/scripts/start-prod.js",
+    "start:app": "node server/app.js",
     "dev": "node server/app.js",
     "export-sql": "node server/scripts/export-sql.js"
   },

@@ -175,3 +175,5 @@ async function bootstrap() {
 if (require.main === module) bootstrap();
 
 module.exports = app;
+/* 供自定义启动器（server/scripts/start-prod.js）在完成数据库自检后调用 */
+module.exports.bootstrap = bootstrap;

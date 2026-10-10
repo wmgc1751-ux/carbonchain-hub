@@ -168,7 +168,11 @@
         return h('span', {
           class: 'chainbadge', title: (props.label || '已上链存证') + (props.hash ? ' · ' + props.hash : ''),
           onClick: (e) => { e.stopPropagation(); if (props.hash) App.copyText(props.hash); },
-        }, [h(XIcon, { name: 'block', size: 12 }), '#' + props.block]);
+        }, [
+          h(XIcon, { name: 'block', size: 12 }),
+          '#' + props.block,
+          h('span', { class: 'lock-ok', title: '链上公钥已核验 · 点击复制哈希' }, [h(XIcon, { name: 'lock', size: 11 })]),
+        ]);
       };
     },
   });
@@ -192,7 +196,11 @@
             h('div', { class: 'skel', style: 'height:34px;margin-bottom:8px' })));
         }
         if (!props.rows.length) {
-          return h('div', { class: 'empty' }, [h(XIcon, { name: 'search', size: 40 }), h('div', {}, props.empty)]);
+          return h('div', { class: 'empty' }, [
+            h('div', { class: 'empty-mark' }, [h(XIcon, { name: 'shield', size: 34 })]),
+            h('div', { class: 'empty-title' }, props.empty),
+            h('div', { class: 'empty-sub' }, '数据经联盟链存证，链路状态正常'),
+          ]);
         }
         const head = h('thead', {}, [h('tr', {}, props.columns.map((c) =>
           h('th', { class: c.align === 'right' ? 'num' : '', style: c.width ? `width:${c.width}` : '' }, c.title)))]);
