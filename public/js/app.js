@@ -337,7 +337,7 @@
           ? h('div', {}, [
             h('div', { class: 'topbar', style: 'position:sticky' }, [
               h('div', { class: 'flex gap-10', style: 'cursor:pointer', onClick: () => App.go('/screen') }, [
-                h('div', { class: 'brand-mark', style: 'width:30px;height:30px;flex:0 0 30px;border-radius:9px' }, [h('x-icon', { name: 'leaf', size: 17 })]),
+                h('div', { class: 'brand-logo', style: 'width:44px;height:24px' }, [h('img', { src: './img/logo-mark.png', alt: '碳链通 CarbonChain Hub' })]),
                 h('b', { style: 'color:var(--tx-0);font-size:14.5px' }, '碳链通'),
               ]),
               h('div', { class: 'flex gap-6', style: 'margin-left:18px' }, [
@@ -362,7 +362,7 @@
           : h('div', { class: 'shell' }, [
             h('aside', { class: 'sidebar' }, [
               h('div', { class: 'brand' }, [
-                h('div', { class: 'brand-mark' }, [h('x-icon', { name: 'leaf', size: 21 })]),
+                h('div', { class: 'brand-logo' }, [h('img', { src: './img/logo-mark.png', alt: '碳链通 CarbonChain Hub' })]),
                 h('div', { class: 'brand-txt' }, [h('strong', {}, '碳链通'), h('span', {}, 'CarbonChain Hub')]),
               ]),
               h('nav', { class: 'nav' }, menus.value.map((g) => h('div', {}, [

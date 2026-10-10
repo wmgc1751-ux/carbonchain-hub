@@ -122,7 +122,7 @@
             ]),
             h('div', { class: 'hero-inner' }, [
               h('div', { class: 'hero-brand' }, [
-                h('div', { class: 'brand-mark' }, [h('x-icon', { name: 'leaf', size: 21 })]),
+                h('div', { class: 'brand-logo' }, [h('img', { src: './img/logo-mark.png', alt: '碳链通 CarbonChain Hub' })]),
                 h('div', { class: 'brand-txt' }, [
                   h('strong', {}, '碳链通 CarbonChain Hub'),
                   h('span', {}, 'Blockchain · Carbon · Compliance'),
