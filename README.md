@@ -463,6 +463,7 @@ node scripts/record-tour.js    # 自动录制演示视频（需 ffmpeg，可选�
 2. ✅ 排放数据接入 **CEMS 在线监测准实时采数 + 滚动核算 + 动态配额缺口预警**（`dynamic`）—— "动态核算"名副其实；
 3. ✅ 碳资产由单一"配额"扩展为 **配额 + 碳信用（CCER / 林业碳汇 / 绿证）** 两类，并支持碳信用抵销履约（`credit`）—— "碳资产"名副其实；
 4. ✅ 撮合引擎已接入 `db.tx()` 事务 + `SELECT ... FOR UPDATE` 行锁，消除并发超卖；并加登录限流、CORS 白名单、scrypt 口令摘要、私钥库 AES-256-GCM 加密、生产环境强校验关键密钥。
+5. ✅ **线上安全默认已收紧**：演示账号接口在「生产 / 托管云平台」下**默认关闭**（仅显式 `DEMO_ACCOUNTS=true` 才开放）；生产环境未配置跨域白名单时**不再下发任何跨域放行头**（旧实现回显任意 `Origin`，配合 `Access-Control-Allow-Credentials: true`，等于允许任意第三方站点携带用户凭据读取接口）。同时新增**云平台探测**（`RENDER` / `DYNO` / `FLY_APP_NAME` / `VERCEL` / `RAILWAY_ENVIRONMENT` / `K_SERVICE`），**即便漏设 `NODE_ENV=production`，线上也不会裸奔** —— 详见 [docs/线上更新指引.md](docs/线上更新指引.md)。
 
 **仍待完善（诚实的边界）：**
 1. 各成员节点的链副本仍与业务库同实例，未实现**跨机器 P2P 广播**与网络分区容错（分区下无最终一致性保证）；
