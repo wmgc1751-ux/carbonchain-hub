@@ -102,7 +102,7 @@
         h('div', { class: 'glow' }),
         h('div', { class: 'flex between' }, [
           h('div', { class: 'lbl' }, props.label),
-          props.icon && h('div', { class: 'ico', style: 'color:var(--tx-2)' }, [h(XIcon, { name: props.icon, size: 16 })]),
+          props.icon && h('div', { class: 'ico' }, [h(XIcon, { name: props.icon, size: 16 })]),
         ]),
         h('div', { class: 'val' }, [
           props.value === null || props.value === undefined ? '-' : props.value,
@@ -190,6 +190,10 @@
       selectedKey: [String, Number],
     },
     setup(props, { slots }) {
+      /** 只有在调用方真的传入 selectedKey 时才判定行选中；
+       *  否则 undefined === undefined 会把整张表都标成选中（历史缺陷）。 */
+      const hasSel = () => props.selectedKey !== undefined && props.selectedKey !== null && props.selectedKey !== '';
+      const isSelected = (row) => hasSel() && String(props.selectedKey) === String(row[props.rowKey]);
       return () => {
         if (props.loading && !props.rows.length) {
           return h('div', { class: 'card-body' }, Array.from({ length: 6 }).map((_, i) =>
@@ -206,7 +210,7 @@
           h('th', { class: c.align === 'right' ? 'num' : '', style: c.width ? `width:${c.width}` : '' }, c.title)))]);
 
         const body = h('tbody', {}, props.rows.map((row, ri) => h('tr', {
-          class: ['', props.rowClick && 'clickable', String(props.selectedKey) === String(row[props.rowKey]) && 'sel'],
+          class: ['', props.rowClick && 'clickable', isSelected(row) && 'sel'],
           onClick: props.rowClick ? () => props.rowClick(row, ri) : undefined,
         }, props.columns.map((c) => {
           const slot = slots['col-' + c.key];
