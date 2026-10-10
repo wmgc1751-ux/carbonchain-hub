@@ -133,7 +133,7 @@
         return h('div', { class: 'screen' }, [
           /* 头部 */
           h('div', { class: 'screen-head' }, [
-            h('div', { class: 'brand-mark' }, [h('x-icon', { name: 'leaf', size: 21 })]),
+            h('div', { class: 'brand-logo', style: 'width:56px;height:29px' }, [h('img', { src: './img/logo-mark.png', alt: '碳链通 CarbonChain Hub' })]),
             h('div', {}, [
               h('h1', {}, '碳链通 · 全国碳排放数据公示大屏'),
               h('div', { class: 'sub' }, '数据来源：企业自主申报 + 第三方核查机构核证 + 区块链存证 · 面向社会公众开放查询'),
