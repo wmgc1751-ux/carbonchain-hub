@@ -1,0 +1,22 @@
+{
+  "name": "carbonchain-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "碳链通 CarbonChain Hub —— 企业碳足迹存证与碳配额交易平台（区块链 + 前后端分离 + 多角色）",
+  "main": "server/app.js",
+  "scripts": {
+    "initdb": "node server/scripts/init-db.js",
+    "start": "node server/app.js",
+    "dev": "node server/app.js",
+    "export-sql": "node server/scripts/export-sql.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "echarts": "^5.5.1",
+    "express": "^4.19.2",
+    "mysql2": "^3.11.0",
+    "vue": "^3.4.38"
+  }
+}
