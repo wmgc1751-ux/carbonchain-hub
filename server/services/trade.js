@@ -48,23 +48,28 @@ async function placeOrder(p) {
 
   const quota = await ensureQuota(p.entId, year);
 
-  if (side === 'SELL' && Number(quota.available) < amount) {
-    throw new Error(`可用配额不足：当前可用 ${Number(quota.available).toFixed(2)} 吨，本次委托 ${amount} 吨`);
-  }
-
   const orderNo = cu.bizNo('OD');
-  const [ins] = await db.pool.query(
-    `INSERT INTO trade_order (order_no, ent_id, side, price, amount, filled_amount, status)
-     VALUES (?,?,?,?,?,0,'OPEN')`,
-    [orderNo, p.entId, side, price, amount]
-  );
-  const orderId = ins.insertId;
-
-  // 卖出方冻结配额
-  if (side === 'SELL') {
-    await db.query('UPDATE carbon_quota SET available = available - ?, frozen = frozen + ? WHERE id = ?',
-      [amount, amount, quota.id]);
-  }
+  // 下单 + 冻结配额在同一事务内完成；冻结用「行锁 + 条件更新」原子执行，杜绝并发超卖
+  const orderId = await db.tx(async (conn) => {
+    const [lock] = await conn.query('SELECT available FROM carbon_quota WHERE id = ? FOR UPDATE', [quota.id]);
+    const avail = Number(lock[0].available);
+    if (side === 'SELL' && avail < amount) {
+      throw new Error(`可用配额不足：当前可用 ${avail.toFixed(2)} 吨，本次委托 ${amount} 吨`);
+    }
+    const [ins] = await conn.query(
+      `INSERT INTO trade_order (order_no, ent_id, side, price, amount, filled_amount, status)
+       VALUES (?,?,?,?,?,0,'OPEN')`,
+      [orderNo, p.entId, side, price, amount]
+    );
+    if (side === 'SELL') {
+      const [r] = await conn.query(
+        'UPDATE carbon_quota SET available = available - ?, frozen = frozen + ? WHERE id = ? AND available >= ?',
+        [amount, amount, quota.id, amount]
+      );
+      if (!r.affectedRows) throw new Error('可用配额不足（并发下单，事务已回滚）');
+    }
+    return ins.insertId;
+  });
 
   const result = await match({ id: orderId, ent_id: p.entId, side, price, amount, filled_amount: 0, order_no: orderNo }, year);
   return { orderId, orderNo, deals: result.deals, order: await db.one('SELECT * FROM trade_order WHERE id = ?', [orderId]) };
@@ -118,27 +123,30 @@ async function match(order, year) {
     );
     const dealId = dealIns.insertId;
 
-    // 更新两张委托单
+    // 更新两张委托单（原子自增，避免并发下的"读-改-写"丢失更新）
     for (const [oid, done] of [[latest.id, qty], [opposite.id, qty]]) {
-      const o = await db.one('SELECT amount, filled_amount FROM trade_order WHERE id = ?', [oid]);
-      const filled = Number(o.filled_amount) + done;
       await db.query(
-        "UPDATE trade_order SET filled_amount = ?, status = ? WHERE id = ?",
-        [filled, filled >= Number(o.amount) ? 'FILLED' : 'PARTIAL', oid]
+        `UPDATE trade_order
+           SET filled_amount = filled_amount + ?,
+               status = IF(filled_amount + ? >= amount, 'FILLED', 'PARTIAL')
+         WHERE id = ?`,
+        [done, done, oid]
       );
     }
 
-    // 划转配额：卖方解冻并计入卖出，买方计入买入
+    // 配额划转：卖方解冻并记卖出、买方记买入并增加可用（同一事务，保证账实一致）
     const sq = await ensureQuota(sellerId, year);
     const bq = await ensureQuota(buyerId, year);
-    await db.query(
-      'UPDATE carbon_quota SET frozen = GREATEST(frozen - ?, 0), sold = sold + ? WHERE id = ?',
-      [qty, qty, sq.id]
-    );
-    await db.query(
-      'UPDATE carbon_quota SET bought = bought + ?, available = available + ? WHERE id = ?',
-      [qty, qty, bq.id]
-    );
+    await db.tx(async (conn) => {
+      await conn.query(
+        'UPDATE carbon_quota SET frozen = GREATEST(frozen - ?, 0), sold = sold + ? WHERE id = ?',
+        [qty, qty, sq.id]
+      );
+      await conn.query(
+        'UPDATE carbon_quota SET bought = bought + ?, available = available + ? WHERE id = ?',
+        [qty, qty, bq.id]
+      );
+    });
 
     // 上链存证（成交即存证，链上时间戳即为清算时点）
     const seller = await db.one('SELECT ent_name, wallet_address FROM enterprise WHERE id = ?', [sellerId]);

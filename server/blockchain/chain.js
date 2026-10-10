@@ -1,25 +1,29 @@
 /**
- * chain.js —— 轻量级联盟链内核
+ * chain.js —— 联盟链内核（PoA 授权证明）
  * ------------------------------------------------------------------
- * 本文件实现了一条可直接运行、可被真实业务调用的区块链，包含：
+ * 本文件实现了一条可直接运行、可被真实业务调用的**联盟链**内核，包含：
  *
- *   · 哈希链结构      block.hash = SHA256(index|timestamp|merkleRoot|prevHash|difficulty|nonce)
- *   · 工作量证明 PoW  出块需找出满足 difficulty 个前导零的 nonce
+ *   · 哈希链结构      block.hash = SHA256(index|timestamp|merkleRoot|prevHash|consensus|proposer|nonce)
+ *   · PoA 授权出块    仅"联盟授权节点"具备出块权，按权重轮值出块，无需挖矿
+ *   · 出块签名        出块节点对区块头做 ECDSA(secp256k1) 签名，任何节点可验签
+ *   · 成员准入        出块权来自 chain_node 白名单（PENDING/ACTIVE/REVOKED）
  *   · Merkle 树       区块内所有交易摘要收敛为一个根
  *   · 交易池          业务动作先入池，打包后落块
  *   · ECDSA 存证签名  每笔交易由发起方私钥签名，节点可验签
- *   · 链完整性校验    逐块重算哈希 + 校验前向引用 + 校验 PoW + 校验 Merkle 根
- *   · 篡改演示        模拟恶意节点直改数据库，校验立刻报警；修复需重做整条后缀的 PoW
+ *   · 链完整性校验    逐块重算哈希 + 校验前向引用 + 校验出块签名 + 校验 Merkle 根
+ *   · 双共识兼容      历史 PoW 块仍按工作量证明校验（向后兼容，便于迁移）
  *
- * 设计上刻意与业务库共库（同一 MySQL 实例、独立表），
- * 目的是让"链上数据"与"链下数据"形成可对照的对照关系：
- * 链下随意改、链上一改就崩，这正是区块链在碳数据场景的价值所在。
+ * 为什么是"联盟链"而不是公有链：
+ *   参与方是**许可制**的成员机构（监管 / 核查 / 企业 / 审计），各自运行一个节点、
+ *   各自持有一份全量链副本；出块权由联盟授予，共识采用 PoA（授权证明）而非挖矿。
+ *   这样即使某一方的数据库被完全攻陷，其它节点仍能凭各自副本发现并拒绝被篡改的链。
  *
  * @module blockchain/chain
  */
 'use strict';
 
 const cu = require('./crypto-utils');
+const keystore = require('./keystore');
 
 /** 创世区块固定前向哈希 */
 const GENESIS_PREV_HASH = cu.ZERO.repeat(64);
@@ -27,17 +31,19 @@ const GENESIS_PREV_HASH = cu.ZERO.repeat(64);
 class Blockchain {
   /**
    * @param {object} db  MySQL 连接池
-   * @param {object} opts { difficulty, autoMine, batchSize, nodeName }
+   * @param {object} opts { consensusMode, difficulty, autoMine, batchSize, nodeName }
+   *   consensusMode: 'POA'（默认，联盟链授权出块）/ 'POW'（历史兼容）
    */
   constructor(db, opts = {}) {
     this.db = db;
-    this.difficulty = opts.difficulty || 4;
+    this.consensusMode = String(opts.consensusMode || process.env.CHAIN_CONSENSUS || 'POA').toUpperCase();
+    this.difficulty = opts.difficulty || 4;   // 仅 POW 模式使用
     this.autoMine = opts.autoMine !== false;
     this.batchSize = opts.batchSize || 1;
     this.nodeName = opts.nodeName || 'node-carbon-01';
     this.blocks = [];       // 内存链（已确认）
     this.pool = [];         // 交易池（待打包）
-    this.mining = false;    // 出块锁，防止并发挖矿
+    this.mining = false;    // 出块锁，防止并发出块
     this.ready = false;
   }
 
@@ -109,6 +115,9 @@ class Blockchain {
       merkleRoot: r.merkle_root,
       nonce: Number(r.nonce),
       difficulty: Number(r.difficulty),
+      consensus: r.consensus || 'POW',
+      proposer: r.proposer || null,
+      proposerSig: r.proposer_sig || null,
       txCount: Number(r.tx_count),
       miner: r.miner,
       sizeBytes: Number(r.size_bytes),
@@ -142,12 +151,33 @@ class Blockchain {
    * 区块哈希与 PoW
    * ================================================================ */
 
-  /** 计算区块头哈希 */
+  /**
+   * 计算区块头哈希（按共识类型分派，保证历史 PoW 块与新区块都可复现）
+   *   · PoA：SHA256(index|timestamp|merkleRoot|prevHash|consensus|proposer|nonce)
+   *   · PoW：SHA256(index|timestamp|merkleRoot|prevHash|difficulty|nonce)
+   */
   static calcHash(b) {
-    const raw = [
+    const consensus = String(b.consensus || 'POW').toUpperCase();
+    if (consensus === 'POA') {
+      return cu.sha256([
+        b.index, b.timestamp, b.merkleRoot, b.prevHash, 'POA', b.proposer || '', b.nonce,
+      ].join('|'));
+    }
+    return cu.sha256([
       b.index, b.timestamp, b.merkleRoot, b.prevHash, b.difficulty, b.nonce,
-    ].join('|');
-    return cu.sha256(raw);
+    ].join('|'));
+  }
+
+  /**
+   * 出块签名的待签内容（区块头规范化序列化）。
+   * 出块节点用自己的私钥对它签名，任何节点都能用其公钥验签，
+   * 从而证明"这个块确实是本轮被授权的节点出的"，且区块头未被改动。
+   */
+  static signingPayload(b) {
+    return cu.stableStringify({
+      index: b.index, timestamp: b.timestamp, merkleRoot: b.merkleRoot,
+      prevHash: b.prevHash, consensus: 'POA', proposer: b.proposer || '', nonce: b.nonce,
+    });
   }
 
   /**
@@ -346,40 +376,23 @@ class Blockchain {
         ? new Date(opts.timestamp).getTime()
         : (genesis ? Date.now() - 1000 * 60 * 60 * 24 : Date.now());
       const timestamp = Math.floor(rawMs / 1000);
-      const txHashes = txs.map((t) => t.txId);
-      const root = cu.merkleRoot(txHashes);
+      const root = cu.merkleRoot(txs.map((t) => t.txId));
+      const prevHash = prev ? prev.hash : GENESIS_PREV_HASH;
 
-      const header = {
-        index,
-        timestamp,
-        merkleRoot: root,
-        prevHash: prev ? prev.hash : GENESIS_PREV_HASH,
-        difficulty: this.difficulty,
-        nonce: 0,
-      };
-      const pow = Blockchain.proofOfWork(header);
-      const block = {
-        index,
-        timestamp,
-        merkleRoot: root,
-        prevHash: header.prevHash,
-        difficulty: this.difficulty,
-        nonce: pow.nonce,
-        hash: pow.hash,
-        txCount: txs.length,
-        miner: opts.miner || this.nodeName,
-        mineTime: pow.elapsed,
-        sizeBytes: Buffer.byteLength(JSON.stringify({ header, txs: txHashes })),
-      };
+      // 按共识类型出块：联盟链默认 PoA（授权节点轮值 + 签名），POW 为历史兼容路径
+      const block = this.consensusMode === 'POA'
+        ? await this._buildPoaBlock({ index, timestamp, root, prevHash, txs, genesis, opts })
+        : this._buildPowBlock({ index, timestamp, root, prevHash, txs, genesis, opts });
 
       await this.db.query(
         `INSERT INTO chain_block
-          (block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, tx_count,
-           miner, size_bytes, mine_time, block_time, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+          (block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, consensus,
+           proposer, proposer_sig, tx_count, miner, size_bytes, mine_time, block_time, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
         [
           block.index, block.hash, block.prevHash, block.merkleRoot, block.nonce,
-          block.difficulty, block.txCount, block.miner, block.sizeBytes, block.mineTime,
+          block.difficulty, block.consensus, block.proposer, block.proposerSig,
+          block.txCount, block.miner, block.sizeBytes, block.mineTime,
           // 传字符串而不是 Date 对象：驱动不再做任何本地时区换算，
           // 配合会话 time_zone='+00:00'，写入值与读出秒数在 MySQL / TiDB 上完全一致。
           Blockchain.utcDateString(block.timestamp),
@@ -396,11 +409,85 @@ class Blockchain {
         txs.forEach((t) => { t.blockIndex = block.index; t.status = 'CONFIRMED'; });
       }
 
+      // 联盟链：登记本轮出块节点的统计（出块数 + 最近出块时间）
+      if (block.consensus === 'POA' && block.proposer) {
+        try {
+          await this.db.query(
+            `UPDATE chain_node SET proposed_blocks = proposed_blocks + 1, last_propose_at = NOW()
+             WHERE node_id = ?`,
+            [block.proposer]
+          );
+        } catch (e) { /* 节点表不可用时忽略统计 */ }
+      }
+
       this.blocks.push(block);
       return block;
     } finally {
       this.mining = false;
     }
+  }
+
+  /**
+   * 构造 PoA 区块：由本轮被授权的联盟节点出块，并对区块头签名。
+   * 无挖矿，出块耗时接近 0 —— 这正是联盟链相对公有链的性能优势。
+   */
+  async _buildPoaBlock({ index, timestamp, root, prevHash, txs, genesis, opts }) {
+    const proposer = await this.pickProposer(index, opts.proposer);
+    const header = {
+      index, timestamp, merkleRoot: root, prevHash,
+      consensus: 'POA', proposer: proposer.nodeId, nonce: 0,
+    };
+    const hash = Blockchain.calcHash(header);
+    const proposerSig = cu.sign(proposer.privateKey, Blockchain.signingPayload(header));
+    return {
+      index, timestamp, merkleRoot: root, prevHash,
+      consensus: 'POA', proposer: proposer.nodeId, nonce: 0, difficulty: 0,
+      hash, proposerSig,
+      txCount: txs.length, miner: proposer.nodeId, mineTime: 0,
+      sizeBytes: Buffer.byteLength(JSON.stringify({ header, txs: txs.map((t) => t.txId) })),
+    };
+  }
+
+  /** 构造 PoW 区块（历史兼容路径，保留以便旧链校验与迁移） */
+  _buildPowBlock({ index, timestamp, root, prevHash, txs, genesis, opts }) {
+    const header = { index, timestamp, merkleRoot: root, prevHash, difficulty: this.difficulty, nonce: 0 };
+    const pow = Blockchain.proofOfWork(header);
+    return {
+      index, timestamp, merkleRoot: root, prevHash,
+      consensus: 'POW', proposer: opts.miner || this.nodeName, nonce: pow.nonce,
+      difficulty: this.difficulty, hash: pow.hash, proposerSig: null,
+      txCount: txs.length, miner: opts.miner || this.nodeName, mineTime: pow.elapsed,
+      sizeBytes: Buffer.byteLength(JSON.stringify({ header, txs: txs.map((t) => t.txId) })),
+    };
+  }
+
+  /**
+   * 选出本轮出块节点（PoA）：从 chain_node 白名单里取"状态 ACTIVE 且具备出块权"的节点，
+   * 按 vote_weight 展开成轮值序列后取 index % seq.length —— 权重越高、出块机会越多。
+   * 若链上尚未登记任何授权节点，退化为本节点单节点联盟（保证系统可启动）。
+   */
+  async pickProposer(index, forced) {
+    if (forced) return this._nodeWallet(forced);
+    try {
+      const [rows] = await this.db.query(
+        "SELECT node_id, vote_weight FROM chain_node WHERE status = 'ACTIVE' AND is_authorized = 1 ORDER BY id"
+      );
+      if (rows.length) {
+        const seq = [];
+        rows.forEach((r) => {
+          const w = Math.max(1, Number(r.vote_weight) || 1);
+          for (let i = 0; i < w; i++) seq.push(r.node_id);
+        });
+        return this._nodeWallet(seq[index % seq.length]);
+      }
+    } catch (e) { /* chain_node 表不存在时退化为单节点 */ }
+    return this._nodeWallet(this.nodeName);
+  }
+
+  /** 取某节点的钱包（确定性派生，label 形如 node:xxx），用于出块签名 */
+  _nodeWallet(nodeId) {
+    const w = keystore.walletFor(`node:${nodeId}`);
+    return { nodeId, address: w.address, publicKey: w.publicKey, privateKey: w.privateKey };
   }
 
   /* ================================================================
@@ -421,6 +508,17 @@ class Blockchain {
     const errors = [];
     let checked = 0;
 
+    // 联盟链：加载授权节点公钥与状态，用于验证 PoA 出块签名与出块资格
+    const nodePubKey = new Map();
+    const nodeStatus = new Map();
+    try {
+      const [nodes] = await this.db.query('SELECT node_id, public_key, status, is_authorized FROM chain_node');
+      nodes.forEach((n) => {
+        nodePubKey.set(n.node_id, n.public_key);
+        nodeStatus.set(n.node_id, { status: n.status, auth: Number(n.is_authorized) });
+      });
+    } catch (e) { /* 无节点表时退化为仅验哈希链 */ }
+
     /* 一次性把所有区块的交易取回来，按 block_index 分组，避免"每块一次查询"。
      * 原实现是 for 循环里逐块 SELECT，本地 MySQL 上无所谓（<1 ms），
      * 但部署到云端后数据库与 Web 服务跨地域，155 块 = 155 次网络往返，
@@ -439,6 +537,7 @@ class Blockchain {
 
     for (let i = 0; i < blocks.length; i++) {
       const raw = blocks[i];
+      const consensus = String(raw.consensus || 'POW').toUpperCase();
       const b = {
         index: Number(raw.block_index),
         timestamp: Number(raw.ts),
@@ -446,6 +545,8 @@ class Blockchain {
         prevHash: raw.prev_hash,
         difficulty: Number(raw.difficulty),
         nonce: Number(raw.nonce),
+        consensus,
+        proposer: raw.proposer || null,
         hash: raw.block_hash,
       };
       checked++;
@@ -459,8 +560,26 @@ class Blockchain {
         });
       }
 
-      // (2) PoW 难度
-      if (!String(b.hash).startsWith(cu.ZERO.repeat(b.difficulty))) {
+      // (2) 共识校验：PoA 验出块签名与授权资格；PoW 校验前导零
+      if (consensus === 'POA') {
+        const local = keystore.all()[`node:${b.proposer}`];
+        const pub = nodePubKey.get(b.proposer) || (local ? local.publicKey : null);
+        const sigValid = !!(raw.proposer_sig && pub
+          && cu.verify(pub, Blockchain.signingPayload(b), raw.proposer_sig));
+        if (!sigValid) {
+          errors.push({
+            index: b.index, type: 'POA_SIGNATURE_INVALID',
+            message: `区块 #${b.index} 的 PoA 出块签名无效（出块节点 ${b.proposer} 签名校验失败）`,
+          });
+        }
+        const st = nodeStatus.get(b.proposer);
+        if (st && (st.status !== 'ACTIVE' || !st.auth)) {
+          errors.push({
+            index: b.index, type: 'PROPOSER_UNAUTHORIZED',
+            message: `区块 #${b.index} 由未获授权的节点 ${b.proposer} 出块（当前状态 ${st.status}）`,
+          });
+        }
+      } else if (!String(b.hash).startsWith(cu.ZERO.repeat(b.difficulty))) {
         errors.push({
           index: b.index, type: 'POW_INVALID',
           message: `区块 #${b.index} 不满足难度 ${b.difficulty} 的工作量证明`,
@@ -577,22 +696,41 @@ class Blockchain {
     for (const raw of rows) {
       const txRows = txByBlock.get(Number(raw.block_index)) || [];
       const merkle = cu.merkleRoot(txRows);
+      const consensus = String(raw.consensus || 'POW').toUpperCase();
+      const proposer = raw.proposer || raw.miner || this.nodeName;
       const header = {
         index: Number(raw.block_index),
         timestamp: Number(raw.ts),
         merkleRoot: merkle,
         prevHash: prevHash || raw.prev_hash,
-        difficulty: Number(raw.difficulty),
-        nonce: 0,
+        difficulty: Number(raw.difficulty) || this.difficulty,
+        nonce: Number(raw.nonce) || 0,
+        consensus,
+        proposer,
       };
-      const pow = Blockchain.proofOfWork(header);
+      let newHash;
+      let sig = raw.proposer_sig || null;
+      let cost = 0;
+      if (consensus === 'POA') {
+        // 联盟链：修复 = 用该块出块节点的私钥重新签名（无挖矿成本，因此"篡改收益"依赖准入治理而非算力）
+        newHash = Blockchain.calcHash(header);
+        const w = keystore.walletFor(`node:${proposer}`);
+        sig = cu.sign(w.privateKey, Blockchain.signingPayload(header));
+        header.nonce = 0;
+      } else {
+        const pow = Blockchain.proofOfWork({ ...header, nonce: 0 });
+        newHash = pow.hash;
+        header.nonce = pow.nonce;
+        sig = null;
+        cost = pow.elapsed;
+      }
       await this.db.query(
-        `UPDATE chain_block SET block_hash=?, prev_hash=?, merkle_root=?, nonce=?, mine_time=?
+        `UPDATE chain_block SET block_hash=?, prev_hash=?, merkle_root=?, nonce=?, proposer_sig=?, mine_time=?
          WHERE block_index = ?`,
-        [pow.hash, header.prevHash, merkle, pow.nonce, pow.elapsed, raw.block_index]
+        [newHash, header.prevHash, merkle, header.nonce, sig, cost, raw.block_index]
       );
-      repaired.push({ index: header.index, newHash: pow.hash, cost: pow.elapsed });
-      prevHash = pow.hash;
+      repaired.push({ index: header.index, newHash, cost });
+      prevHash = newHash;
     }
     await this.init();
     const validation = await this.validateChain();
@@ -622,6 +760,14 @@ class Blockchain {
        FROM chain_block GROUP BY hour ORDER BY hour DESC LIMIT 24`
     );
     const tip = this.blocks[this.blocks.length - 1] || null;
+    let activeNodes = 0;
+    let poaBlocks = 0;
+    try {
+      const [[nc]] = await this.db.query("SELECT COUNT(*) AS c FROM chain_node WHERE status = 'ACTIVE'");
+      activeNodes = Number(nc.c) || 0;
+      const [[pb]] = await this.db.query("SELECT COUNT(*) AS c FROM chain_block WHERE consensus = 'POA'");
+      poaBlocks = Number(pb.c) || 0;
+    } catch (e) { /* 非联盟表结构时忽略 */ }
     return {
       height: tip ? tip.index : -1,
       tipHash: tip ? tip.hash : null,
@@ -635,7 +781,12 @@ class Blockchain {
       txByType: byType,
       blockRate: recent.reverse(),
       node: this.nodeName,
-      consensus: 'PoW（工作量证明）+ 最长链原则',
+      consensus: this.consensusMode === 'POA'
+        ? 'PoA（权威证明）+ 联盟节点轮值出块'
+        : 'PoW（工作量证明）+ 最长链原则',
+      consensusMode: this.consensusMode,
+      activeNodes,
+      poaBlocks,
       crypto: 'SHA-256 / secp256k1-ECDSA / Merkle Tree',
     };
   }

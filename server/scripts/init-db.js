@@ -2,10 +2,11 @@
  * init-db.js —— 一键初始化数据库
  * ------------------------------------------------------------------
  * 执行内容：
- *   1. 建库建表（读取 db/01_schema.sql）
- *   2. 生成 16 张表的仿真业务数据（每张表均 ≥ 50 行）
- *   3. 为每个企业 / 核查机构生成 secp256k1 链上钱包（私钥落本地 keystore）
- *   4. 真实构建区块链：把历史业务动作打包、签名、做 PoW 出块
+ *   1. 建库建表（读取 db/01_schema.sql，共 20 张表）
+ *   2. 生成仿真业务数据（每张表均 ≥ 50 行）
+ *   3. 为每个企业 / 核查机构生成 secp256k1 链上钱包（私钥加密落本地 keystore）
+ *   4. 登记联盟链成员节点，真实构建区块链：历史业务动作打包、ECDSA 签名、PoA 授权节点轮值出块
+ *   5. 分发链副本到各成员节点，并自举动态核算（CEMS 实测读数 + 首轮滚动核算）
  *
  * 用法： npm run initdb
  */
@@ -541,6 +542,7 @@ async function main() {
   const quotaRows = [];
   const allocRows = [];
   const allocations = [];
+  const quotaMap = new Map(); // `${entId}-${year}` -> allocated
   let allocId = 0;
   const years = [2025, 2026];
   let quotaId = 0;
@@ -557,6 +559,7 @@ async function main() {
       const used = round(emission);
       const available = round(allocated + bought - sold - used - frozen);
       quotaRows.push([quotaId, e.id, y, allocated, available, frozen, used, bought, sold, NOW]);
+      quotaMap.set(`${e.id}-${y}`, allocated);
 
       allocId++;
       const method = rng.pickW(['历史强度法', '行业基准线法', '历史总量法'], [0.5, 0.35, 0.15]);
@@ -596,6 +599,65 @@ async function main() {
     ['id', 'alloc_no', 'ent_id', 'year', 'quota_amount', 'alloc_type', 'alloc_method',
       'baseline_intensity', 'operator', 'chain_block_index', 'chain_tx_id', 'created_at'], allocRows);
   console.log(`✔ quota_allocation      配额分配       ${allocRows.length} 行`);
+
+  /* ============ 8.5 碳信用资产（配额之外的第二类碳资产）+ 抵销 ============ */
+  const CREDIT_TYPES = ['CCER', 'FOREST', 'GREEN_CERT'];
+  const CREDIT_PROJECTS = {
+    CCER: ['河北张北风力发电减排项目', '内蒙古库布其光伏并网减排项目', '四川农村户用沼气减排项目'],
+    FOREST: ['福建三明林业碳汇项目', '云南普洱森林经营碳汇项目'],
+    GREEN_CERT: ['宁夏中卫光伏绿电项目', '甘肃酒泉风电绿证项目'],
+  };
+  const REGISTRY = '全国温室气体自愿减排注册登记系统';
+  const creditAssets = [];
+  const creditOffsets = [];
+  let caId = 0, coId = 0;
+  enterprises.forEach((e) => {
+    if (!rng.chance(0.45)) return;
+    const n = rng.chance(0.25) ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      caId++;
+      const type = rng.pick(CREDIT_TYPES);
+      const quota2026 = quotaMap.get(`${e.id}-2026`) || 0;
+      const amount = round(Math.max(quota2026 * rng.d(0.02, 0.07, 4), 50));
+      creditAssets.push({
+        id: caId, entId: e.id, asset_no: `CA26${pad(caId, 4)}`, asset_type: type,
+        project_name: rng.pick(CREDIT_PROJECTS[type]), amount,
+        issue_year: rng.chance(0.6) ? 2025 : 2026, valid_until: new Date(2030, 11, 31),
+        used: 0, ent: e,
+      });
+    }
+  });
+  // 约 1/6 持有碳信用的企业，用碳信用抵销部分履约缺口（受 5% 上限约束）
+  creditAssets.forEach((a) => {
+    if (!rng.chance(0.18)) return;
+    const quota2026 = quotaMap.get(`${a.entId}-2026`) || 0;
+    const cap = quota2026 * 0.05;
+    const amount = round(Math.min(a.amount, cap * rng.d(0.3, 0.8, 3)));
+    if (amount <= 0) return;
+    coId++;
+    creditOffsets.push({
+      id: coId, offset_no: `CO26${pad(coId, 4)}`, entId: a.entId, year: 2026,
+      asset_id: a.id, amount, operator: rng.pick(REG_NAMES), asset: a, ent: a.ent,
+    });
+    a.used = round(a.used + amount);
+  });
+  await insertBatch(conn, 'credit_asset',
+    ['id', 'ent_id', 'asset_no', 'asset_type', 'project_name', 'amount', 'used_amount',
+      'issue_year', 'valid_until', 'registry', 'status', 'created_at'],
+    creditAssets.map((a) => [
+      a.id, a.entId, a.asset_no, a.asset_type, a.project_name, a.amount, a.used,
+      a.issue_year, fmtDate(a.valid_until), REGISTRY,
+      a.used >= a.amount ? 'USED' : 'ACTIVE', fmtDate(new Date(a.issue_year - 1, 11, rng.i(5, 25))),
+    ]));
+  console.log(`✔ credit_asset          碳信用资产     ${creditAssets.length} 行`);
+  await insertBatch(conn, 'credit_offset',
+    ['id', 'offset_no', 'ent_id', 'year', 'asset_id', 'amount', 'ratio_limit',
+      'quota_before', 'quota_after', 'operator', 'status', 'created_at'],
+    creditOffsets.map((o) => [
+      o.id, o.offset_no, o.entId, o.year, o.asset_id, o.amount, 0.05, 0, 0, o.operator,
+      'CONFIRMED', fmtDate(new Date(2026, rng.i(3, 9), rng.i(1, 28))),
+    ]));
+  console.log(`✔ credit_offset         碳信用抵销     ${creditOffsets.length} 行`);
 
   /* ============ 9. 预警记录 ============ */
   const alertRows = [];
@@ -667,9 +729,13 @@ async function main() {
     ['id', 'title', 'content', 'notice_type', 'target_role', 'publisher', 'is_top', 'views', 'publish_time'], noticeRows);
   console.log(`✔ notice                通知公告       ${noticeRows.length} 行`);
 
-  /* ============ 12. 构建区块链（真实 PoW 出块） ============ */
+  /* ============ 12. 构建区块链（联盟链 PoA 出块） ============ */
   console.log('─'.repeat(64));
-  console.log('⛓  开始构建区块链（ECDSA 签名 + SHA-256 + PoW 出块）…');
+  console.log('⛓  开始构建联盟链（ECDSA 签名 + SHA-256 + PoA 授权节点轮值出块）…');
+  // 联盟链：先登记联盟成员节点（白名单 + 出块权），再建链 —— 这样出块才会在多个授权节点间轮值
+  const cons = require('../services/consortium');
+  await cons.ensureSeed();
+  console.log(`🔗 联盟成员节点已登记：${(await cons.listNodes()).length} 个`);
   const chain = new Blockchain(conn, { ...config.chain, autoMine: false });
   await chain.init();
 
@@ -754,6 +820,37 @@ async function main() {
     });
   });
 
+  // 12.6 碳信用资产签发（第二类碳资产入链）
+  creditAssets.forEach((a) => {
+    txPlan.push({
+      txType: 'CREDIT_ASSET', bizNo: a.asset_no,
+      from: systemWallet.address, to: keystore.walletFor(`ent:${a.entId}`).address,
+      payload: {
+        assetNo: a.asset_no, entId: a.entId, assetType: a.asset_type,
+        projectName: a.project_name, amount: a.amount, issueYear: a.issue_year,
+      },
+      privateKey: systemWallet.privateKey, publicKey: systemWallet.publicKey,
+      at: new Date(a.issue_year, 0, rng.i(6, 26)),
+      link: { table: 'credit_asset', id: a.id },
+    });
+  });
+
+  // 12.7 碳信用抵销（用碳信用履约，抵销流水入链）
+  creditOffsets.forEach((o) => {
+    const w = keystore.walletFor(`ent:${o.entId}`);
+    txPlan.push({
+      txType: 'CREDIT_OFFSET', bizNo: o.offset_no,
+      from: w.address, to: systemWallet.address,
+      payload: {
+        offsetNo: o.offset_no, entId: o.entId, year: o.year, assetNo: o.asset.asset_no,
+        assetType: o.asset.asset_type, amount: o.amount, ratioLimit: 0.05,
+      },
+      privateKey: w.privateKey, publicKey: w.publicKey,
+      at: new Date(2026, 7, rng.i(1, 28)),
+      link: { table: 'credit_offset', id: o.id },
+    });
+  });
+
   // 按时间升序出块
   txPlan.sort((a, b) => new Date(a.at) - new Date(b.at));
   console.log(`   待上链存证交易 ${txPlan.length} 笔，开始打包…`);
@@ -811,18 +908,44 @@ async function main() {
   /* ============ 14. 全链校验 ============ */
   const v = await chain.validateChain();
   console.log('─'.repeat(64));
-  console.log(v.valid ? '✔ 全链完整性校验通过（哈希链 / PoW / Merkle 根 全部一致）' : `✘ 校验发现 ${v.errors.length} 处异常`);
+  console.log(v.valid ? '✔ 全链完整性校验通过（哈希链 / PoA 出块签名 / Merkle 根 全部一致）' : `✘ 校验发现 ${v.errors.length} 处异常`);
   const st = await chain.stats();
-  console.log(`   链高度=${st.height}  总区块=${st.totalBlocks}  链上交易=${st.confirmed}  难度=${st.difficulty}  平均出块=${st.avgMineTime}ms`);
+  console.log(`   链高度=${st.height}  总区块=${st.totalBlocks}  链上交易=${st.confirmed}  共识=${st.consensus}  授权节点=${st.activeNodes}`);
   console.log(`   链尾区块哈希: ${st.tipHash}`);
 
+  // 联盟链：把每个成员节点的链副本同步到最新高度（多方各自持链）
+  await cons.syncAll();
+  const rep = await cons.replicaStatus();
+  console.log(`🔗 链副本已分发：${rep.totalNodes} 个成员节点，链顶一致 ${rep.consistentNodes}/${rep.totalNodes}`);
+
+  /* ============ 15. 动态核算自举（CEMS 实测读数 + 首轮滚动核算） ============ */
+  // 让交付快照开箱即含"动态核算"数据：生成近 30 天的准实时实测读数，
+  // 并完成首轮滚动核算与配额缺口预警。
+  const dyn = require('../services/dynamic');
+  const dOv = await dyn.bootstrap();
+  console.log(
+    `📈 动态核算就绪：CEMS 实测读数 ${dOv.readings.total} 条 · 覆盖企业 ${dOv.summary.enterprises} 家 · `
+    + `履约风险 高 ${dOv.summary.highRisk} / 中 ${dOv.summary.mediumRisk} / 低 ${dOv.summary.lowRisk}`
+  );
+
+  // 碳信用抵销的缺口前后值由动态核算结果回填（抵销后缺口 = 动态账户净缺口）
+  await conn.query(
+    `UPDATE credit_offset o JOIN carbon_dynamic_account a ON a.ent_id = o.ent_id AND a.year = o.year
+     SET o.quota_before = ROUND(a.gap + o.amount, 3), o.quota_after = a.gap`
+  );
+  const pool = require('../db');
+  const caTotal = Number(await pool.value('SELECT IFNULL(SUM(amount),0) FROM credit_asset')) || 0;
+  const coTotal = Number(await pool.value('SELECT IFNULL(SUM(amount),0) FROM credit_offset')) || 0;
+  console.log(`🟢 碳资产就绪：碳信用资产合计 ${caTotal.toFixed(1)} tCO₂e · 已抵销 ${coTotal.toFixed(1)} tCO₂e`);
+
   await conn.end();
+  try { await require('../db').pool.end(); } catch (e) { /* ignore */ }
   console.log('─'.repeat(64));
   console.log(`✅ 初始化完成，用时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
   console.log('   演示账号: admin/admin123(管理员) · ent001/123456(企业端) · ver001/123456(核查机构端) · reg001/123456(监管端)');
 }
 
-main().catch((e) => {
+main().then(() => process.exit(0)).catch((e) => {
   console.error('✘ 初始化失败:', e);
   process.exit(1);
 });

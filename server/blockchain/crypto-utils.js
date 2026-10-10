@@ -256,12 +256,38 @@ function randomSalt(len = 16) {
 
 /**
  * 口令摘要：SHA256(salt + password)
+ * @deprecated 仅用于兼容历史数据；新口令一律用 hashPasswordScrypt。
  * @param {string} password
  * @param {string} salt
  * @returns {string}
  */
 function hashPassword(password, salt) {
   return sha256(salt + password);
+}
+
+/**
+ * 口令摘要（推荐）：scrypt 加盐拉伸，内存硬（N=16384, r=8, p=1）。
+ * 相比单轮 SHA256，离线爆破成本提高数个数量级，是现代口令存储的正确做法。
+ * 输出格式：scrypt$<hex>
+ */
+function hashPasswordScrypt(password, salt) {
+  const buf = crypto.scryptSync(String(password), String(salt), 64, { N: 16384, r: 8, p: 1 });
+  return 'scrypt$' + buf.toString('hex');
+}
+
+/**
+ * 口令校验：兼容历史 SHA256 摘要，对 scrypt 摘要做定长安全比较（防时序侧信道）。
+ * @returns {{ok:boolean, legacy:boolean}} legacy=true 表示命中旧格式、可在登录后自动升级
+ */
+function verifyPassword(password, salt, stored) {
+  const s = String(stored || '');
+  if (s.startsWith('scrypt$')) {
+    const calc = hashPasswordScrypt(password, salt);
+    const a = Buffer.from(calc);
+    const b = Buffer.from(s);
+    return { ok: a.length === b.length && crypto.timingSafeEqual(a, b), legacy: false };
+  }
+  return { ok: sha256(salt + password) === s, legacy: true };
 }
 
 /**
@@ -292,6 +318,8 @@ module.exports = {
   verify,
   randomSalt,
   hashPassword,
+  hashPasswordScrypt,
+  verifyPassword,
   bizNo,
   ZERO,
 };

@@ -28,7 +28,10 @@ const ordered = report.details;
 const groups = { A: [], B: [], C: [], D: [] };
 ordered.forEach((d) => groups[groupOf(d)].push(d));
 
-const shot = (f) => f.replace(/\\/g, '/');
+/* 截图路径在 ui-report.json 里是【项目根相对】的，而本页自身位于 <root>/artifacts/ 下，
+ * 直接拿来当 src 会解析成 artifacts/artifacts/... 导致全部裂图。
+ * 这里统一换算成【相对本页】的路径。 */
+const shot = (f) => path.relative(OUT, path.join(ROOT, String(f))).replace(/\\/g, '/');
 
 function routeCard(d, i) {
   const ok = d.pass;
@@ -97,7 +100,7 @@ const html = `<!DOCTYPE html>
   <p>无头 Edge + Chrome DevTools Protocol 真实驱动浏览器逐页渲染 —— 不是截图拼贴，而是每次访问都记录 DOM 体量、表格行数、图表实例数、未解析组件与控制台异常。</p>
   <div class="kpis">
     <div class="kpi"><b>${report.routes.pass}/${report.routes.total}</b><span>路由渲染通过</span></div>
-    <div class="kpi"><b>${report.interactions.pass}/${report.interactions.total}</b><span>关键交互通过</span></div>
+    <div class="kpi"><b>${report.interactions.filter((x) => x.pass).length}/${report.interactions.length}</b><span>关键交互通过</span></div>
     <div class="kpi"><b>${report.chain.height}</b><span>链高度</span></div>
     <div class="kpi"><b>${report.chain.totalTxs}</b><span>链上存证</span></div>
     <div class="kpi"><b>0</b><span>控制台异常</span></div>

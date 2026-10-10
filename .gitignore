@@ -23,6 +23,9 @@ logs/
 # ---- 采集/录制的原始帧（体积大，成品在 artifacts/video） ----
 artifacts/video/frames/
 
+# ---- 答辩证据截图（约 13MB，本地保留即可，不入库以保持部署包精简）----
+artifacts/screens/
+
 # ---- 编辑器 / 系统 ----
 .vscode/
 .idea/

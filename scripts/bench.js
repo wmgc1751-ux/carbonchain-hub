@@ -47,7 +47,7 @@ async function main() {
     ['GET', '/public/dashboard', null, null, '公示大屏聚合数据'],
     ['GET', '/chain/blocks?page=1&size=10', null, null, '区块列表'],
     ['GET', '/chain/txs?page=1&size=10', null, null, '交易列表'],
-    ['GET', '/chain/validate', null, null, '全链完整性校验（155 区块 900+ 交易）'],
+    ['GET', '/chain/validate', null, null, '全链完整性校验（含 PoA 签名逐块验签）'],
     ['GET', '/enterprise/overview', null, et, '企业总览'],
     ['GET', '/enterprise/reports?page=1&size=10', null, et, '企业上报单分页'],
     ['GET', '/enterprise/analytics', null, et, '企业碳数据分析'],

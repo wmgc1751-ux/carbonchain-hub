@@ -39,7 +39,12 @@
     ['/reg/stats', 'page-reg-stats'],
     ['/reg/logs', 'page-reg-logs'],
     ['/reg/system', 'page-reg-system'],
+    ['/reg/consortium', 'page-consortium'],
+    ['/reg/dynamic', 'page-dynamic'],
+    ['/reg/credit', 'page-credit'],
     ['/reg/notices', 'page-reg-notices'],
+    ['/ent/dynamic', 'page-dynamic'],
+    ['/ent/credit', 'page-credit'],
   ];
   ROUTES.forEach(([p, v]) => App.define(p, v));
 
@@ -54,10 +59,12 @@
       { group: '我的碳账本', items: [
         { path: '/ent/overview', icon: 'dash', label: '企业总览' },
         { path: '/ent/reports', icon: 'report', label: '碳排放上报' },
+        { path: '/ent/dynamic', icon: 'leaf', label: '动态核算' },
         { path: '/ent/quota', icon: 'coin', label: '碳配额账户' },
       ] },
       { group: '碳资产运营', items: [
         { path: '/ent/trade', icon: 'trade', label: '碳配额交易' },
+        { path: '/ent/credit', icon: 'leaf', label: '碳信用与抵销' },
         { path: '/ent/analytics', icon: 'chart', label: '数据分析' },
         { path: '/ent/wallet', icon: 'wallet', label: '链上身份' },
       ] },
@@ -88,9 +95,12 @@
         { path: '/reg/enterprises', icon: 'factory', label: '控排企业名录' },
         { path: '/reg/allocations', icon: 'coin', label: '配额分配管理' },
         { path: '/reg/trades', icon: 'trade', label: '碳市场交易监管' },
+        { path: '/reg/dynamic', icon: 'leaf', label: '动态核算监管' },
+        { path: '/reg/credit', icon: 'coin', label: '碳资产总览' },
         { path: '/reg/alerts', icon: 'alert', label: '预警与风险处置' },
       ] },
       { group: '系统治理', items: [
+        { path: '/reg/consortium', icon: 'chain', label: '联盟链治理' },
         { path: '/reg/notices', icon: 'book', label: '通知公告管理' },
         { path: '/reg/logs', icon: 'shield', label: '操作审计日志' },
         { path: '/reg/system', icon: 'db', label: '系统与链自检' },
@@ -104,6 +114,8 @@
     '/ent/overview': ['企业端', '企业总览'], '/ent/reports': ['企业端', '碳排放上报'],
     '/ent/quota': ['企业端', '碳配额账户'], '/ent/trade': ['企业端', '碳配额交易'],
     '/ent/analytics': ['企业端', '数据分析'], '/ent/wallet': ['企业端', '链上身份'],
+    '/ent/dynamic': ['企业端', '动态核算'],
+    '/ent/credit': ['企业端', '碳信用与抵销'],
     '/ent/notices': ['企业端', '通知公告'],
     '/ver/overview': ['核查机构端', '机构总览'], '/ver/tasks': ['核查机构端', '核查任务'],
     '/ver/reports': ['核查机构端', '核查报告台账'], '/ver/wallet': ['核查机构端', '机构链上身份'],
@@ -112,6 +124,8 @@
     '/reg/allocations': ['监管端', '配额分配管理'], '/reg/trades': ['监管端', '碳市场交易监管'],
     '/reg/alerts': ['监管端', '预警与风险处置'], '/reg/stats': ['监管端', '统计分析'],
     '/reg/logs': ['监管端', '操作审计日志'], '/reg/system': ['监管端', '系统与链自检'],
+    '/reg/consortium': ['监管端', '联盟链治理'], '/reg/dynamic': ['监管端', '动态核算监管'],
+    '/reg/credit': ['监管端', '碳资产总览'],
     '/reg/notices': ['监管端', '通知公告管理'],
     '/explorer': ['公开', '区块链浏览器'], '/screen': ['公开', '数据公示大屏'],
     '/login': ['公开', '登录'],

@@ -49,12 +49,12 @@
   <h1>碳链通 CarbonChain Hub · 系统实测证据总览</h1>
   <p>无头 Edge + Chrome DevTools Protocol 真实驱动浏览器逐页渲染 —— 不是截图拼贴，而是每次访问都记录 DOM 体量、表格行数、图表实例数、未解析组件与控制台异常。</p>
   <div class="kpis">
-    <div class="kpi"><b>27/27</b><span>路由渲染通过</span></div>
-    <div class="kpi"><b>undefined/undefined</b><span>关键交互通过</span></div>
-    <div class="kpi"><b>161</b><span>链高度</span></div>
-    <div class="kpi"><b>918</b><span>链上存证</span></div>
+    <div class="kpi"><b>32/32</b><span>路由渲染通过</span></div>
+    <div class="kpi"><b>5/5</b><span>关键交互通过</span></div>
+    <div class="kpi"><b>164</b><span>链高度</span></div>
+    <div class="kpi"><b>955</b><span>链上存证</span></div>
     <div class="kpi"><b>0</b><span>控制台异常</span></div>
-    <div class="kpi"><b>2026/9/17 23:35:53</b><span>采集时间</span></div>
+    <div class="kpi"><b>2026/10/10 22:52:36</b><span>采集时间</span></div>
   </div>
 </header>
 <main>
@@ -63,7 +63,7 @@
     <table>
       <thead><tr><th style="width:34%">交互路径</th><th style="width:10%">结果</th><th>实测细节（脚本回读的浏览器状态）</th></tr></thead>
       <tbody>
-        <tr><td>登录页表单登录 → 跳转企业端</td><td class="ok-t">通过</td><td><code>{"hash":"#/ent/overview","hasToken":true}</code></td></tr><tr><td>排放上报 → 行点击打开详情弹窗</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"cols":11},"panel":{"open":true,"title":"上报单 ER202609172334297256","textLen":310,"head":"上报单 ER202609172334297256 排放总量 25,604.45tCO₂e 综合能耗 9,941.24tce 报告期产值 904.33万元 排放强度 28.3132t"}}</code></td></tr><tr><td>区块链浏览器 → 区块详情（含 Merkle 根）</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"via":"row"},"after":{"hash":"#/explorer/block/161","textLen":767,"err":"","merkle":true,"hashes":16}}</code></td></tr><tr><td>监管端预警 → 处置弹窗</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"label":"处置"},"panel":{"open":true,"title":"预警处置","textLen":162,"hash":"#/reg/alerts"}}</code></td></tr><tr><td>企业端存证按钮 → 链上核验弹窗（验签 + Merkle 路径）</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"label":"存证"},"panel":{"open":true,"textLen":967,"readouts":4,"merkle":true,"signed":true,"head":"链上存证核验 · 上报单链上存证核验 · ER202609172334297256 PASS ECDSA 数字签名验签 验签通过 PASS 存证数据摘要比对 一字未改 PASS 链下业务库与链上快照一致 完全一致 PASS Merkle 根与区块头一致 一致 存证交易 交易号 2"}}</code></td></tr>
+        <tr><td>登录页表单登录 → 跳转企业端</td><td class="ok-t">通过</td><td><code>{"hash":"#/ent/overview","hasToken":true}</code></td></tr><tr><td>排放上报 → 行点击打开详情弹窗</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"cols":11},"panel":{"open":true,"title":"上报单 ER202610102251024392","textLen":313,"head":"上报单 ER202610102251024392 排放总量 26,404.92tCO₂e 综合能耗 10,270.68tce 报告期产值 3,617.32万元 排放强度 7.299"}}</code></td></tr><tr><td>区块链浏览器 → 区块详情（含 Merkle 根）</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"via":"row"},"after":{"hash":"#/explorer/block/165","textLen":813,"err":"","merkle":true,"hashes":16}}</code></td></tr><tr><td>监管端预警 → 处置弹窗</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"label":"处置"},"panel":{"open":true,"title":"预警处置","textLen":263,"hash":"#/reg/alerts"}}</code></td></tr><tr><td>企业端存证按钮 → 链上核验弹窗（验签 + Merkle 路径）</td><td class="ok-t">通过</td><td><code>{"click":{"ok":true,"label":"存证"},"panel":{"open":true,"textLen":964,"readouts":4,"merkle":true,"signed":true,"head":"链上存证核验 · 上报单链上存证核验 · ER202610102251024392 PASS ECDSA 数字签名验签 验签通过 PASS 存证数据摘要比对 一字未改 PASS 链下业务库与链上快照一致 完全一致 PASS Merkle 根与区块头一致 一致 存证交易 交易号 3"}}</code></td></tr>
       </tbody>
     </table>
   </div>
@@ -77,9 +77,9 @@
       <b>ENT-企业总览</b>
       <code>#/ent/overview</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 986 · 表格 1（3 行）· 图表 2 · 控制台异常 0</span>
+      <span class="meta">文本 1013 · 表格 1（3 行）· 图表 2 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/07-ENT-企业总览.png" target="_blank"><img loading="lazy" src="artifacts/screens/07-ENT-企业总览.png" alt="ENT-企业总览"></a>
+    <a href="screens/07-ENT-企业总览.png" target="_blank"><img loading="lazy" src="screens/07-ENT-企业总览.png" alt="ENT-企业总览"></a>
   </figure>
   <figure class="shot">
     <figcaption>
@@ -87,203 +87,253 @@
       <b>ENT-碳排放上报</b>
       <code>#/ent/reports</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1271 · 表格 1（9 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1088 · 表格 1（7 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/08-ENT-碳排放上报.png" target="_blank"><img loading="lazy" src="artifacts/screens/08-ENT-碳排放上报.png" alt="ENT-碳排放上报"></a>
+    <a href="screens/08-ENT-碳排放上报.png" target="_blank"><img loading="lazy" src="screens/08-ENT-碳排放上报.png" alt="ENT-碳排放上报"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">09</span>
-      <b>ENT-碳配额账户</b>
-      <code>#/ent/quota</code>
+      <b>ENT-动态核算</b>
+      <code>#/ent/dynamic</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 765 · 表格 2（5 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 7551 · 表格 2（108 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/09-ENT-碳配额账户.png" target="_blank"><img loading="lazy" src="artifacts/screens/09-ENT-碳配额账户.png" alt="ENT-碳配额账户"></a>
+    <a href="screens/09-ENT-动态核算.png" target="_blank"><img loading="lazy" src="screens/09-ENT-动态核算.png" alt="ENT-动态核算"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">10</span>
-      <b>ENT-碳配额交易</b>
-      <code>#/ent/trade</code>
+      <b>ENT-碳信用与抵销</b>
+      <code>#/ent/credit</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1207 · 表格 2（9 行）· 图表 1 · 控制台异常 0</span>
+      <span class="meta">文本 618 · 表格 2（1 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/10-ENT-碳配额交易.png" target="_blank"><img loading="lazy" src="artifacts/screens/10-ENT-碳配额交易.png" alt="ENT-碳配额交易"></a>
+    <a href="screens/10-ENT-碳信用与抵销.png" target="_blank"><img loading="lazy" src="screens/10-ENT-碳信用与抵销.png" alt="ENT-碳信用与抵销"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">11</span>
-      <b>ENT-数据分析</b>
-      <code>#/ent/analytics</code>
+      <b>ENT-碳配额账户</b>
+      <code>#/ent/quota</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 368 · 表格 0（0 行）· 图表 4 · 控制台异常 0</span>
+      <span class="meta">文本 776 · 表格 2（5 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/11-ENT-数据分析.png" target="_blank"><img loading="lazy" src="artifacts/screens/11-ENT-数据分析.png" alt="ENT-数据分析"></a>
+    <a href="screens/11-ENT-碳配额账户.png" target="_blank"><img loading="lazy" src="screens/11-ENT-碳配额账户.png" alt="ENT-碳配额账户"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">12</span>
-      <b>ENT-链上身份</b>
-      <code>#/ent/wallet</code>
+      <b>ENT-碳配额交易</b>
+      <code>#/ent/trade</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1167 · 表格 1（9 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1027 · 表格 2（6 行）· 图表 1 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/12-ENT-链上身份.png" target="_blank"><img loading="lazy" src="artifacts/screens/12-ENT-链上身份.png" alt="ENT-链上身份"></a>
+    <a href="screens/12-ENT-碳配额交易.png" target="_blank"><img loading="lazy" src="screens/12-ENT-碳配额交易.png" alt="ENT-碳配额交易"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">13</span>
+      <b>ENT-数据分析</b>
+      <code>#/ent/analytics</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 379 · 表格 0（0 行）· 图表 4 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/13-ENT-数据分析.png" target="_blank"><img loading="lazy" src="screens/13-ENT-数据分析.png" alt="ENT-数据分析"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">14</span>
+      <b>ENT-链上身份</b>
+      <code>#/ent/wallet</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1030 · 表格 1（7 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/14-ENT-链上身份.png" target="_blank"><img loading="lazy" src="screens/14-ENT-链上身份.png" alt="ENT-链上身份"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">15</span>
       <b>ENT-通知公告</b>
       <code>#/ent/notices</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 783 · 表格 1（10 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 814 · 表格 1（10 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/13-ENT-通知公告.png" target="_blank"><img loading="lazy" src="artifacts/screens/13-ENT-通知公告.png" alt="ENT-通知公告"></a>
+    <a href="screens/15-ENT-通知公告.png" target="_blank"><img loading="lazy" src="screens/15-ENT-通知公告.png" alt="ENT-通知公告"></a>
   </figure></div>
   <h2>二、核查机构端</h2>
   <div class="grid">
   <figure class="shot">
     <figcaption>
-      <span class="idx">14</span>
+      <span class="idx">16</span>
       <b>VER-核查总览</b>
       <code>#/ver/overview</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 877 · 表格 2（9 行）· 图表 2 · 控制台异常 0</span>
+      <span class="meta">文本 876 · 表格 2（9 行）· 图表 2 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/14-VER-核查总览.png" target="_blank"><img loading="lazy" src="artifacts/screens/14-VER-核查总览.png" alt="VER-核查总览"></a>
-  </figure>
-  <figure class="shot">
-    <figcaption>
-      <span class="idx">15</span>
-      <b>VER-核查任务</b>
-      <code>#/ver/tasks</code>
-      <span class="badge ok">通过</span>
-      <span class="meta">文本 961 · 表格 1（9 行）· 图表 0 · 控制台异常 0</span>
-    </figcaption>
-    <a href="artifacts/screens/15-VER-核查任务.png" target="_blank"><img loading="lazy" src="artifacts/screens/15-VER-核查任务.png" alt="VER-核查任务"></a>
-  </figure>
-  <figure class="shot">
-    <figcaption>
-      <span class="idx">16</span>
-      <b>VER-核查报告</b>
-      <code>#/ver/reports</code>
-      <span class="badge ok">通过</span>
-      <span class="meta">文本 1044 · 表格 1（8 行）· 图表 0 · 控制台异常 0</span>
-    </figcaption>
-    <a href="artifacts/screens/16-VER-核查报告.png" target="_blank"><img loading="lazy" src="artifacts/screens/16-VER-核查报告.png" alt="VER-核查报告"></a>
+    <a href="screens/16-VER-核查总览.png" target="_blank"><img loading="lazy" src="screens/16-VER-核查总览.png" alt="VER-核查总览"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">17</span>
-      <b>VER-机构链上身份</b>
-      <code>#/ver/wallet</code>
+      <b>VER-核查任务</b>
+      <code>#/ver/tasks</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1026 · 表格 1（8 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 960 · 表格 1（9 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/17-VER-机构链上身份.png" target="_blank"><img loading="lazy" src="artifacts/screens/17-VER-机构链上身份.png" alt="VER-机构链上身份"></a>
+    <a href="screens/17-VER-核查任务.png" target="_blank"><img loading="lazy" src="screens/17-VER-核查任务.png" alt="VER-核查任务"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">18</span>
+      <b>VER-核查报告</b>
+      <code>#/ver/reports</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1043 · 表格 1（8 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/18-VER-核查报告.png" target="_blank"><img loading="lazy" src="screens/18-VER-核查报告.png" alt="VER-核查报告"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">19</span>
+      <b>VER-机构链上身份</b>
+      <code>#/ver/wallet</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1025 · 表格 1（8 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/19-VER-机构链上身份.png" target="_blank"><img loading="lazy" src="screens/19-VER-机构链上身份.png" alt="VER-机构链上身份"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">20</span>
       <b>VER-通知公告</b>
       <code>#/ver/notices</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 696 · 表格 1（10 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 713 · 表格 1（10 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/18-VER-通知公告.png" target="_blank"><img loading="lazy" src="artifacts/screens/18-VER-通知公告.png" alt="VER-通知公告"></a>
+    <a href="screens/20-VER-通知公告.png" target="_blank"><img loading="lazy" src="screens/20-VER-通知公告.png" alt="VER-通知公告"></a>
   </figure></div>
   <h2>三、监管端</h2>
   <div class="grid">
   <figure class="shot">
     <figcaption>
-      <span class="idx">19</span>
+      <span class="idx">21</span>
       <b>REG-监管总览</b>
       <code>#/reg/overview</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1681 · 表格 3（28 行）· 图表 5 · 控制台异常 0</span>
+      <span class="meta">文本 1795 · 表格 3（28 行）· 图表 5 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/19-REG-监管总览.png" target="_blank"><img loading="lazy" src="artifacts/screens/19-REG-监管总览.png" alt="REG-监管总览"></a>
-  </figure>
-  <figure class="shot">
-    <figcaption>
-      <span class="idx">20</span>
-      <b>REG-企业名录</b>
-      <code>#/reg/enterprises</code>
-      <span class="badge ok">通过</span>
-      <span class="meta">文本 1424 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
-    </figcaption>
-    <a href="artifacts/screens/20-REG-企业名录.png" target="_blank"><img loading="lazy" src="artifacts/screens/20-REG-企业名录.png" alt="REG-企业名录"></a>
-  </figure>
-  <figure class="shot">
-    <figcaption>
-      <span class="idx">21</span>
-      <b>REG-配额分配</b>
-      <code>#/reg/allocations</code>
-      <span class="badge ok">通过</span>
-      <span class="meta">文本 1501 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
-    </figcaption>
-    <a href="artifacts/screens/21-REG-配额分配.png" target="_blank"><img loading="lazy" src="artifacts/screens/21-REG-配额分配.png" alt="REG-配额分配"></a>
+    <a href="screens/21-REG-监管总览.png" target="_blank"><img loading="lazy" src="screens/21-REG-监管总览.png" alt="REG-监管总览"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">22</span>
-      <b>REG-交易监管</b>
-      <code>#/reg/trades</code>
+      <b>REG-企业名录</b>
+      <code>#/reg/enterprises</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1812 · 表格 2（16 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1443 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/22-REG-交易监管.png" target="_blank"><img loading="lazy" src="artifacts/screens/22-REG-交易监管.png" alt="REG-交易监管"></a>
+    <a href="screens/22-REG-企业名录.png" target="_blank"><img loading="lazy" src="screens/22-REG-企业名录.png" alt="REG-企业名录"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">23</span>
-      <b>REG-预警处置</b>
-      <code>#/reg/alerts</code>
+      <b>REG-配额分配</b>
+      <code>#/reg/allocations</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1287 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1484 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/23-REG-预警处置.png" target="_blank"><img loading="lazy" src="artifacts/screens/23-REG-预警处置.png" alt="REG-预警处置"></a>
+    <a href="screens/23-REG-配额分配.png" target="_blank"><img loading="lazy" src="screens/23-REG-配额分配.png" alt="REG-配额分配"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">24</span>
-      <b>REG-统计分析</b>
-      <code>#/reg/stats</code>
+      <b>REG-交易监管</b>
+      <code>#/reg/trades</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1424 · 表格 1（20 行）· 图表 4 · 控制台异常 0</span>
+      <span class="meta">文本 1830 · 表格 2（16 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/24-REG-统计分析.png" target="_blank"><img loading="lazy" src="artifacts/screens/24-REG-统计分析.png" alt="REG-统计分析"></a>
+    <a href="screens/24-REG-交易监管.png" target="_blank"><img loading="lazy" src="screens/24-REG-交易监管.png" alt="REG-交易监管"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">25</span>
-      <b>REG-操作日志</b>
-      <code>#/reg/logs</code>
+      <b>REG-动态核算监管</b>
+      <code>#/reg/dynamic</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1508 · 表格 1（15 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 5089 · 表格 1（60 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/25-REG-操作日志.png" target="_blank"><img loading="lazy" src="artifacts/screens/25-REG-操作日志.png" alt="REG-操作日志"></a>
+    <a href="screens/25-REG-动态核算监管.png" target="_blank"><img loading="lazy" src="screens/25-REG-动态核算监管.png" alt="REG-动态核算监管"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">26</span>
-      <b>REG-系统设置</b>
-      <code>#/reg/system</code>
+      <b>REG-碳资产总览</b>
+      <code>#/reg/credit</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 875 · 表格 1（4 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 3866 · 表格 2（42 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/26-REG-系统设置.png" target="_blank"><img loading="lazy" src="artifacts/screens/26-REG-系统设置.png" alt="REG-系统设置"></a>
+    <a href="screens/26-REG-碳资产总览.png" target="_blank"><img loading="lazy" src="screens/26-REG-碳资产总览.png" alt="REG-碳资产总览"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">27</span>
+      <b>REG-预警处置</b>
+      <code>#/reg/alerts</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1516 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/27-REG-预警处置.png" target="_blank"><img loading="lazy" src="screens/27-REG-预警处置.png" alt="REG-预警处置"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">28</span>
+      <b>REG-统计分析</b>
+      <code>#/reg/stats</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1442 · 表格 1（20 行）· 图表 4 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/28-REG-统计分析.png" target="_blank"><img loading="lazy" src="screens/28-REG-统计分析.png" alt="REG-统计分析"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">29</span>
+      <b>REG-操作日志</b>
+      <code>#/reg/logs</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1544 · 表格 1（15 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/29-REG-操作日志.png" target="_blank"><img loading="lazy" src="screens/29-REG-操作日志.png" alt="REG-操作日志"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">30</span>
+      <b>REG-联盟链治理</b>
+      <code>#/reg/consortium</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 1051 · 表格 1（5 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/30-REG-联盟链治理.png" target="_blank"><img loading="lazy" src="screens/30-REG-联盟链治理.png" alt="REG-联盟链治理"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">31</span>
+      <b>REG-系统设置</b>
+      <code>#/reg/system</code>
+      <span class="badge ok">通过</span>
+      <span class="meta">文本 893 · 表格 1（4 行）· 图表 0 · 控制台异常 0</span>
+    </figcaption>
+    <a href="screens/31-REG-系统设置.png" target="_blank"><img loading="lazy" src="screens/31-REG-系统设置.png" alt="REG-系统设置"></a>
+  </figure>
+  <figure class="shot">
+    <figcaption>
+      <span class="idx">32</span>
       <b>REG-通知公告</b>
       <code>#/reg/notices</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1032 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1056 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/27-REG-通知公告.png" target="_blank"><img loading="lazy" src="artifacts/screens/27-REG-通知公告.png" alt="REG-通知公告"></a>
+    <a href="screens/32-REG-通知公告.png" target="_blank"><img loading="lazy" src="screens/32-REG-通知公告.png" alt="REG-通知公告"></a>
   </figure></div>
   <h2>四、公众端（免登录）</h2>
   <div class="grid">
@@ -295,7 +345,7 @@
       <span class="badge ok">通过</span>
       <span class="meta">文本 733 · 表格 0（0 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/01-统一登录.png" target="_blank"><img loading="lazy" src="artifacts/screens/01-统一登录.png" alt="统一登录"></a>
+    <a href="screens/01-统一登录.png" target="_blank"><img loading="lazy" src="screens/01-统一登录.png" alt="统一登录"></a>
   </figure>
   <figure class="shot">
     <figcaption>
@@ -303,9 +353,9 @@
       <b>数据公示大屏</b>
       <code>#/screen</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1300 · 表格 0（0 行）· 图表 4 · 控制台异常 0</span>
+      <span class="meta">文本 1352 · 表格 0（0 行）· 图表 4 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/02-数据公示大屏.png" target="_blank"><img loading="lazy" src="artifacts/screens/02-数据公示大屏.png" alt="数据公示大屏"></a>
+    <a href="screens/02-数据公示大屏.png" target="_blank"><img loading="lazy" src="screens/02-数据公示大屏.png" alt="数据公示大屏"></a>
   </figure>
   <figure class="shot">
     <figcaption>
@@ -313,19 +363,19 @@
       <b>区块链浏览器</b>
       <code>#/explorer</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 2381 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 2288 · 表格 1（12 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/03-区块链浏览器.png" target="_blank"><img loading="lazy" src="artifacts/screens/03-区块链浏览器.png" alt="区块链浏览器"></a>
+    <a href="screens/03-区块链浏览器.png" target="_blank"><img loading="lazy" src="screens/03-区块链浏览器.png" alt="区块链浏览器"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">04</span>
       <b>公告详情</b>
-      <code>#/notice/40</code>
+      <code>#/notice/55</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 260 · 表格 0（0 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 258 · 表格 0（0 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/04-公告详情.png" target="_blank"><img loading="lazy" src="artifacts/screens/04-公告详情.png" alt="公告详情"></a>
+    <a href="screens/04-公告详情.png" target="_blank"><img loading="lazy" src="screens/04-公告详情.png" alt="公告详情"></a>
   </figure>
   <figure class="shot">
     <figcaption>
@@ -333,19 +383,19 @@
       <b>区块详情</b>
       <code>#/explorer/block/1</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1377 · 表格 1（6 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1520 · 表格 1（7 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/05-区块详情.png" target="_blank"><img loading="lazy" src="artifacts/screens/05-区块详情.png" alt="区块详情"></a>
+    <a href="screens/05-区块详情.png" target="_blank"><img loading="lazy" src="screens/05-区块详情.png" alt="区块详情"></a>
   </figure>
   <figure class="shot">
     <figcaption>
       <span class="idx">06</span>
       <b>交易详情（含 Merkle 路径）</b>
-      <code>#/explorer/tx/9673959bda4a09f1ec2af02971b19d61fed70c38b17f2b2642857ce40cf91b28</code>
+      <code>#/explorer/tx/26a2b797492e4608786e275843764fe48dfaad3847dab1f95f1dc713da973d42</code>
       <span class="badge ok">通过</span>
-      <span class="meta">文本 1341 · 表格 0（0 行）· 图表 0 · 控制台异常 0</span>
+      <span class="meta">文本 1339 · 表格 0（0 行）· 图表 0 · 控制台异常 0</span>
     </figcaption>
-    <a href="artifacts/screens/06-交易详情（含 Merkle 路径）.png" target="_blank"><img loading="lazy" src="artifacts/screens/06-交易详情（含 Merkle 路径）.png" alt="交易详情（含 Merkle 路径）"></a>
+    <a href="screens/06-交易详情（含 Merkle 路径）.png" target="_blank"><img loading="lazy" src="screens/06-交易详情（含 Merkle 路径）.png" alt="交易详情（含 Merkle 路径）"></a>
   </figure></div>
 
   <h2>逐个路由的渲染指标</h2>
@@ -361,132 +411,157 @@
         </tr><tr>
           <td>2</td><td>公众端</td><td><code>/screen</code></td><td>数据公示大屏</td>
           <td class="ok-t">通过</td>
-          <td>1300</td><td>0 / 0</td><td>4</td><td>0</td>
+          <td>1352</td><td>0 / 0</td><td>4</td><td>0</td>
           <td>—</td>
         </tr><tr>
           <td>3</td><td>公众端</td><td><code>/explorer</code></td><td>区块链浏览器</td>
           <td class="ok-t">通过</td>
-          <td>2381</td><td>1 / 12</td><td>0</td><td>0</td>
+          <td>2288</td><td>1 / 12</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>4</td><td>公众端</td><td><code>/notice/40</code></td><td>公告详情</td>
+          <td>4</td><td>公众端</td><td><code>/notice/55</code></td><td>公告详情</td>
           <td class="ok-t">通过</td>
-          <td>260</td><td>0 / 0</td><td>0</td><td>0</td>
+          <td>258</td><td>0 / 0</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
           <td>5</td><td>公众端</td><td><code>/explorer/block/1</code></td><td>区块详情</td>
           <td class="ok-t">通过</td>
-          <td>1377</td><td>1 / 6</td><td>0</td><td>0</td>
+          <td>1520</td><td>1 / 7</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>6</td><td>公众端</td><td><code>/explorer/tx/9673959bda4a09f1ec2af02971b19d61fed70c38b17f2b2642857ce40cf91b28</code></td><td>交易详情（含 Merkle 路径）</td>
+          <td>6</td><td>公众端</td><td><code>/explorer/tx/26a2b797492e4608786e275843764fe48dfaad3847dab1f95f1dc713da973d42</code></td><td>交易详情（含 Merkle 路径）</td>
           <td class="ok-t">通过</td>
-          <td>1341</td><td>0 / 0</td><td>0</td><td>0</td>
+          <td>1339</td><td>0 / 0</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
           <td>7</td><td>企业端</td><td><code>/ent/overview</code></td><td>ENT-企业总览</td>
           <td class="ok-t">通过</td>
-          <td>986</td><td>1 / 3</td><td>2</td><td>0</td>
+          <td>1013</td><td>1 / 3</td><td>2</td><td>0</td>
           <td>—</td>
         </tr><tr>
           <td>8</td><td>企业端</td><td><code>/ent/reports</code></td><td>ENT-碳排放上报</td>
           <td class="ok-t">通过</td>
-          <td>1271</td><td>1 / 9</td><td>0</td><td>0</td>
+          <td>1088</td><td>1 / 7</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>9</td><td>企业端</td><td><code>/ent/quota</code></td><td>ENT-碳配额账户</td>
+          <td>9</td><td>企业端</td><td><code>/ent/dynamic</code></td><td>ENT-动态核算</td>
           <td class="ok-t">通过</td>
-          <td>765</td><td>2 / 5</td><td>0</td><td>0</td>
+          <td>7551</td><td>2 / 108</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>10</td><td>企业端</td><td><code>/ent/trade</code></td><td>ENT-碳配额交易</td>
+          <td>10</td><td>企业端</td><td><code>/ent/credit</code></td><td>ENT-碳信用与抵销</td>
           <td class="ok-t">通过</td>
-          <td>1207</td><td>2 / 9</td><td>1</td><td>0</td>
+          <td>618</td><td>2 / 1</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>11</td><td>企业端</td><td><code>/ent/analytics</code></td><td>ENT-数据分析</td>
+          <td>11</td><td>企业端</td><td><code>/ent/quota</code></td><td>ENT-碳配额账户</td>
           <td class="ok-t">通过</td>
-          <td>368</td><td>0 / 0</td><td>4</td><td>0</td>
+          <td>776</td><td>2 / 5</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>12</td><td>企业端</td><td><code>/ent/wallet</code></td><td>ENT-链上身份</td>
+          <td>12</td><td>企业端</td><td><code>/ent/trade</code></td><td>ENT-碳配额交易</td>
           <td class="ok-t">通过</td>
-          <td>1167</td><td>1 / 9</td><td>0</td><td>0</td>
+          <td>1027</td><td>2 / 6</td><td>1</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>13</td><td>企业端</td><td><code>/ent/notices</code></td><td>ENT-通知公告</td>
+          <td>13</td><td>企业端</td><td><code>/ent/analytics</code></td><td>ENT-数据分析</td>
           <td class="ok-t">通过</td>
-          <td>783</td><td>1 / 10</td><td>0</td><td>0</td>
+          <td>379</td><td>0 / 0</td><td>4</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>14</td><td>核查机构端</td><td><code>/ver/overview</code></td><td>VER-核查总览</td>
+          <td>14</td><td>企业端</td><td><code>/ent/wallet</code></td><td>ENT-链上身份</td>
           <td class="ok-t">通过</td>
-          <td>877</td><td>2 / 9</td><td>2</td><td>0</td>
+          <td>1030</td><td>1 / 7</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>15</td><td>核查机构端</td><td><code>/ver/tasks</code></td><td>VER-核查任务</td>
+          <td>15</td><td>企业端</td><td><code>/ent/notices</code></td><td>ENT-通知公告</td>
           <td class="ok-t">通过</td>
-          <td>961</td><td>1 / 9</td><td>0</td><td>0</td>
+          <td>814</td><td>1 / 10</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>16</td><td>核查机构端</td><td><code>/ver/reports</code></td><td>VER-核查报告</td>
+          <td>16</td><td>核查机构端</td><td><code>/ver/overview</code></td><td>VER-核查总览</td>
           <td class="ok-t">通过</td>
-          <td>1044</td><td>1 / 8</td><td>0</td><td>0</td>
+          <td>876</td><td>2 / 9</td><td>2</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>17</td><td>核查机构端</td><td><code>/ver/wallet</code></td><td>VER-机构链上身份</td>
+          <td>17</td><td>核查机构端</td><td><code>/ver/tasks</code></td><td>VER-核查任务</td>
           <td class="ok-t">通过</td>
-          <td>1026</td><td>1 / 8</td><td>0</td><td>0</td>
+          <td>960</td><td>1 / 9</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>18</td><td>核查机构端</td><td><code>/ver/notices</code></td><td>VER-通知公告</td>
+          <td>18</td><td>核查机构端</td><td><code>/ver/reports</code></td><td>VER-核查报告</td>
           <td class="ok-t">通过</td>
-          <td>696</td><td>1 / 10</td><td>0</td><td>0</td>
+          <td>1043</td><td>1 / 8</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>19</td><td>监管端</td><td><code>/reg/overview</code></td><td>REG-监管总览</td>
+          <td>19</td><td>核查机构端</td><td><code>/ver/wallet</code></td><td>VER-机构链上身份</td>
           <td class="ok-t">通过</td>
-          <td>1681</td><td>3 / 28</td><td>5</td><td>0</td>
+          <td>1025</td><td>1 / 8</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>20</td><td>监管端</td><td><code>/reg/enterprises</code></td><td>REG-企业名录</td>
+          <td>20</td><td>核查机构端</td><td><code>/ver/notices</code></td><td>VER-通知公告</td>
           <td class="ok-t">通过</td>
-          <td>1424</td><td>1 / 12</td><td>0</td><td>0</td>
+          <td>713</td><td>1 / 10</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>21</td><td>监管端</td><td><code>/reg/allocations</code></td><td>REG-配额分配</td>
+          <td>21</td><td>监管端</td><td><code>/reg/overview</code></td><td>REG-监管总览</td>
           <td class="ok-t">通过</td>
-          <td>1501</td><td>1 / 12</td><td>0</td><td>0</td>
+          <td>1795</td><td>3 / 28</td><td>5</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>22</td><td>监管端</td><td><code>/reg/trades</code></td><td>REG-交易监管</td>
+          <td>22</td><td>监管端</td><td><code>/reg/enterprises</code></td><td>REG-企业名录</td>
           <td class="ok-t">通过</td>
-          <td>1812</td><td>2 / 16</td><td>0</td><td>0</td>
+          <td>1443</td><td>1 / 12</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>23</td><td>监管端</td><td><code>/reg/alerts</code></td><td>REG-预警处置</td>
+          <td>23</td><td>监管端</td><td><code>/reg/allocations</code></td><td>REG-配额分配</td>
           <td class="ok-t">通过</td>
-          <td>1287</td><td>1 / 12</td><td>0</td><td>0</td>
+          <td>1484</td><td>1 / 12</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>24</td><td>监管端</td><td><code>/reg/stats</code></td><td>REG-统计分析</td>
+          <td>24</td><td>监管端</td><td><code>/reg/trades</code></td><td>REG-交易监管</td>
           <td class="ok-t">通过</td>
-          <td>1424</td><td>1 / 20</td><td>4</td><td>0</td>
+          <td>1830</td><td>2 / 16</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>25</td><td>监管端</td><td><code>/reg/logs</code></td><td>REG-操作日志</td>
+          <td>25</td><td>监管端</td><td><code>/reg/dynamic</code></td><td>REG-动态核算监管</td>
           <td class="ok-t">通过</td>
-          <td>1508</td><td>1 / 15</td><td>0</td><td>0</td>
+          <td>5089</td><td>1 / 60</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>26</td><td>监管端</td><td><code>/reg/system</code></td><td>REG-系统设置</td>
+          <td>26</td><td>监管端</td><td><code>/reg/credit</code></td><td>REG-碳资产总览</td>
           <td class="ok-t">通过</td>
-          <td>875</td><td>1 / 4</td><td>0</td><td>0</td>
+          <td>3866</td><td>2 / 42</td><td>0</td><td>0</td>
           <td>—</td>
         </tr><tr>
-          <td>27</td><td>监管端</td><td><code>/reg/notices</code></td><td>REG-通知公告</td>
+          <td>27</td><td>监管端</td><td><code>/reg/alerts</code></td><td>REG-预警处置</td>
           <td class="ok-t">通过</td>
-          <td>1032</td><td>1 / 12</td><td>0</td><td>0</td>
+          <td>1516</td><td>1 / 12</td><td>0</td><td>0</td>
+          <td>—</td>
+        </tr><tr>
+          <td>28</td><td>监管端</td><td><code>/reg/stats</code></td><td>REG-统计分析</td>
+          <td class="ok-t">通过</td>
+          <td>1442</td><td>1 / 20</td><td>4</td><td>0</td>
+          <td>—</td>
+        </tr><tr>
+          <td>29</td><td>监管端</td><td><code>/reg/logs</code></td><td>REG-操作日志</td>
+          <td class="ok-t">通过</td>
+          <td>1544</td><td>1 / 15</td><td>0</td><td>0</td>
+          <td>—</td>
+        </tr><tr>
+          <td>30</td><td>监管端</td><td><code>/reg/consortium</code></td><td>REG-联盟链治理</td>
+          <td class="ok-t">通过</td>
+          <td>1051</td><td>1 / 5</td><td>0</td><td>0</td>
+          <td>—</td>
+        </tr><tr>
+          <td>31</td><td>监管端</td><td><code>/reg/system</code></td><td>REG-系统设置</td>
+          <td class="ok-t">通过</td>
+          <td>893</td><td>1 / 4</td><td>0</td><td>0</td>
+          <td>—</td>
+        </tr><tr>
+          <td>32</td><td>监管端</td><td><code>/reg/notices</code></td><td>REG-通知公告</td>
+          <td class="ok-t">通过</td>
+          <td>1056</td><td>1 / 12</td><td>0</td><td>0</td>
           <td>—</td>
         </tr>
       </tbody>

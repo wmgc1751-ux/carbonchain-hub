@@ -20,13 +20,17 @@
       const password = ref('');
       const loading = ref(false);
       const accounts = ref([]);
+      const demoClosed = ref(false); // 演示账号接口被服务端按安全策略关闭（线上默认）
       const err = ref('');
       const pact = ref(null);
 
       onMounted(async () => {
         try {
           accounts.value = await App.API.request('GET', '/auth/demo-accounts', null, { noAuth: true });
-        } catch (e) { /* 后端未就绪时静默 */ }
+        } catch (e) {
+          // 提示语含「关闭」= 服务端按安全策略关闭了该接口（线上默认），并非服务异常
+          if (e && /关闭/.test(e.message || '')) demoClosed.value = true;
+        }
         try {
           pact.value = await App.API.get('/chain/stats');
         } catch (e) { /* ignore */ }
@@ -153,7 +157,10 @@
             ]))),
 
             accounts.value.length === 0 && h('div', { class: 'alertbar warn' },
-              [h('x-icon', { name: 'alert', size: 15 }), '未读取到演示账号，请确认后端服务已启动且数据库已初始化。']),
+              [h('x-icon', { name: 'alert', size: 15 }),
+                demoClosed.value
+                  ? '当前为线上环境，演示账号列表已按安全策略关闭（不对外泄露口令）。请使用已知账号登录。'
+                  : '未读取到演示账号，请确认后端服务已启动且数据库已初始化。']),
 
             h('div', { class: 'mt-20 flex gap-8 wrap' }, [
               h('button', { class: 'btn ghost sm', onClick: () => App.go('/screen') }, [

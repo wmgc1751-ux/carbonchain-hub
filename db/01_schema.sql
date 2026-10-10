@@ -285,7 +285,7 @@ CREATE TABLE trade_deal (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='碳配额成交记录表';
 
 -- ---------------------------------------------------------------------
--- 12. chain_block  区块链区块表（哈希链 + Merkle 根 + PoW）
+-- 12. chain_block  区块链区块表（联盟链：哈希链 + Merkle 根 + PoA 授权出块）
 -- ---------------------------------------------------------------------
 CREATE TABLE chain_block (
   id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -293,8 +293,11 @@ CREATE TABLE chain_block (
   block_hash  VARCHAR(80)  NOT NULL                COMMENT '区块哈希(SHA-256)',
   prev_hash   VARCHAR(80)  NOT NULL                COMMENT '前一区块哈希',
   merkle_root VARCHAR(80)  NOT NULL                COMMENT '交易 Merkle 根',
-  nonce       BIGINT       NOT NULL DEFAULT 0      COMMENT 'PoW 随机数',
-  difficulty  INT          NOT NULL DEFAULT 3      COMMENT '难度(前导零个数)',
+  nonce       BIGINT       NOT NULL DEFAULT 0      COMMENT '随机数(历史 PoW 块为该块工作量证明的 nonce)',
+  difficulty  INT          NOT NULL DEFAULT 0      COMMENT '难度(历史 PoW 块为前导零个数；PoA 块为 0)',
+  consensus   VARCHAR(10)  NOT NULL DEFAULT 'POA'  COMMENT '共识类型: POA 授权证明 / POW 工作量证明(历史块)',
+  proposer    VARCHAR(80)           DEFAULT NULL   COMMENT '本轮出块的联盟授权节点标识',
+  proposer_sig VARCHAR(255)         DEFAULT NULL   COMMENT '出块节点对区块头的 ECDSA 签名',
   tx_count    INT          NOT NULL DEFAULT 0      COMMENT '打包交易数',
   miner       VARCHAR(80)           DEFAULT NULL   COMMENT '出块节点标识',
   size_bytes  INT          NOT NULL DEFAULT 0      COMMENT '区块大小(字节)',
@@ -304,8 +307,9 @@ CREATE TABLE chain_block (
   PRIMARY KEY (id),
   UNIQUE KEY uk_block_index (block_index),
   KEY idx_block_hash (block_hash),
-  KEY idx_block_time (block_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='区块链区块表';
+  KEY idx_block_time (block_time),
+  KEY idx_block_proposer (proposer)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联盟链区块表';
 
 -- ---------------------------------------------------------------------
 -- 13. chain_tx  链上交易（业务动作的可信存证）
@@ -396,5 +400,149 @@ CREATE TABLE notice (
   KEY idx_notice_type (notice_type),
   KEY idx_notice_time (publish_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台通知公告表';
+
+-- ---------------------------------------------------------------------
+-- 17. chain_node  联盟链成员节点（准入白名单 + 出块权 + 副本状态）
+--     联盟链的本质：参与方是"许可制"的成员，各成员节点共同出块并各自持链。
+-- ---------------------------------------------------------------------
+CREATE TABLE chain_node (
+  id              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  node_id         VARCHAR(40)  NOT NULL                COMMENT '节点标识 如 node-regulator-01',
+  node_name       VARCHAR(80)  NOT NULL                COMMENT '节点名称',
+  org_type        VARCHAR(20)  NOT NULL                COMMENT '机构类型: REGULATOR 监管 / VERIFIER 核查 / ENTERPRISE 企业 / AUDITOR 审计',
+  org_name        VARCHAR(120)          DEFAULT NULL   COMMENT '所属机构名称',
+  wallet_address  VARCHAR(80)           DEFAULT NULL   COMMENT '节点钱包地址(链上身份)',
+  public_key      TEXT                  DEFAULT NULL   COMMENT '节点公钥 PEM(用于验证该节点的出块签名)',
+  status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '状态: PENDING 待审批 / ACTIVE 已授权 / REVOKED 已吊销',
+  is_authorized   TINYINT      NOT NULL DEFAULT 0      COMMENT '是否具备出块权(联盟授权)',
+  vote_weight     INT          NOT NULL DEFAULT 1      COMMENT '轮值权重(权重越高被选中出块的概率越大)',
+  last_propose_at DATETIME              DEFAULT NULL   COMMENT '最近一次出块时间',
+  proposed_blocks INT          NOT NULL DEFAULT 0      COMMENT '累计出块数',
+  replica_height  BIGINT       NOT NULL DEFAULT -1     COMMENT '本地链副本已同步高度(-1 表示尚未同步)',
+  replica_tip     VARCHAR(80)           DEFAULT NULL   COMMENT '本地副本链顶哈希',
+  applied_at      DATETIME              DEFAULT NULL   COMMENT '申请加入时间',
+  approved_at     DATETIME              DEFAULT NULL   COMMENT '审批通过时间',
+  remark          VARCHAR(255)          DEFAULT NULL   COMMENT '备注/审批意见',
+  created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_node_id (node_id),
+  KEY idx_node_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联盟链成员节点表';
+
+-- ---------------------------------------------------------------------
+-- 18. chain_node_replica  各成员节点的本地链副本
+--     每同步一个区块插一行，用于证明"每个节点各自持有全量链副本"，
+--     并可对比各节点链顶哈希是否与主链一致（可发现被篡改的节点）。
+-- ---------------------------------------------------------------------
+CREATE TABLE chain_node_replica (
+  id          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+  node_id     VARCHAR(40) NOT NULL                COMMENT '节点标识',
+  block_index BIGINT      NOT NULL                COMMENT '已同步到的区块高度',
+  block_hash  VARCHAR(80) NOT NULL                COMMENT '该高度区块哈希(副本中保存的值)',
+  synced_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '同步时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_replica_node_block (node_id, block_index),
+  KEY idx_replica_node (node_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联盟节点链副本表';
+
+-- ---------------------------------------------------------------------
+-- 19. cems_reading  在线监测(CEMS)实测读数
+--     工业场景的"动态核算"来源：排口在线监测设备按小时推送烟气流量与
+--     折算排放速率，替代人工季度填报，使核算从"周期性离线"变为"准实时滚动"。
+-- ---------------------------------------------------------------------
+CREATE TABLE cems_reading (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id       BIGINT        NOT NULL                COMMENT '企业ID',
+  monitor_no   VARCHAR(40)   NOT NULL                COMMENT '监测点(排口)编号',
+  energy_type  VARCHAR(30)   NOT NULL                COMMENT '能源品种/排放源',
+  reading_time DATETIME      NOT NULL                COMMENT '采样时间',
+  flow_value   DECIMAL(16,3) NOT NULL DEFAULT 0      COMMENT '瞬时排放速率(tCO2e/h)',
+  cum_value    DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '当期累计排放(tCO2e)',
+  o2_content   DECIMAL(6,2)           DEFAULT NULL   COMMENT '烟气含氧量(%)',
+  temperature  DECIMAL(6,2)           DEFAULT NULL   COMMENT '烟气温度(℃)',
+  source       VARCHAR(20)   NOT NULL DEFAULT 'CEMS' COMMENT '数据来源 CEMS 在线监测 / MANUAL 人工补录',
+  status       VARCHAR(20)   NOT NULL DEFAULT 'NORMAL' COMMENT '数据状态 NORMAL 正常 / ABNORMAL 异常',
+  batch_no     VARCHAR(40)            DEFAULT NULL   COMMENT '采数批次号(同批次整体上链)',
+  chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '该批次上链存证交易号',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_cems_point (ent_id, monitor_no, reading_time),
+  KEY idx_cems_ent_time (ent_id, reading_time),
+  KEY idx_cems_time (reading_time),
+  KEY idx_cems_batch (batch_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CEMS 在线监测读数表（同一排口同一时刻唯一，采数幂等）';
+
+-- ---------------------------------------------------------------------
+-- 20. carbon_dynamic_account  企业动态核算账户（滚动核算结果）
+--     由 CEMS 实测读数滚动计算：周期累计排放、期末预测、配额缺口、履约风险。
+-- ---------------------------------------------------------------------
+CREATE TABLE carbon_dynamic_account (
+  id                  BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id              BIGINT        NOT NULL                COMMENT '企业ID',
+  year                INT           NOT NULL                COMMENT '核算年度',
+  period              VARCHAR(10)   NOT NULL                COMMENT '当前核算周期 如 2026Q4',
+  cumulative_emission DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '本年度累计实测排放(tCO2e)',
+  quota_allocated     DECIMAL(16,3) NOT NULL DEFAULT 0      COMMENT '本年度已分配配额(tCO2e)',
+  quota_available     DECIMAL(16,3) NOT NULL DEFAULT 0      COMMENT '当前可用配额余额(tCO2e)',
+  gap                 DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '预计期末配额缺口(预测期末排放-已分配配额，正=预计超排，负=预计盈余)',
+  predicted_eoy       DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '按当前滚动排放速率预测的期末排放(tCO2e,抵销前)',
+  offset_applied      DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '已用碳信用抵销量(tCO2e)',
+  emission_rate       DECIMAL(16,4) NOT NULL DEFAULT 0      COMMENT '滚动日均排放速率(tCO2e/天)',
+  risk_level          VARCHAR(10)   NOT NULL DEFAULT 'LOW'  COMMENT '履约风险 LOW 低 / MEDIUM 中 / HIGH 高',
+  data_points         INT           NOT NULL DEFAULT 0      COMMENT '参与核算的实测点数',
+  last_reading_at     DATETIME               DEFAULT NULL   COMMENT '最近一次实测数据时间',
+  updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '核算更新时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_dyn_ent_year (ent_id, year),
+  KEY idx_dyn_risk (risk_level)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业动态核算账户表';
+
+-- ---------------------------------------------------------------------
+-- 21. credit_asset  碳信用资产（国家核证自愿减排量 CCER 等）
+--     除"碳配额"外的第二类碳资产：企业持有的自愿减排量，可用于抵销履约缺口。
+-- ---------------------------------------------------------------------
+CREATE TABLE credit_asset (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id       BIGINT        NOT NULL                COMMENT '持有企业ID',
+  asset_no     VARCHAR(40)   NOT NULL                COMMENT '资产编号',
+  asset_type   VARCHAR(30)   NOT NULL                COMMENT '资产类型 CCER 国家核证自愿减排量 / 林业碳汇 / 绿证',
+  project_name VARCHAR(120)           DEFAULT NULL   COMMENT '减排项目名称',
+  amount       DECIMAL(16,3) NOT NULL DEFAULT 0      COMMENT '持有量(tCO2e)',
+  used_amount  DECIMAL(16,3) NOT NULL DEFAULT 0      COMMENT '已抵销使用量(tCO2e)',
+  issue_year   INT                    DEFAULT NULL   COMMENT '签发年度',
+  valid_until  DATE                   DEFAULT NULL   COMMENT '有效期截止',
+  registry     VARCHAR(120)           DEFAULT NULL   COMMENT '登记机构',
+  status       VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT '状态 ACTIVE 可用 / USED 已用尽 / EXPIRED 过期',
+  chain_block_index INT              DEFAULT NULL    COMMENT '签发存证区块高度',
+  chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '签发存证交易号',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_credit_asset_no (asset_no),
+  KEY idx_credit_ent (ent_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='碳信用资产表（配额之外的碳资产类型）';
+
+-- ---------------------------------------------------------------------
+-- 22. credit_offset  碳信用抵销使用流水
+--     企业用碳信用抵销本年度配额缺口（受抵销比例上限约束），抵销即上链存证。
+-- ---------------------------------------------------------------------
+CREATE TABLE credit_offset (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  offset_no    VARCHAR(40)   NOT NULL                COMMENT '抵销单号',
+  ent_id       BIGINT        NOT NULL                COMMENT '企业ID',
+  year         INT           NOT NULL                COMMENT '抵销年度',
+  asset_id     BIGINT        NOT NULL                COMMENT '使用的碳信用资产ID',
+  amount       DECIMAL(16,3) NOT NULL                COMMENT '本次抵销量(tCO2e)',
+  ratio_limit  DECIMAL(8,4)  NOT NULL DEFAULT 0.05   COMMENT '抵销比例上限(占配额)',
+  quota_before DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '抵销前预计缺口(tCO2e)',
+  quota_after  DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '抵销后预计缺口(tCO2e)',
+  operator     VARCHAR(40)            DEFAULT NULL   COMMENT '经办人',
+  chain_block_index INT              DEFAULT NULL    COMMENT '存证区块高度',
+  chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '存证交易号',
+  status       VARCHAR(20)   NOT NULL DEFAULT 'CONFIRMED' COMMENT '状态',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_offset_no (offset_no),
+  KEY idx_offset_ent (ent_id, year)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='碳信用抵销流水表';
 
 SET FOREIGN_KEY_CHECKS = 1;

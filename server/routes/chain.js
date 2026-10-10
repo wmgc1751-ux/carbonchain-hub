@@ -58,8 +58,9 @@ router.get('/stats', wrap(async (req, res) => {
 /* 区块列表 ---------------------------------------------------------- */
 router.get('/blocks', wrap(async (req, res) => {
   const page = await db.paginate(
-    `SELECT block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, tx_count,
-            miner, size_bytes, mine_time, UNIX_TIMESTAMP(block_time) AS ts, block_time
+    `SELECT block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, consensus,
+            proposer, proposer_sig, tx_count, miner, size_bytes, mine_time,
+            UNIX_TIMESTAMP(block_time) AS ts, block_time
      FROM chain_block ORDER BY block_index DESC`, [], req.query
   );
   ok(res, page);
@@ -82,16 +83,29 @@ router.get('/blocks/:index', wrap(async (req, res) => {
   const block = {
     index: Number(b.block_index), hash: b.block_hash, prevHash: b.prev_hash,
     merkleRoot: b.merkle_root, nonce: Number(b.nonce), difficulty: Number(b.difficulty),
+    consensus: b.consensus || 'POW', proposer: b.proposer || null, proposerSig: b.proposer_sig || null,
     txCount: Number(b.tx_count), miner: b.miner, sizeBytes: Number(b.size_bytes),
     mineTime: Number(b.mine_time), blockTime: b.block_time, timestamp: Number(b.ts),
   };
   // 现场重算：本区块记录哈希与实时重算哈希是否一致
   const recomputed = require('../blockchain/chain').Blockchain.calcHash(block);
+  // PoA 出块签名现场验签（证明是本轮授权节点出的块）
+  let proposerSigValid = null;
+  if (block.consensus === 'POA' && block.proposerSig) {
+    try {
+      const node = await db.one('SELECT public_key FROM chain_node WHERE node_id = ?', [block.proposer]);
+      const pub = node && node.public_key
+        ? node.public_key
+        : require('../blockchain/keystore').all()[`node:${block.proposer}`]?.publicKey;
+      proposerSigValid = !!(pub && cu.verify(pub, require('../blockchain/chain').Blockchain.signingPayload(block), block.proposerSig));
+    } catch (e) { proposerSigValid = null; }
+  }
 
   ok(res, {
     block,
     recomputedHash: recomputed,
     hashMatch: recomputed === block.hash,
+    proposerSigValid,
     // 注意：这里的 block 是上面重塑过的驼峰对象，字段名是 merkleRoot；
     // 早前误写成 block.merkle_root（那是原始行 b 的字段名），
     // 导致恒为 undefined、rootMatches 永远是 false。改回 merkleRoot 后与 b 同源一致。
@@ -190,7 +204,7 @@ router.get('/validate', wrap(async (req, res) => {
     errorCount: r.errors.length,
     criteria: [
       '① 逐块重算 SHA-256，比对记录的区块哈希',
-      '② 校验每块是否满足 PoW 难度（前导零个数）',
+      '② 校验每块的共识合法性：PoA 块验「出块节点签名 + 联盟授权资格」；历史 PoW 块验难度前导零',
       '③ 校验 prevHash 是否指向上一区块（链是否连续）',
       '④ 由链上交易表重算 Merkle 根，与区块头比对（交易是否被增删改）',
     ],

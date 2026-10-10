@@ -66,7 +66,7 @@
           const from = panel.value && panel.value.data ? panel.value.data.blockIndex : Number(tamper.blockIndex);
           const r = await App.API.request('POST', '/chain/repair', { fromIndex: from }, { noAuth: true });
           panel.value = { kind: 'repair', data: r };
-          App.notify.ok(`已重算 ${r.repaired.length} 个区块的哈希并重做工作量证明（耗时 ${r.repaired.reduce((a, b) => a + b.cost, 0)}ms）`);
+          App.notify.ok(`已重算 ${r.repaired.length} 个区块的哈希并按共识重新出块（耗时 ${r.repaired.reduce((a, b) => a + b.cost, 0)}ms）`);
           await loadStats(); await loadBlocks();
         } catch (e) { App.notify.err(e.message); } finally { busy.value = false; }
       }
@@ -83,8 +83,8 @@
       const chainStatus = computed(() => {
         if (!validation.value) return { cls: 'info', text: '正在校验全链完整性…' };
         return validation.value.valid
-          ? { cls: 'ok', text: `全链完整性校验通过 —— 已校验 ${validation.value.checkedBlocks} 个区块，哈希链、PoW 难度、Merkle 根全部一致` }
-          : { cls: 'err', text: `全链校验失败 —— 发现 ${validation.value.errorCount} 处异常，链上数据已被篡改或有节点作恶` };
+          ? { cls: 'ok', text: `全链完整性校验通过 —— 已校验 ${validation.value.checkedBlocks} 个区块，哈希链、PoA 出块签名、Merkle 根全部一致` }
+          : { cls: 'err', text: `全链校验失败 —— 发现 ${validation.value.errorCount} 处异常，链上数据已被篡改或存在未授权节点出块` };
       });
 
       return () => h('div', {}, [
@@ -111,10 +111,10 @@
             stats.value && h('div', { class: 'grid g6 mb-16' }, [
               h('x-kpi', { label: '区块高度', value: App.fmt.num(stats.value.height), icon: 'block', tone: 'chain', foot: `共 ${stats.value.totalBlocks} 块` }),
               h('x-kpi', { label: '链上交易', value: App.fmt.num(stats.value.confirmed), icon: 'chain', tone: 'carbon', foot: `待打包 ${stats.value.pending}` }),
-              h('x-kpi', { label: 'PoW 难度', value: stats.value.difficulty, unit: '个前导零', icon: 'target', tone: 'violet', foot: `平均出块 ${stats.value.avgMineTime}ms` }),
+              h('x-kpi', { label: '共识机制', value: stats.value.consensusMode || 'PoA', icon: 'shield', tone: 'violet', foot: '联盟授权节点轮值出块' }),
               h('x-kpi', { label: '链上数据量', value: App.fmt.bytes(stats.value.totalSize), icon: 'db', tone: 'sky', foot: `${stats.value.totalTxInBlocks} 笔交易` }),
-              h('x-kpi', { label: '出块节点', value: stats.value.node, icon: 'factory', tone: 'carbon', foot: '联盟链单节点演示' }),
-              h('x-kpi', { label: '共识机制', value: 'PoW', icon: 'shield', tone: 'chain', foot: '最长链原则' }),
+              h('x-kpi', { label: '联盟节点', value: stats.value.activeNodes != null ? stats.value.activeNodes : '-', unit: '个', icon: 'factory', tone: 'carbon', foot: '已获出块授权' }),
+              h('x-kpi', { label: 'PoA 区块', value: App.fmt.num(stats.value.poaBlocks != null ? stats.value.poaBlocks : stats.value.totalBlocks), icon: 'chain', tone: 'chain', foot: '无挖矿·即出即确认' }),
             ]),
 
             /* 链式可视化 */
@@ -162,7 +162,7 @@
                     }, [
                       h('option', { value: 'merkle_root' }, 'merkle_root（交易 Merkle 根）'),
                       h('option', { value: 'prev_hash' }, 'prev_hash（前向哈希）'),
-                      h('option', { value: 'nonce' }, 'nonce（工作量证明随机数）'),
+                      h('option', { value: 'nonce' }, 'nonce（出块序号 / 随机数）'),
                       h('option', { value: 'block_time' }, 'block_time（出块时间）'),
                     ]),
                   ]),
@@ -170,7 +170,7 @@
                     h('x-icon', { name: 'alert', size: 15 }), busy.value ? '处理中…' : '模拟恶意篡改',
                   ]),
                   panel.value && h('button', { class: 'btn chain', disabled: busy.value, onClick: doRepair }, [
-                    h('x-icon', { name: 'refresh', size: 15 }), '重做工作量证明并修复',
+                    h('x-icon', { name: 'refresh', size: 15 }), '按共识重新出块并修复',
                   ]),
                 ]),
 
@@ -179,7 +179,7 @@
                     h('b', {}, panel.value.kind === 'tamper' ? '篡改操作记录' : '修复操作记录'), h('br'),
                     panel.value.kind === 'tamper'
                       ? `区块 #${panel.value.data.blockIndex} · 字段 ${panel.value.data.field}\n原值：${String(panel.value.data.before).slice(0, 72)}\n新值：${String(panel.value.data.after).slice(0, 72)}`
-                      : `从区块 #${panel.value.data.fromIndex} 起重算 ${panel.value.data.repaired.length} 个区块，累计重做 PoW 耗时 ${panel.value.data.repaired.reduce((a, b) => a + b.cost, 0)} ms`,
+                      : `从区块 #${panel.value.data.fromIndex} 起重算 ${panel.value.data.repaired.length} 个区块哈希并重新完成 PoA 出块签名`,
                   ]),
                   h('div', { class: ['alertbar', panel.value.data.validation.valid ? 'ok' : 'err', 'mb-12'] }, [
                     h('x-icon', { name: panel.value.data.validation.valid ? 'check' : 'alert', size: 15 }),
@@ -195,14 +195,14 @@
                   h('div', { class: 'alertbar info mt-12' }, [
                     h('x-icon', { name: 'info', size: 15 }),
                     h('div', {}, panel.value.kind === 'tamper'
-                      ? '攻击者可以改掉自己机器上的数据库，但改完之后：① 本区块哈希对不上；② 后一个区块的 prevHash 指不过来；③ Merkle 根与交易表不一致；④ PoW 难度不再满足。只要网络中有任何一个诚实的全节点，这次篡改就会被全网发现。'
-                      : '要让篡改后的链"看起来正常"，攻击者必须从被改动的区块开始，把后面每一个区块的哈希重新算出来，并为每一个区块重新完成 PoW。区块越往后，重算成本越高 —— 这就是工作量证明的经济学威慑。'),
+                      ? '攻击者可以改掉自己机器上的数据库，但改完之后：① 本区块哈希对不上；② 后一个区块的 prevHash 指不过来；③ Merkle 根与交易表不一致；④ 出块节点的 PoA 签名验不过。只要联盟中有一个诚实的成员节点持有一份未被篡改的副本，这次篡改就会被全网发现。'
+                      : '要让篡改后的链"看起来正常"，攻击者必须从被改动的区块开始重算后面每一个区块的哈希，并重新伪造每个区块出块节点（联盟授权成员）的私钥签名 —— 而出块私钥分散在各成员机构手中，单一攻击者无法伪造。这就是"许可制 + 多副本"的治理威慑。'),
                   ]),
                 ]),
 
                 !panel.value && h('div', { class: 'alertbar info mt-16' }, [
                   h('x-icon', { name: 'info', size: 15 }),
-                  '提示：实验完成后请点击"重做工作量证明并修复"，把链恢复到可信状态。',
+                  '提示：实验完成后请点击"按共识重新出块并修复"，把链恢复到可信状态。',
                 ]),
               ]),
             }),
@@ -311,8 +311,8 @@
                 h('x-readout', { pass: d.value.hashMatch, label: '区块哈希现场重算比对', detail: d.value.hashMatch ? '记录值 = 重算值' : '记录值 ≠ 重算值' }),
                 h('x-readout', { pass: m.rootMatches, label: 'Merkle 根与交易表比对', detail: m.rootMatches ? '一致' : '不一致' }),
                 h('div', { class: 'readout pass' }, [
-                  h('span', { class: 'flag' }, 'PoW'), h('span', { class: 'k' }, `难度 ${b.difficulty}`),
-                  h('span', { class: 'mono', style: 'margin-left:auto;color:var(--tx-3)' }, '前导零 ' + '0'.repeat(b.difficulty)),
+                  h('span', { class: 'flag' }, b.consensus || 'PoA'), h('span', { class: 'k' }, `出块节点 ${b.proposer || b.miner || '-'}`),
+                  h('span', { class: 'mono', style: 'margin-left:auto;color:var(--tx-3)' }, d.value.proposerSigValid === false ? '出块签名验签失败' : 'PoA 出块签名有效'),
                 ]),
               ]),
 
@@ -324,7 +324,7 @@
                     h('dt', {}, '前向哈希'), h('dd', { class: 'hashbox' }, App.fmt.short(b.prevHash, 30)),
                     h('dt', {}, 'Merkle 根'), h('dd', { class: 'hashbox' }, [h('b', {}, b.merkleRoot)]),
                     h('dt', {}, 'nonce'), h('dd', { class: 'mono' }, String(b.nonce)),
-                    h('dt', {}, '难度'), h('dd', { class: 'mono' }, String(b.difficulty) + ' 个前导零'),
+                    h('dt', {}, '共识 / 出块节点'), h('dd', { class: 'mono' }, (b.consensus || 'PoA') + ' / ' + (b.proposer || b.miner || '-')),
                     h('dt', {}, '出块耗时'), h('dd', { class: 'mono' }, b.mineTime + ' ms'),
                     h('dt', {}, '区块大小'), h('dd', { class: 'mono' }, App.fmt.bytes(b.sizeBytes)),
                     h('dt', {}, '交易数量'), h('dd', {}, b.txCount + ' 笔'),

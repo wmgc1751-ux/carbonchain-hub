@@ -185,11 +185,11 @@ async function login(username, password) {
     console.log(`     ↳ 篡改后校验：valid=${t1.data.validation.valid} 异常数=${t1.data.validation.errors.length}`);
     console.log(`     ↳ 首条异常：${t1.data.validation.errors[0] ? t1.data.validation.errors[0].message : '-'}`);
   }
-  const t2 = await check('修复链（重做 PoW）', 'POST', '/api/chain/repair', { token: rt, body: { fromIndex: tamperIndex } });
+  const t2 = await check('修复链（按共识重新出块）', 'POST', '/api/chain/repair', { token: rt, body: { fromIndex: tamperIndex } });
   if (t2 && t2.data) {
-    console.log(`     ↳ 修复 ${t2.data.repaired.length} 个区块，重做工作量证明总耗时 ${t2.data.repaired.reduce((a, b) => a + b.cost, 0)}ms`);
+    console.log(`     ↳ 修复 ${t2.data.repaired.length} 个区块，重新出块（PoA 重新签名）总耗时 ${t2.data.repaired.reduce((a, b) => a + b.cost, 0)}ms`);
     console.log(`     ↳ 修复后校验：valid=${t2.data.validation.valid} 异常数=${t2.data.validation.errors.length}`);
-    console.log(`     ↳ 注意：重算后整条后缀的区块哈希已全部改变 —— 这说明篡改"成本极高且可被全网察觉"`);
+    console.log(`     ↳ 注意：重算后整条后缀的区块哈希已全部改变 —— 篡改会使全链哈希失效并被各成员节点拒收`);
   }
 
   console.log('\n' + '═'.repeat(64));
