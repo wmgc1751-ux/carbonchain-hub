@@ -321,6 +321,7 @@ signature   = ECDSA-secp256k1-SHA256(交易核心字段, 发起方私钥)
 │   └── scripts/
 │       ├── seed-pools.js           假数据语料池 + 确定性随机数发生器
 │       ├── init-db.js              一键初始化（建表 + 造数 + 建链 + 动态核算自举）
+│       ├── start-prod.js           云托管/生产幂等启动器（结构自检 → 按需初始化 → 起服务）
 │       └── export-sql.js           导出 SQL（结构 / 数据 / 完整备份）
 ├── public/                         前端（无构建，直接托管）
 │   ├── index.html
@@ -384,6 +385,10 @@ npm start
 ```
 
 Windows 用户可直接双击 `init-db.bat` 与 `start.bat`（已内置 `chcp 65001`，避免中文乱码）。
+
+> 云托管 / 生产环境：`npm start` 已指向 `server/scripts/start-prod.js`，
+> 它会先自检数据库结构 —— 不是最新版才执行一次初始化，已是最新版则直接跳过，
+> 因此免费实例反复冷启动不会重复清库重建；初始化失败也只告警不阻塞服务启动。
 
 启动后访问：**http://localhost:8300**
 
@@ -482,13 +487,13 @@ node scripts/record-tour.js    # 自动录制演示视频（需 ffmpeg，可选�
 Windows 控制台默认代码页为 GBK。使用 `start.bat`（已内置 `chcp 65001`），或先执行 `chcp 65001`。
 
 **Q：初始化时间较长？**
-正常现象。`npm run initdb` 会真实执行 900+ 次 ECDSA 签名、163 次 PoA 出块、23,892 条 CEMS 实测读数与首轮滚动核算，实测约 4 秒。
+正常现象。`npm run initdb` 会真实执行 900+ 次 ECDSA 签名、163 次 PoA 出块、23,892 条 CEMS 实测读数与首轮滚动核算（本地 MySQL 实测约 4 秒；若数据库在云端，受跨区网络往返影响可能需数分钟）。
 
 **Q：端口 8300 被占用？**
 `set PORT=8400` 后重新启动。
 
 **Q：想清空重来？**
-`npm run initdb` 会 `DROP DATABASE` 后完整重建，可反复执行。
+`npm run initdb` 会完整重建数据表，可反复执行：本地 MySQL 为「`DROP DATABASE` 后重建」；云托管库（设置 `DB_MANAGED=true`）跳过库级语句、逆序 `DROP TABLE` 全部表后重建。
 
 ---
 
