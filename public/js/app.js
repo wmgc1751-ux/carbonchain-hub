@@ -6,7 +6,7 @@
   const { defineComponent, ref, reactive, computed, onMounted, onUnmounted } = Vue;
   const h = App.h;
   const Router = App.Router;
-  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/notice'];
+  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/cems', '/notice'];
 
   /* ==================================================================
    * 路由表
@@ -17,6 +17,7 @@
     ['/screen', 'page-screen'],
     ['/explorer', 'page-explorer'],
     ['/verify', 'page-verify'],
+    ['/cems', 'page-cems'],
     ['/explorer/block/:index', 'page-block-detail'],
     ['/explorer/tx/:txId', 'page-tx-detail'],
     ['/notice/:id', 'page-notice'],
@@ -61,6 +62,7 @@
         { path: '/ent/overview', icon: 'dash', label: '企业总览' },
         { path: '/ent/reports', icon: 'report', label: '碳排放上报' },
         { path: '/ent/dynamic', icon: 'leaf', label: '动态核算' },
+        { path: '/cems', icon: 'factory', label: 'CEMS 实测监控' },
         { path: '/ent/quota', icon: 'coin', label: '碳配额账户' },
       ] },
       { group: '碳资产运营', items: [
@@ -99,6 +101,7 @@
         { path: '/reg/allocations', icon: 'coin', label: '配额分配管理' },
         { path: '/reg/trades', icon: 'trade', label: '碳市场交易监管' },
         { path: '/reg/dynamic', icon: 'leaf', label: '动态核算监管' },
+        { path: '/cems', icon: 'factory', label: 'CEMS 实测监管' },
         { path: '/reg/credit', icon: 'coin', label: '碳资产总览' },
         { path: '/reg/alerts', icon: 'alert', label: '预警与风险处置' },
       ] },
@@ -133,6 +136,7 @@
     '/reg/notices': ['监管端', '通知公告管理'],
     '/explorer': ['公开', '区块链浏览器'], '/screen': ['公开', '数据公示大屏'],
     '/verify': ['公开', '科研验证中心'],
+    '/cems': ['公开', 'CEMS 实测流监控'],
     '/login': ['公开', '登录'],
   };
 
@@ -302,7 +306,7 @@
       function guard() {
         if (!App.Store.user) return;
         const prefix = ROLE_PREFIX[App.Store.user.role];
-        const publicish = ['/login', '/screen', '/explorer', '/verify', '/notice', '/'];
+        const publicish = ['/login', '/screen', '/explorer', '/verify', '/cems', '/notice', '/'];
         if (publicish.some((p) => Router.path === p || Router.path.startsWith(p + '/'))) return;
         if (!Router.path.startsWith(prefix)) {
           App.notify.warn('当前身份无权访问该模块，已返回你的工作台');
@@ -349,6 +353,7 @@
                 h('button', { class: ['btn sm', Router.path === '/screen' && 'primary'], onClick: () => App.go('/screen') }, '公示大屏'),
                 h('button', { class: ['btn sm', Router.path.startsWith('/explorer') && 'primary'], onClick: () => App.go('/explorer') }, '区块链浏览器'),
                 h('button', { class: ['btn sm', Router.path === '/verify' && 'primary'], onClick: () => App.go('/verify') }, '科研验证中心'),
+                h('button', { class: ['btn sm', Router.path === '/cems' && 'primary'], onClick: () => App.go('/cems') }, 'CEMS 监控'),
               ]),
               h('div', { class: 'topbar-right' }, [
                 h('span', { class: 'chip live', title: '链尾哈希 ' + App.Store.chain.tipHash }, [
