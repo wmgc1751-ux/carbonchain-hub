@@ -3,7 +3,7 @@
    ===================================================================== */
 (function () {
   'use strict';
-  const { defineComponent, ref, onMounted, computed } = Vue;
+  const { defineComponent, ref, onMounted, onUnmounted, computed } = Vue;
   const h = App.h;
 
   const ROLE_HOME = {
@@ -69,7 +69,82 @@
       const err = ref('');
       const pact = ref(null);
 
+      /* ---------- Hero 背景视频：双 video 交叉淡化 + 慢放状态机 ----------
+       * 目标：风机旋转速度降低（0.5x）且全程顺滑，消除单 video loop 在
+       * 循环点的画面跳变（割裂感）。
+       * 原理：两份同素材 video 交替播放，A 播到剩余 0.8s（素材时间）时
+       * B 从头启动并淡入、A 同步淡出（实际 1.6s 渐变），A 结束后静默重置，
+       * 角色互换往复。风机始终同向旋转，无方向反转、无位置跳变。 */
+      const heroA = ref(null);
+      const heroB = ref(null);
+      let heroTimer = null;
+      let heroActive = 'a';
+      let heroFallbackUsed = false;
+
+      function heroPlay(v) {
+        if (!v) return;
+        const p = v.play();
+        if (p && p.catch) p.catch(() => {});
+      }
+      function heroSwapSource() {
+        /* 主源加载失败 → 两份 video 都切到兜底源（只切一次） */
+        if (heroFallbackUsed) return;
+        heroFallbackUsed = true;
+        [heroA.value, heroB.value].forEach((v) => {
+          if (!v) return;
+          v.src = HERO_VIDEO_FALLBACK;
+          v.load();
+        });
+        heroActive = 'a';
+        if (heroA.value) heroA.value.style.opacity = '1';
+        if (heroB.value) heroB.value.style.opacity = '0';
+        heroPlay(heroA.value);
+      }
+      function setupHeroCrossFade() {
+        const va = heroA.value, vb = heroB.value;
+        if (!va || !vb) return;
+        const RATE = 0.5;              // 慢放：转速减半，6s 素材 → 12s 一轮
+        const FADE_SRC = 0.8;          // 交叉窗口（素材时间 0.8s ≈ 实际 1.6s）
+        [va, vb].forEach((v) => {
+          v.playbackRate = RATE;
+          v.loop = false;
+          v.muted = true;
+          v.addEventListener('error', heroSwapSource, true);
+        });
+        heroActive = 'a';
+        va.style.opacity = '1';
+        vb.style.opacity = '0';
+        heroPlay(va);
+        heroTimer = setInterval(() => {
+          const A = heroActive === 'a' ? va : vb;
+          const B = heroActive === 'a' ? vb : va;
+          if (!A || !A.duration || A.paused) return;
+          const remain = A.duration - A.currentTime;
+          if (remain <= FADE_SRC && B.paused) {
+            /* 启动 B 并交叉淡化：B 淡入、A 淡出（CSS transition 1.6s） */
+            try { B.currentTime = 0; } catch (e) {}
+            heroPlay(B);
+            B.style.opacity = '1';
+            A.style.opacity = '0';
+            heroActive = heroActive === 'a' ? 'b' : 'a';
+          }
+          if (A.ended || (A.duration && A.currentTime >= A.duration - 0.05)) {
+            A.pause();
+            try { A.currentTime = 0; } catch (e) {}
+          }
+        }, 150);
+      }
+      function teardownHeroCrossFade() {
+        if (heroTimer) { clearInterval(heroTimer); heroTimer = null; }
+        [heroA.value, heroB.value].forEach((v) => {
+          if (!v) return;
+          v.removeEventListener('error', heroSwapSource, true);
+          try { v.pause(); } catch (e) {}
+        });
+      }
+
       onMounted(async () => {
+        setupHeroCrossFade();
         try {
           accounts.value = await App.API.request('GET', '/auth/demo-accounts', null, { noAuth: true });
         } catch (e) {
@@ -83,6 +158,7 @@
           App.go(ROLE_HOME[App.Store.user.role] || '/screen');
         }
       });
+      onUnmounted(teardownHeroCrossFade);
 
       function useAccount(a) {
         username.value = a.username;
@@ -111,13 +187,19 @@
           /* ---------- Hero 首屏：沉浸式科技多媒体背景 ---------- */
           h('section', { class: 'hero' }, [
             h('div', { class: 'hero-media' }, [
+              /* 双 video 交叉淡化 + 0.5x 慢放：消除循环点跳变（割裂感），风机同向慢转 */
               h('video', {
-                class: 'hero-video', autoplay: true, muted: true, loop: true,
-                playsinline: true, preload: 'auto', poster: HERO_POSTER,
-              }, [
-                h('source', { src: HERO_VIDEO, type: 'video/mp4' }),
-                h('source', { src: HERO_VIDEO_FALLBACK, type: 'video/mp4' }),
-              ]),
+                class: 'hero-video', muted: true, autoplay: true, loop: false,
+                playsinline: true, preload: 'auto', poster: HERO_POSTER, src: HERO_VIDEO,
+                style: 'opacity:1;transition:opacity 1.6s linear',
+                ref: (el) => { heroA.value = el; },
+              }),
+              h('video', {
+                class: 'hero-video', muted: true, loop: false,
+                playsinline: true, preload: 'auto', poster: HERO_POSTER, src: HERO_VIDEO,
+                style: 'opacity:0;transition:opacity 1.6s linear',
+                ref: (el) => { heroB.value = el; },
+              }),
               h('div', { class: 'hero-mask' }),
             ]),
             h('div', { class: 'hero-inner' }, [
