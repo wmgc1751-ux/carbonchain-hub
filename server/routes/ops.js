@@ -16,10 +16,14 @@ const express = require('express');
 const monitor = require('../middleware/monitor');
 const slog = require('../middleware/structured-log');
 const canary = require('../middleware/canary');
-const { authRequired, ok, fail } = require('../middleware/auth');
+const { authRequired, requireRole, ok, fail } = require('../middleware/auth');
 const config = require('../config');
 
 const router = express.Router();
+
+/* 运维接口整体需要监管/管理角色 —— 指标、日志、告警、灰度均含内部运行信息，
+ * 一律不得匿名可读（前端 /ops 页亦仅对 REGULATOR/ADMIN 开放）。 */
+router.use(authRequired, requireRole('REGULATOR'));
 
 /* Prometheus 指标（text/plain，version=0.0.4） */
 router.get('/metrics', (req, res) => {

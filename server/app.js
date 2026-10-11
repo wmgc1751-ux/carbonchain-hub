@@ -117,7 +117,6 @@ app.get(/^\/(?!api\/).*/, (req, res) => {
 /* ---------------- 统一异常处理 ---------------- */
 app.use((req, res) => fail(res, '接口不存在', 404));
 app.use((err, req, res, next) => {
-  console.error('[ERROR]', req.method, req.originalUrl, err.message);
   if (res.headersSent) return next(err);
 
   /* 请求体解析失败（express.json 抛出的 body-parser 错误）。
@@ -132,7 +131,18 @@ app.use((err, req, res, next) => {
     return fail(res, '请求体过大（上限 2 MB）', 413);
   }
 
-  fail(res, err.message || '服务器内部错误', err.status || 500);
+  const status = Number(err.status) || 500;
+  if (status >= 500) {
+    /* 未预期的系统异常：细节仅落服务端日志，对外统一泛化文案。
+     * 历史缺陷：业务层 DB 错误被原样回显（如
+     * "Incorrect integer value: 'abc' for column 'quarter' at row 1"），
+     * 泄露库表结构。此处统一收敛；业务规则错误应带 4xx 的 err.status，
+     * 走下面的分支保留可读提示。 */
+    console.error('[ERROR]', req.method, req.originalUrl, err.message, err.stack);
+    return fail(res, '服务器内部错误，请稍后重试', 500);
+  }
+  console.error('[BIZ]', req.method, req.originalUrl, status, err.message);
+  fail(res, err.message || '请求处理失败', status);
 });
 
 /* ---------------- 启动 ---------------- */
