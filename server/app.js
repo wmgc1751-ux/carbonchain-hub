@@ -68,6 +68,16 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ---------------- 生产加固中间件 ----------------
+ * 结构化日志 + 监控指标 + 灰度路由 —— 三件套构成"生产加固"基础设施：
+ *   · structured-log：JSON 日志 + 环形缓冲（/api/ops/logs 可查）
+ *   · monitor：Prometheus 指标 + 阈值告警（/api/ops/metrics, /api/ops/alerts）
+ *   · canary：灰度发布功能开关（?canary=1 或 X-Canary header）
+ */
+app.use(require('./middleware/structured-log').requestLogger);
+app.use(require('./middleware/monitor').middleware);
+app.use(require('./middleware/canary').middleware);
+
 /* ---------------- 业务路由 ---------------- */
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/enterprise', require('./routes/enterprise'));
@@ -78,6 +88,7 @@ app.use('/api/consortium', require('./routes/consortium'));
 app.use('/api/dynamic', require('./routes/dynamic'));
 app.use('/api/credit', require('./routes/credit'));
 app.use('/api/public', require('./routes/public'));
+app.use('/api/ops', require('./routes/ops'));
 
 app.get('/api/health', async (req, res) => {
   try {
