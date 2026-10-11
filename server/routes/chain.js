@@ -3,8 +3,8 @@
  * 区块查询 / 交易查询 / 全链校验 / 篡改演示 / 手动出块
  *
  * 说明：本模块的读接口完全开放（体现"公有链可审计"的特性）；
- * 篡改与修复接口属于教学演示用的受控接口，由 config.chain.demoEndpoints 开关控制，
- * 生产环境应予以关闭或仅对监管节点内网开放。
+ * 篡改 / 还原 / 手动出块属于**破坏性写接口**，由环境变量 CHAIN_DEMO 控制，
+ * **生产环境默认关闭**（安全默认），需显式 CHAIN_DEMO=true 才开放，供答辩演示或内网教学使用。
  */
 'use strict';
 
@@ -24,10 +24,20 @@ const TX_TYPE_CN = {
   ENTERPRISE_REG: '企业备案存证',
 };
 
-/** 演示接口开关（可用环境变量 CHAIN_DEMO=false 关闭） */
-const DEMO = process.env.CHAIN_DEMO !== 'false';
+/**
+ * 演示接口开关（安全默认：线上关闭）。
+ * 原实现为 `process.env.CHAIN_DEMO !== 'false'` —— 即**线上默认开启**，
+ * 意味着公网上任何人都能调用 /api/chain/tamper 去改写链上数据、调用 /repair 重挖后缀块。
+ * 这些是**破坏性写接口**，绝不能默认暴露。现改为与 config.demoAccounts 一致的口径：
+ *   显式 CHAIN_DEMO=true / false 优先；未设置时，只有非生产环境开放。
+ */
+const { isProd } = require('../config');
+const DEMO = process.env.CHAIN_DEMO === 'true'
+  || (process.env.CHAIN_DEMO === undefined && !isProd);
 function demoOnly(req, res, next) {
-  if (!DEMO) return fail(res, '演示接口已在当前环境中关闭', 403);
+  if (!DEMO) {
+    return fail(res, '演示接口已在当前环境关闭（生产环境默认关闭；如需开启请显式设置 CHAIN_DEMO=true）', 403);
+  }
   next();
 }
 
@@ -203,10 +213,12 @@ router.get('/validate', wrap(async (req, res) => {
     errors: r.errors.slice(0, 50),
     errorCount: r.errors.length,
     criteria: [
-      '① 逐块重算 SHA-256，比对记录的区块哈希',
+      '① 逐块重算 SHA-256，比对记录的区块哈希（区块内容是否被改动）',
       '② 校验每块的共识合法性：PoA 块验「出块节点签名 + 联盟授权资格」；历史 PoW 块验难度前导零',
-      '③ 校验 prevHash 是否指向上一区块（链是否连续）',
-      '④ 由链上交易表重算 Merkle 根，与区块头比对（交易是否被增删改）',
+      '③ 校验 prevHash 是否指向上一区块（链是否连续、区块是否被抽换）',
+      '④ 由链上交易表重算 Merkle 根，与区块头比对（区块内交易是否被增删改）',
+      '⑤ 链下重算绑定：用链下业务明文重算 SHA-256，与链上锚定的 payload_hash 比对'
+        + '（链下明细是否被改动而链上锚点未变 —— 这是"链上存证 + 链下存储"结构下唯一的链下完整性出口）',
     ],
   });
 }));
@@ -216,7 +228,18 @@ router.post('/tamper', demoOnly, wrap(async (req, res) => {
   const { blockIndex, field } = req.body || {};
   const chain = await anchorSvc.getChain();
   const r = await chain.tamper(Number(blockIndex), field || 'merkle_root');
-  ok(res, r, `已模拟篡改区块 #${r.blockIndex} 的 ${r.field} 字段，全链校验结果：${r.validation.valid ? '未发现异常' : `发现 ${r.validation.errors.length} 处异常`}`);
+  const msg = r.field === 'offchain_payload'
+    ? `已篡改区块 #${r.blockIndex} 内交易的**链下明细**字段 ${r.changedKey}（链上锚点未动）；`
+      + `全链校验结果：${r.validation.valid ? '链上四道校验均通过、第五道亦未告警' : `发现 ${r.validation.errors.length} 处异常（第五道「链下重算绑定」）`}`
+    : `已模拟篡改区块 #${r.blockIndex} 的 ${r.field} 字段，全链校验结果：${r.validation.valid ? '未发现异常' : `发现 ${r.validation.errors.length} 处异常`}`;
+  ok(res, r, msg);
+}));
+
+/* 还原链下明细篡改（配合 field=offchain_payload 的演示） ---------------- */
+router.post('/repair-payload', demoOnly, wrap(async (req, res) => {
+  const chain = await anchorSvc.getChain();
+  const r = await chain.repairOffChainPayload((req.body || {}).blockIndex);
+  ok(res, r, `已还原 ${r.restored} 笔链下明细，第五道校验结果：${r.validation ? (r.validation.valid ? '通过' : '仍有异常') : '无需校验'}`);
 }));
 
 /* 修复链（重做后缀 PoW） --------------------------------------------- */
