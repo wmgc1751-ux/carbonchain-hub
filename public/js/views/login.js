@@ -13,10 +13,10 @@
     ADMIN: '/reg/overview',
   };
 
-  /* Hero 背景视频：绿色能源主题（风电场主视觉 + 光伏航拍兜底），均已验证 206 video/mp4 可直连 */
-  const HERO_VIDEO = 'https://assets.mixkit.co/videos/4481/4481-720.mp4';
-  const HERO_VIDEO_FALLBACK = 'https://assets.mixkit.co/videos/27222/27222-720.mp4';
-  const HERO_POSTER = 'https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=1600&q=80';
+  /* Hero 背景视频：绿色能源主题（光伏阵列主视觉 + 绿色山谷兜底），均已验证 206 video/mp4 可直连，画面经无头浏览器截图逐一确认 */
+  const HERO_VIDEO = 'https://assets.mixkit.co/videos/27222/27222-720.mp4';
+  const HERO_VIDEO_FALLBACK = 'https://assets.mixkit.co/videos/3025/3025-720.mp4';
+  const HERO_POSTER = 'https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=1600&q=80';
 
   /* Bento Grid：4 块不对称核心能力卡片（背景图 + 动态数据徽章） */
   const BENTO = [
@@ -187,7 +187,7 @@
           /* ---------- Hero 首屏：沉浸式科技多媒体背景 ---------- */
           h('section', { class: 'hero' }, [
             h('div', { class: 'hero-media' }, [
-              /* 双 video 交叉淡化 + 0.5x 慢放：消除循环点跳变（割裂感），风机同向慢转 */
+              /* 双 video 交叉淡化 + 0.5x 慢放：消除循环点跳变（割裂感），画面匀速慢移 */
               h('video', {
                 class: 'hero-video', muted: true, autoplay: true, loop: false,
                 playsinline: true, preload: 'auto', poster: HERO_POSTER, src: HERO_VIDEO,
