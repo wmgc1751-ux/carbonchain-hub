@@ -13,10 +13,10 @@
     ADMIN: '/reg/overview',
   };
 
-  /* Hero 背景视频：已验证可用的直链（原 preview 路径已返回 403，作为兜底保留） */
-  const HERO_VIDEO = 'https://assets.mixkit.co/videos/41484/41484-720.mp4';
-  const HERO_VIDEO_FALLBACK = 'https://assets.mixkit.co/videos/preview/mixkit-digital-animation-of-screens-41484-large.mp4';
-  const HERO_POSTER = 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1600&q=80';
+  /* Hero 背景视频：绿色能源主题（风电场主视觉 + 光伏航拍兜底），均已验证 206 video/mp4 可直连 */
+  const HERO_VIDEO = 'https://assets.mixkit.co/videos/4481/4481-720.mp4';
+  const HERO_VIDEO_FALLBACK = 'https://assets.mixkit.co/videos/27222/27222-720.mp4';
+  const HERO_POSTER = 'https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=1600&q=80';
 
   /* Bento Grid：4 块不对称核心能力卡片（背景图 + 动态数据徽章） */
   const BENTO = [
