@@ -1421,3 +1421,116 @@ table.tbl tr.sel { background: rgba(0, 192, 127, .10); box-shadow: inset 2px 0 0
 /* 表格内等宽数据不换行（避免批次号 / 哈希 / 时间戳被折成两行） */
 .nowrap { white-space: nowrap; }
 .mt-4 { margin-top: 4px; }
+
+/* =====================================================================
+   碳矩阵工业大盘（page-matrix）—— 工业科技级界面
+   参考蚂蚁数科"碳矩阵"产品交互规范
+   ===================================================================== */
+.matrix { display: flex; flex-direction: column; gap: 16px; }
+
+/* ---------- 顶部全局状态栏 ---------- */
+.matrix-head {
+  display: flex; align-items: center; gap: 24px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, rgba(11,26,45,.92), rgba(6,17,30,.88));
+  border: 1px solid rgba(24,144,255,.18);
+  border-radius: 12px;
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 24px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.04);
+}
+.matrix-head-left { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.matrix-title-block { display: flex; flex-direction: column; gap: 2px; }
+.matrix-title { margin: 0; font-size: 16px; font-weight: 700; color: var(--tx-0); letter-spacing: .3px; }
+.matrix-sub { font-size: 11.5px; color: var(--tx-2); font-family: var(--mono); letter-spacing: .2px; }
+.matrix-head-mid { display: flex; align-items: center; gap: 20px; flex: 1; }
+.matrix-head-right { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+
+/* 点位选择器 */
+.matrix-point { display: flex; align-items: center; gap: 8px; }
+.matrix-point-label { font-size: 11.5px; color: var(--tx-2); font-family: var(--mono); }
+.matrix-point-sel {
+  appearance: none; -webkit-appearance: none;
+  background: rgba(6,17,30,.6); color: var(--tx-0);
+  border: 1px solid rgba(24,144,255,.28); border-radius: 6px;
+  padding: 6px 28px 6px 10px; font-size: 12.5px; font-family: var(--mono);
+  cursor: pointer; min-width: 240px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%231890FF' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center;
+}
+.matrix-point-sel:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px rgba(0,192,127,.18); }
+
+/* 呼吸灯 */
+.matrix-leds { display: flex; gap: 14px; }
+.matrix-led {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: 20px;
+  font-size: 11.5px; font-family: var(--mono); color: var(--tx-1);
+  background: rgba(6,17,30,.5); border: 1px solid rgba(255,255,255,.06);
+}
+.led-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  animation: led-pulse 2s ease-in-out infinite;
+}
+.led-green .led-dot { background: #00C07F; box-shadow: 0 0 8px rgba(0,192,127,.8), 0 0 16px rgba(0,192,127,.4); }
+.led-blue .led-dot { background: #1890FF; box-shadow: 0 0 8px rgba(24,144,255,.8), 0 0 16px rgba(24,144,255,.4); animation-delay: 1s; }
+@keyframes led-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .55; transform: scale(.82); }
+}
+
+/* 链高度徽章 */
+.matrix-chain {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; border-radius: 8px;
+  background: linear-gradient(135deg, rgba(0,192,127,.10), rgba(24,144,255,.08));
+  border: 1px solid rgba(0,192,127,.22);
+}
+.matrix-chain-info { display: flex; flex-direction: column; gap: 1px; }
+.matrix-chain-h { font-size: 14px; font-weight: 700; color: var(--brand-l); }
+.matrix-chain-sub { font-size: 10.5px; color: var(--tx-2); font-family: var(--mono); }
+
+/* ---------- BOM 工序碳分摊流水 ---------- */
+.bom-flow { display: flex; flex-direction: column; gap: 4px; }
+.bom-step { padding: 10px 12px; background: rgba(6,17,30,.42); border: 1px solid rgba(255,255,255,.06); border-radius: 8px; }
+.bom-step-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.bom-step-idx {
+  width: 26px; height: 26px; border-radius: 6px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: var(--brand-l);
+  background: rgba(0,192,127,.14); border: 1px solid rgba(0,192,127,.28);
+}
+.bom-step-name { font-size: 13.5px; color: var(--tx-0); font-weight: 600; flex: 1; }
+.bom-step-pct { font-size: 13px; color: var(--brand-l); font-weight: 700; }
+.bom-step-desc { margin-bottom: 6px; }
+.bom-bar { height: 6px; background: rgba(255,255,255,.05); border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
+.bom-bar-fill {
+  height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, rgba(0,192,127,.35), var(--brand));
+  transition: width .6s ease;
+}
+.bom-step-meta { display: flex; color: var(--tx-2); }
+.bom-arrow { text-align: center; color: var(--tx-3); font-size: 14px; line-height: 1; padding: 2px 0; }
+
+/* ---------- HJ 212 报文抽屉 ---------- */
+.hj212-frame { display: flex; flex-direction: column; }
+.hj212-packet {
+  font-size: 11.5px; line-height: 1.6; max-height: 220px; overflow: auto;
+  word-break: break-all; background: rgba(6,17,30,.7); color: var(--brand-l);
+}
+.hj212-body { font-size: 11.5px; line-height: 1.6; color: var(--tx-1); background: rgba(6,17,30,.5); }
+.hj212-crc, .hj212-sm3, .hj212-sig {
+  font-size: 11px; word-break: break-all; color: var(--tx-1);
+  padding: 6px 8px; background: rgba(6,17,30,.5); border-radius: 4px; border: 1px solid rgba(255,255,255,.06);
+}
+.hj212-sm3 { color: var(--brand-l); }
+.hj212-sig { color: #1890FF; }
+.kv-mini { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: rgba(6,17,30,.5); border-radius: 6px; border: 1px solid rgba(255,255,255,.06); }
+.kv-mini b { font-size: 14px; color: var(--tx-0); }
+
+/* ---------- 防篡改证据链 ---------- */
+.proof-step { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(0,192,127,.06); border: 1px solid rgba(0,192,127,.14); border-radius: 6px; font-size: 12.5px; color: var(--tx-1); }
+.proof-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 6px rgba(0,192,127,.6); flex: 0 0 auto; }
+
+/* ---------- 可点击哈希 ---------- */
+.hash-link { color: #1890FF; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.hash-link:hover { color: #40a9ff; text-decoration: underline; }
