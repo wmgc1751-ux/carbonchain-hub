@@ -606,4 +606,4 @@
 
   global.App = global.App || {};
   global.App.Industry = Industry;
-})(window);
+})(typeof window !== 'undefined' ? window : globalThis);
