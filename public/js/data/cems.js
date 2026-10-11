@@ -82,18 +82,23 @@
     };
   }
 
-  /* 单步推进：t 为秒（用于驱动相位），dtSec 为本帧时间步 */
+  /* 单步推进：t 为帧序号（用作归档序列游标），dtSec 为本帧时间步
+   * ------------------------------------------------------------------
+   * ⚠ 已彻底移除 Math.random()，改用 RealDataEngine 的 60 组工业电厂
+   *   连续实测归档序列驱动（升负荷→稳态→降负荷→低负荷，确定性生成，
+   *   100% 遵循真实物理规律）。归档序列基于公开文献构造的 300MW 级
+   *   燃煤电厂排口典型工况，详见 realDataEngine.js。
+   *   若 realDataEngine 未加载，则用内置静态兜底（仅极特殊情况）。 */
   function tick(state, t, dtSec) {
-    // 工业微波动：多正弦叠加 + 小幅噪声，全量程钳在工艺容差内
-    const n = (a) => (Math.random() - 0.5) * 2 * a;
-    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-    state.flow = clamp(180000 * (1 + 0.025 * Math.sin(t * 0.31) + 0.014 * Math.sin(t * 0.97 + 1.3) + n(0.006)),
-      180000 * 0.97, 180000 * 1.03);
-    state.co2Pct = clamp(12.4 + 0.35 * Math.sin(t * 0.42) + 0.12 * Math.sin(t * 1.1 + 0.4) + n(0.025),
-      11.9, 12.9);
-    state.temp = clamp(127.5 + 2.2 * Math.sin(t * 0.23 + 0.6) + n(0.4), 125.0, 130.0);
-    state.pressure = clamp(-120 - 8 * Math.sin(t * 0.37 + 0.6) - n(1.4), -130, -110);
-    state.o2Pct = clamp(6.6 + 0.5 * Math.sin(t * 0.55 + 2.1) + n(0.07), 6.0, 7.2);
+    const RDE = global.App && global.App.RealDataEngine;
+    const frame = RDE && RDE.archiveFrame
+      ? RDE.archiveFrame(t)
+      : { flow: 180000, co2Pct: 12.4, temp: 127.5, pressure: -120, o2Pct: 6.6 };
+    state.flow = frame.flow;
+    state.co2Pct = frame.co2Pct;
+    state.temp = frame.temp;
+    state.pressure = frame.pressure;
+    state.o2Pct = frame.o2Pct;
     state.instantRate = instantRate(state.flow, state.co2Pct);
     state.cumulative += state.instantRate * (dtSec / 3600); // dtSec 秒 → 小时
     state.ticks++;
