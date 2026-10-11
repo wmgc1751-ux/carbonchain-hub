@@ -119,6 +119,19 @@ app.use((req, res) => fail(res, '接口不存在', 404));
 app.use((err, req, res, next) => {
   console.error('[ERROR]', req.method, req.originalUrl, err.message);
   if (res.headersSent) return next(err);
+
+  /* 请求体解析失败（express.json 抛出的 body-parser 错误）。
+   * 原实现直接把 err.message 回显给客户端，会泄露底层解析器的内部信息
+   * （例如 `Expected property name or '}' in JSON at position 1 (line 1 column 2)`），
+   * 这类信息对攻击者探测技术栈有价值、对正常用户毫无意义。改为返回统一提示，
+   * 仅在服务端日志中保留细节。 */
+  if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+    return fail(res, '请求体格式不正确，应为合法的 JSON', 400);
+  }
+  if (err.type === 'entity.too.large') {
+    return fail(res, '请求体过大（上限 2 MB）', 413);
+  }
+
   fail(res, err.message || '服务器内部错误', err.status || 500);
 });
 

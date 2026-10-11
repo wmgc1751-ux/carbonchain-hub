@@ -323,6 +323,14 @@
       }
       Vue.watch(() => Router.path, guard);
 
+      /* 页面标题随路由变化 —— 单页应用若不更新 document.title，
+       * 浏览器标签页在 35 个路由之间始终显示同一个标题，
+       * 既不利于用户在多标签场景下辨识，也让浏览器历史记录无法区分页面。
+       * 公开页只写页面名；业务页写成「页面名 · 碳链通」。 */
+      Vue.watch(title, (t) => {
+        document.title = `${t} · 碳链通 CarbonChain Hub`;
+      }, { immediate: true });
+
       async function refreshChain() {
         try { App.Store.chain = await App.API.request('GET', '/chain/stats', null, { noAuth: true }); } catch (e) { /* ignore */ }
       }

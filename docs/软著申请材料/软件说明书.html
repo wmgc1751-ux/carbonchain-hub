@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>碳链通联盟链碳资产动态核算存证系统 V1.0 软件说明书</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm 18mm 18mm; }
+  @page :first { margin-top: 24mm; }
+  html,body{margin:0;padding:0;}
+  body{ font: 10.5pt/1.75 "Microsoft YaHei","SimSun",sans-serif; color:#1a1a1a; }
+  h1{ font-size: 17pt; text-align:center; margin:0 0 4mm; padding-bottom:3mm; border-bottom:1.2pt solid #333; }
+  h2{ font-size: 13.5pt; margin:7mm 0 2.5mm; padding-left:2.5mm; border-left:3.5pt solid #1890FF; page-break-after:avoid; }
+  h3{ font-size: 11.5pt; margin:5mm 0 2mm; color:#0b3a66; page-break-after:avoid; }
+  h4{ font-size: 10.5pt; margin:4mm 0 1.5mm; color:#333; page-break-after:avoid; }
+  p{ margin:0 0 2.2mm; text-align:justify; }
+  ul,ol{ margin:0 0 2.5mm; padding-left:7mm; }
+  li{ margin-bottom:1.1mm; }
+  code{ font-family:Consolas,"Courier New",monospace; font-size:9pt; background:#f2f4f7; padding:0 1mm; border-radius:2px; }
+  pre.src{ font-family:Consolas,"Courier New",monospace; font-size:8pt; line-height:1.5;
+           background:#f7f8fa; border:0.5pt solid #d9dde3; border-radius:3px;
+           padding:2.5mm 3mm; margin:0 0 3mm; white-space:pre-wrap; page-break-inside:avoid; }
+  table{ width:100%; border-collapse:collapse; margin:0 0 3.5mm; font-size:9.5pt; page-break-inside:auto; }
+  th,td{ border:0.5pt solid #c8cdd4; padding:1.6mm 2.2mm; text-align:left; vertical-align:top; }
+  th{ background:#eef3f9; font-weight:600; }
+  tr{ page-break-inside:avoid; }
+  blockquote{ margin:0 0 3mm; padding:2mm 3mm; background:#f7f9fc; border-left:3pt solid #a8c4e0; color:#33475b; }
+  hr{ border:0; border-top:0.5pt solid #ccc; margin:5mm 0; }
+  strong{ color:#0b3a66; }
+</style></head>
+<body>
+<h1>碳链通联盟链碳资产动态核算存证系统 V1.0 · 软件说明书</h1>
+<blockquote>本说明书用于「计算机软件著作权登记」提交，同时作为系统的用户操作手册与技术说明。<br>软件全称：碳链通联盟链碳资产动态核算存证系统　版本号：V1.0</blockquote>
+<hr>
+<h2>一、软件概述</h2>
+<h3>1.1 开发目的</h3>
+<p>工业企业的温室气体排放正在从「年度自主填报」走向「实时可核验」。但现行企业碳核算体系普遍存在四类结构性问题：</p>
+<ol>
+<li><strong>数据不可信</strong> —— 排放量由企业自行填报，源端无硬件级可信采集，事后可被修改；</li>
+<li><strong>核算不透明</strong> —— 使用哪个排放因子、走哪条算式、取哪个统计口径，都沉在 Excel 里，第三方无法穿透复核；</li>
+<li><strong>存证不可验</strong> —— 即便把数据上了链，往往只锚定一个哈希值；链下原文被改动后，链上无从感知；</li>
+<li><strong>口径不可质证</strong> —— 仅电网排放因子就存在「年均 0.5703」「电力二氧化碳 0.5568」「电力碳足迹 0.6205」「区域基准线 OM/BM」多种口径，若平台只给一个数字，评审方无法判断是否被混用。</li>
+</ol>
+<p>本软件把上述四项逐一做成<strong>可显式声明、可复核、可证伪</strong>的工程对象，形成一条从「工业现场计量设备」到「联盟链存证」再到「监管穿透式核验」的端到端可信链路。</p>
+<h3>1.2 主要功能</h3>
+<table><thead><tr><th>序号</th><th>功能模块</th><th>功能说明</th></tr></thead><tbody>
+<tr><td>1</td><td>边缘感知与设备可信采集</td><td>以设备 DID 标识计量设备，模拟 TEE/SE 硬件签名，做物料平衡校验；异常设备自动阻断上链</td></tr>
+<tr><td>2</td><td>多档核算内核</td><td>支持 Tier 1 缺省因子法、Tier 2 国别参数展开法（NCV×CC×OF×44/12）、Tier 3 CEMS 连续监测三档方法</td></tr>
+<tr><td>3</td><td>组织碳与产品碳双轨核算</td><td>组织碳按 ISO 14064-1（自下而上由设备读数积分）、产品碳按 ISO 14067 / GB/T 24067（cradle-to-gate，范围一+范围二）</td></tr>
+<tr><td>4</td><td>不确定度量化</td><td>蒙特卡洛抽样传播，并以解析解（误差传播律）双向互证，给出一阶敏感性排序</td></tr>
+<tr><td>5</td><td>排放数据上报与第三方核查</td><td>企业端提交排放报告，核查机构端受理、出具核查报告，核查报告摘要上链</td></tr>
+<tr><td>6</td><td>联盟链共识与存证</td><td>自研区块链内核：PoA 授权证明共识、区块哈希链、Merkle 树、双密码套件（SHA-256/ECDSA 与 SM2/SM3）、五道链上链下校验</td></tr>
+<tr><td>7</td><td>联盟链成员治理</td><td>成员的申请、审批、授权出块、权重轮值、资格吊销；各成员节点持全量链副本并同步</td></tr>
+<tr><td>8</td><td>动态核算与履约风险预警</td><td>CEMS 实测读数按固定步长自动采集 → 滚动核算年度累计排放与期末外推 → 与配额比对自动生成履约风险预警</td></tr>
+<tr><td>9</td><td>碳资产管理与抵销</td><td>碳配额账户与分配流水、碳信用资产（CCER / 林业碳汇 / 绿证）登记、碳信用抵销履约缺口（受配额比例上限约束）</td></tr>
+<tr><td>10</td><td>碳配额交易撮合</td><td>挂单、撤单、价格优先 + 时间优先连续撮合、冻结与解冻、成交即上链存证</td></tr>
+<tr><td>11</td><td>穿透式验真与数字护照</td><td>提供四级证据链核验（物理表计采样 → 硬件芯片签名 → 智能合约核算 → 权威节点共识），并支持导出产品碳足迹数字护照</td></tr>
+<tr><td>12</td><td>公示大屏与区块链浏览器</td><td>面向公众的数据公示大屏；区块、交易、地址的检索与详情查看，交易详情含 Merkle 存在性证明路径</td></tr>
+<tr><td>13</td><td>科研验证中心</td><td>面向评审方的公开验证面板：核算内核复算、不确定度互证、判据可证伪性演示、标准合规映射、性能基准</td></tr>
+</tbody></table>
+<h3>1.3 技术特征</h3>
+<table><thead><tr><th>特征</th><th>说明</th></tr></thead><tbody>
+<tr><td>密码学零第三方依赖</td><td>区块链内核（哈希链、Merkle 树、secp256k1 ECDSA、PoA 出块签名）全部基于 Node.js 内置 <code>crypto</code> 自研，未引入任何第三方区块链框架</td></tr>
+<tr><td>国密合规双套件</td><td>同时支持国际通用套件（SHA-256 + secp256k1/ECDSA）与国密套件（SM3 + SM2）；SM3 输出与 GB/T 32905-2016 附录 A 官方测试向量逐位一致</td></tr>
+<tr><td>五道链上链下校验</td><td>① 区块头哈希重算 ② 出块签名与授权资格（PoA）或难度前导零（PoW）③ 前向引用 prevHash ④ Merkle 根重算 ⑤ 链下重算绑定</td></tr>
+<tr><td>确定性可复现</td><td>随机数统一由固定种子（mulberry32, seed=20261011）驱动，跨机器复算结果逐位一致，所有实验结论可复核</td></tr>
+<tr><td>判据可证伪</td><td>每一项数据自洽判据均经负向注入验证；若一条判据在任何输入下都通过，则不视为有效判据</td></tr>
+<tr><td>前后端分离、无构建步骤</td><td>前端采用 Vue 3 CDN 全局构建，无需 webpack/vite 打包；后端 Express 提供 REST 接口</td></tr>
+</tbody></table>
+<hr>
+<h2>二、运行环境</h2>
+<h3>2.1 硬件环境</h3>
+<table><thead><tr><th>项目</th><th>最低配置</th><th>推荐配置</th></tr></thead><tbody>
+<tr><td>CPU</td><td>双核 2.0 GHz</td><td>四核 2.8 GHz 及以上</td></tr>
+<tr><td>内存</td><td>2 GB</td><td>8 GB 及以上</td></tr>
+<tr><td>硬盘</td><td>2 GB 可用空间</td><td>20 GB 及以上</td></tr>
+<tr><td>网络</td><td>10 Mbps</td><td>100 Mbps 及以上</td></tr>
+</tbody></table>
+<h3>2.2 软件环境</h3>
+<table><thead><tr><th>类别</th><th>要求</th></tr></thead><tbody>
+<tr><td>操作系统</td><td>Windows 10/11、Linux（Ubuntu 20.04+ / CentOS 7+）、macOS 12+</td></tr>
+<tr><td>运行平台</td><td>Node.js 18 及以上（推荐 Node.js 22）</td></tr>
+<tr><td>OpenSSL</td><td>3.0 及以上（国密 SM2/SM3 依赖；Node.js 22 内置 3.5.x）</td></tr>
+<tr><td>数据库</td><td>MySQL 8.0 及以上／MariaDB 10.6 及以上／TiDB Cloud Serverless 等兼容服务</td></tr>
+<tr><td>客户端浏览器</td><td>Chrome/Edge 90+、Firefox 90+、Safari 15+（需支持 ES2020 与 WebSocket）</td></tr>
+</tbody></table>
+<h3>2.3 开发环境</h3>
+<table><thead><tr><th>项目</th><th>内容</th></tr></thead><tbody>
+<tr><td>后端语言</td><td>Node.js（JavaScript, CommonJS）</td></tr>
+<tr><td>前端语言</td><td>JavaScript（Vue 3 单页应用）</td></tr>
+<tr><td>开发框架</td><td>Express 4（后端）、Vue 3.4（前端）、ECharts 5.5（图表）</td></tr>
+<tr><td>数据库驱动</td><td>mysql2</td></tr>
+<tr><td>辅助库</td><td>ws（WebSocket 遥测通道）</td></tr>
+<tr><td>代码规模</td><td>服务端 33 个源文件；前端 24 个源文件；脚本 10 个；数据库脚本 3 个；合计 2.3 万余行</td></tr>
+</tbody></table>
+<hr>
+<h2>三、安装与部署</h2>
+<h3>3.1 获取与安装依赖</h3>
+<pre class="src">cd 碳链通CarbonChainHub
+npm install</pre>
+<h3>3.2 配置环境变量</h3>
+<p>复制模板并填写：</p>
+<pre class="src">cp .env.example .env</pre>
+<table><thead><tr><th>变量名</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>PORT</code></td><td>HTTP 服务端口，默认 8300</td></tr>
+<tr><td><code>HOST</code></td><td>监听地址，默认 0.0.0.0</td></tr>
+<tr><td><code>DB_HOST</code> / <code>DB_PORT</code> / <code>DB_USER</code> / <code>DB_PASSWORD</code> / <code>DB_NAME</code></td><td>数据库连接信息</td></tr>
+<tr><td><code>DB_SSL</code></td><td>云数据库启用 TLS 时设为 <code>true</code> 或 <code>no-verify</code></td></tr>
+<tr><td><code>DB_MANAGED</code></td><td>数据库由平台预创建、当前账号无建库权限时设为 <code>true</code></td></tr>
+<tr><td><code>JWT_SECRET</code></td><td>会话令牌签名密钥，生产环境必须改为随机长串</td></tr>
+<tr><td><code>KEYSTORE_SECRET</code></td><td>链上私钥库加密密钥（AES-256-GCM），生产环境必须设置</td></tr>
+<tr><td><code>CHAIN_CONSENSUS</code></td><td>共识算法，默认 <code>POA</code></td></tr>
+<tr><td><code>CHAIN_NODE</code></td><td>本节点标识，默认 <code>node-carbon-01</code></td></tr>
+<tr><td><code>DEMO_ACCOUNTS</code></td><td>是否开放演示账号列表接口；生产环境建议 <code>false</code></td></tr>
+<tr><td><code>CHAIN_DEMO</code></td><td>是否开放链篡改/修复等演示性写接口；生产环境须 <code>false</code></td></tr>
+<tr><td><code>CORS_ORIGINS</code></td><td>跨域白名单，逗号分隔</td></tr>
+</tbody></table>
+<blockquote>安全提示：本系统内置启动自检 <code>assertSecureConfig()</code>。在生产或云平台语义下，若缺少 <code>JWT_SECRET</code> / <code>DB_PASSWORD</code> / <code>KEYSTORE_SECRET</code>，进程会拒绝启动并打印缺失项，避免以不安全配置带病运行。</blockquote>
+<h3>3.3 初始化数据库</h3>
+<pre class="src">npm run initdb</pre>
+<p>该命令将建库、建表（共 23 张表）、灌入基准数据、创建创世块、初始化联盟成员节点并完成链副本分发。</p>
+<h3>3.4 启动服务</h3>
+<pre class="src">npm start          # 生产模式启动器（先自检库结构，已是最新则跳过初始化）
+npm run dev        # 开发模式直接启动</pre>
+<p>启动成功后控制台输出：</p>
+<pre class="src">  碳链通 CarbonChain Hub 已启动
+  访问地址: http://localhost:8300
+⛓  区块链节点已就绪：高度=xxx 区块=xxx 交易=xxx 共识=POA
+🔗 联盟链已就绪：授权节点 5 个，副本一致节点 5/5
+📈 动态核算引擎已启动：实测读数 xxx 条，覆盖企业 xx 家</pre>
+<p>浏览器访问 <code>http://localhost:8300</code> 即进入统一登录页。</p>
+<h3>3.5 云端部署（可选）</h3>
+<p>系统支持部署到 Render、Railway 等托管平台，数据库使用 TiDB Cloud Serverless 等兼容 MySQL 的云服务。生产启动脚本 <code>server/scripts/start-prod.js</code> 会先探测数据库结构版本：若为旧版则执行一次完整初始化，若已是最新版则跳过，从而避免每次冷启动重建全链与演示数据。</p>
+<hr>
+<h2>四、角色与权限</h2>
+<p>系统采用基于角色的访问控制（RBAC）。后端所有业务路由均经由 <code>authRequired</code> 与 <code>requireRole(...)</code> 中间件保护，角色越权访问会被拒绝。</p>
+<table><thead><tr><th>角色</th><th>角色标识</th><th>可访问功能</th></tr></thead><tbody>
+<tr><td>企业端</td><td><code>ENTERPRISE</code></td><td>企业总览、排放上报、动态核算、碳信用与抵销、配额账户、配额交易、数据分析、链上身份、通知公告</td></tr>
+<tr><td>核查机构端</td><td><code>VERIFIER</code></td><td>核查总览、核查任务、核查报告、机构链上身份、通知公告</td></tr>
+<tr><td>监管端</td><td><code>REGULATOR</code></td><td>监管总览、企业名录、配额分配、交易监管、动态核算监管、碳资产总览、预警处置、统计分析、操作审计、联盟链治理、系统设置、通知公告</td></tr>
+<tr><td>系统管理</td><td><code>ADMIN</code></td><td>全部监管端权限，并额外具备链维护（模拟篡改／修复，仅在演示模式开放）能力</td></tr>
+<tr><td>公众（免登录）</td><td>—</td><td>统一登录页、数据公示大屏、区块链浏览器、科研验证中心、CEMS 实测流监控、公告详情</td></tr>
+</tbody></table>
+<h3>演示账号</h3>
+<blockquote>以下为演示环境预置账号。生产环境应通过 <code>DEMO_ACCOUNTS=false</code> 关闭演示账号列表接口，并修改全部初始口令。</blockquote>
+<table><thead><tr><th>账号</th><th>口令</th><th>角色</th><th>所属单位</th></tr></thead><tbody>
+<tr><td><code>admin</code></td><td><code>admin123</code></td><td>系统管理</td><td>—</td></tr>
+<tr><td><code>reg001</code></td><td><code>123456</code></td><td>监管端</td><td>省级生态环境厅应对气候变化处</td></tr>
+<tr><td><code>ent001</code></td><td><code>123456</code></td><td>企业端</td><td>邢台纸业有限公司</td></tr>
+<tr><td><code>ent002</code></td><td><code>123456</code></td><td>企业端</td><td>太原钢联股份有限公司</td></tr>
+<tr><td><code>ent003</code></td><td><code>123456</code></td><td>企业端</td><td>长沙铜业集团有限公司</td></tr>
+<tr><td><code>ver001</code></td><td><code>123456</code></td><td>核查机构端</td><td>第三方核查机构</td></tr>
+<tr><td><code>ver002</code></td><td><code>123456</code></td><td>核查机构端</td><td>第三方核查机构</td></tr>
+</tbody></table>
+<p>登录页提供「演示账号一键切换」，点击即自动填入账号口令并登录。</p>
+<hr>
+<h2>五、功能操作说明</h2>
+<h3>5.1 统一登录</h3>
+<p>访问系统首页进入统一登录页。页面左侧为绿色能源主题动态背景（光伏阵列／风机），右侧为登录表单。输入账号与口令后点击「登 录」，系统校验密码摘要（scrypt）并签发 JWT 令牌，随后按角色跳转至对应工作台。</p>
+<p>登录接口带有限流保护：同一 IP 与账号每分钟最多尝试 10 次，超出返回「登录尝试过于频繁」提示。</p>
+<h3>5.2 数据公示大屏（<code>/screen</code>）</h3>
+<p>面向公众的全屏公示页面，展示控排企业数量、链高度实时同步状态、年度排放总量、配额分配与交易概况等关键指标，配以图表轮播。适用于展厅大屏与答辩现场开场。</p>
+<h3>5.3 区块链浏览器（<code>/explorer</code>）</h3>
+<p>提供区块列表、区块详情、交易列表、交易详情、交易池、地址存证查询与全链完整性校验。</p>
+<ul>
+<li><strong>区块详情</strong>：展示区块高度、区块哈希、前一区块哈希、Merkle 根、共识类型、出块节点、出块签名、交易数量、出块时间与出块耗时。</li>
+<li><strong>交易详情</strong>：展示交易号、业务类型、业务单号、收发地址、载荷摘要、交易签名，并给出该交易在区块 Merkle 树中的<strong>存在性证明路径</strong>。</li>
+<li><strong>全链完整性校验</strong>：一键触发五道校验，返回校验结论、已校验区块数、各类校验覆盖计数与异常明细（如有）。接口支持 <code>?fresh=1</code> 参数强制实时重算。</li>
+</ul>
+<h3>5.4 科研验证中心（<code>/verify</code>）</h3>
+<p>面向评审专家的公开验证面板，将本系统的全部技术主张摊开为可质证的数据面板，包含六个页签：</p>
+<ol>
+<li><strong>核算内核复算</strong> —— 台账自洽性、产品碳内部闭合、组织碳核算、双轨包含性；</li>
+<li><strong>不确定度传播</strong> —— 蒙特卡洛抽样与解析解双向互证，可现场调整迭代次数重跑；</li>
+<li><strong>判据可证伪性</strong> —— 演示四类故意破坏（篡改总量／改范围占比／删工序段／产品碳放大超组织碳）全部被检出；</li>
+<li><strong>标准合规映射</strong> —— GB/T 24067、ISO 14064-1、ISO 14067、GHG Protocol、IPCC 2006、IPCC AR6 GWP100、国务院令 775 号、GB/T 46053-2025、EU 2023/956（CBAM）、GB/T 32905-2016、GM/T 0004 等标准与平台落地位置的对应关系；</li>
+<li><strong>性能基准</strong> —— 密码学吞吐、Merkle 建根、签名套件对比、PoA 出块、全链校验、篡改检出对照；</li>
+<li><strong>国密合规自证</strong> —— SM3 官方测试向量逐位比对结果。</li>
+</ol>
+<h3>5.5 CEMS 实测流监控（<code>/cems</code>）</h3>
+<p>展示排口连续监测系统（CEMS）的实测读数流，按设备与时间序列呈现烟气流量、温度、压力、含湿量、含氧量、二氧化碳浓度、颗粒物、SO₂、NOx 等参数，并给出由原始读数推导的核算结果，体现「数据由物理量按公式实时推导、非硬编码展示值」。</p>
+<h3>5.6 企业端（<code>/ent/*</code>）</h3>
+<table><thead><tr><th>页面</th><th>路径</th><th>功能说明</th></tr></thead><tbody>
+<tr><td>企业总览</td><td><code>/ent/overview</code></td><td>年度排放、配额余额、履约缺口的指标卡与趋势图</td></tr>
+<tr><td>碳排放上报</td><td><code>/ent/reports</code></td><td>新建排放报告（填报能源品种消耗量，系统按排放因子折算），提交后自动上链存证；列表可查看上报单详情与链上存证核验</td></tr>
+<tr><td>动态核算</td><td><code>/ent/dynamic</code></td><td>展示本企业接入计量设备的 CEMS 读数、滚动核算的年度累计排放、期末外推值与履约风险评估</td></tr>
+<tr><td>碳信用与抵销</td><td><code>/ent/credit</code></td><td>展示持有的碳信用资产（CCER／林业碳汇／绿证）与已抵销记录，可发起抵销申请</td></tr>
+<tr><td>碳配额账户</td><td><code>/ent/quota</code></td><td>配额账户概览（累计分配／可用／冻结／已用／买入／卖出）与分配流水</td></tr>
+<tr><td>碳配额交易</td><td><code>/ent/trade</code></td><td>市场订单簿、我的委托（挂单／撤单）、我的成交记录；支持创建买单与卖单</td></tr>
+<tr><td>数据分析</td><td><code>/ent/analytics</code></td><td>排放强度、能源结构、同比环比等多维图表分析</td></tr>
+<tr><td>链上身份</td><td><code>/ent/wallet</code></td><td>展示本企业链上地址、公钥与历史存证列表</td></tr>
+<tr><td>通知公告</td><td><code>/ent/notices</code></td><td>接收监管端下发的通知公告</td></tr>
+</tbody></table>
+<p><strong>典型流程：提交一条排放上报并上链存证</strong></p>
+<ol>
+<li>进入 <code>/ent/reports</code>，点击「新建上报」；</li>
+<li>填写报告期、数据来源，逐项录入能源品种与消耗量，系统实时折算排放量；</li>
+<li>点击「提交上报」，后端构造存证交易 → 用发起方私钥签名 → 进入交易池 → PoA 出块；</li>
+<li>列表中出现新记录，点击行内「存证」按钮弹出<strong>链上存证核验</strong>面板，依次展示：物理电表采集、边缘 TEE 签名、合约核算、机构背书上链四级证据链，并给出验签结果、存证数据摘要比对结果与链下业务库一致性比对结果。</li>
+</ol>
+<h3>5.7 核查机构端（<code>/ver/*</code>）</h3>
+<table><thead><tr><th>页面</th><th>路径</th><th>功能说明</th></tr></thead><tbody>
+<tr><td>核查总览</td><td><code>/ver/overview</code></td><td>待办任务、已出具报告、核查通过率的指标卡与图表</td></tr>
+<tr><td>核查任务</td><td><code>/ver/tasks</code></td><td>待核查任务列表与任务详情（含企业提交的排放明细）</td></tr>
+<tr><td>核查报告</td><td><code>/ver/reports</code></td><td>已出具报告列表；出具报告时报告摘要上链存证</td></tr>
+<tr><td>机构链上身份</td><td><code>/ver/wallet</code></td><td>核查机构链上地址、公钥与存证记录</td></tr>
+<tr><td>通知公告</td><td><code>/ver/notices</code></td><td>通知公告</td></tr>
+</tbody></table>
+<h3>5.8 监管端（<code>/reg/*</code>）</h3>
+<table><thead><tr><th>页面</th><th>路径</th><th>功能说明</th></tr></thead><tbody>
+<tr><td>监管总览</td><td><code>/reg/overview</code></td><td>全域企业数量、年度排放、配额分配、交易规模、缺口企业数等驾驶舱指标</td></tr>
+<tr><td>企业名录</td><td><code>/reg/enterprises</code></td><td>企业检索与筛选（行业、区域、规模），企业详情含排放、配额、交易、信用分</td></tr>
+<tr><td>配额分配</td><td><code>/reg/allocations</code></td><td>配额分配流水，可下发新配额（上链存证）</td></tr>
+<tr><td>交易监管</td><td><code>/reg/trades</code></td><td>全市场交易总览与成交明细</td></tr>
+<tr><td>动态核算监管</td><td><code>/reg/dynamic</code></td><td>全域企业的 CEMS 采集概况、滚动核算结果、履约风险分布（高／中／低）与明细</td></tr>
+<tr><td>碳资产总览</td><td><code>/reg/credit</code></td><td>碳信用资产总览：资产笔数、持有人数、总量、已抵销量、可抵销量、按类型分布</td></tr>
+<tr><td>预警处置</td><td><code>/reg/alerts</code></td><td>履约风险预警列表与处置弹窗（支持标记处置意见）</td></tr>
+<tr><td>统计分析</td><td><code>/reg/stats</code></td><td>行业分布、区域分布、排放趋势、配额履约率等多维统计</td></tr>
+<tr><td>操作审计</td><td><code>/reg/logs</code></td><td>全量操作日志（含链上业务动作留痕）</td></tr>
+<tr><td>联盟链治理</td><td><code>/reg/consortium</code></td><td>联盟成员节点清单与状态（待审批／已授权／已吊销）、出块权重、已出块数、链副本同步状态</td></tr>
+<tr><td>系统设置</td><td><code>/reg/system</code></td><td>系统概况与运行参数</td></tr>
+<tr><td>通知公告</td><td><code>/reg/notices</code></td><td>通知发布与列表</td></tr>
+</tbody></table>
+<h3>5.9 联盟链治理</h3>
+<p><code>/reg/consortium</code> 页面展示联盟成员治理全貌：</p>
+<ul>
+<li><strong>成员准入</strong>：节点申请 → 审批 → 授予出块权；违规成员可吊销资格，链上校验随之判定其历史/未来出块非法；</li>
+<li><strong>权重轮值出块</strong>：出块顺序由各成员节点的 <code>vote_weight</code> 展开为确定性轮值序列，权重越高出块频次越高；</li>
+<li><strong>出块签名</strong>：出块节点用自身私钥对区块头签名，全网节点验签确认；</li>
+<li><strong>链副本分发</strong>：每个成员节点持全量链副本，页面展示各副本的同步高度与一致性。</li>
+</ul>
+<h3>5.10 链完整性校验与防篡改演示</h3>
+<p>在演示模式下（<code>CHAIN_DEMO=true</code>），可通过以下接口演示防篡改机制：</p>
+<pre class="src"># 模拟恶意节点直接改写数据库中的区块字段
+POST /api/chain/tamper        { "blockIndex": 5, "field": "merkle_root" }
+
+# 模拟只改动链下业务明文、链上锚点保持不动
+POST /api/chain/tamper        { "blockIndex": 5, "field": "offchain_payload" }
+
+# 还原链下明细
+POST /api/chain/repair-payload { "blockIndex": 5 }
+
+# 重算后缀区块哈希并按共识重新出块
+POST /api/chain/repair        { "fromIndex": 5 }</pre>
+<p>第一类篡改会被前四道链上校验捕获；第二类篡改<strong>前四道全部通过</strong>，唯有第五道「链下重算绑定」能够发现——这是本系统在开发过程中实测发现并补齐的关键加固点。修复后重新校验恢复 <code>valid=true</code>。</p>
+<blockquote>安全默认：上述接口在未显式设置 <code>CHAIN_DEMO=true</code> 时，于生产与云平台环境一律返回 403，避免破坏性写接口暴露在公网。</blockquote>
+<hr>
+<h2>六、接口概览</h2>
+<p>系统提供 REST 风格接口，全部以 <code>/api</code> 为前缀，统一响应结构为 <code>{ code, message, data }</code>。按业务域划分如下：</p>
+<table><thead><tr><th>文件</th><th>接口数</th><th>业务域</th></tr></thead><tbody>
+<tr><td><code>routes/auth.js</code></td><td>5</td><td>登录、会话、演示账号</td></tr>
+<tr><td><code>routes/chain.js</code></td><td>12</td><td>链概况、区块、交易、地址、校验、篡改修复</td></tr>
+<tr><td><code>routes/consortium.js</code></td><td>8</td><td>联盟成员治理与链副本</td></tr>
+<tr><td><code>routes/dynamic.js</code></td><td>5</td><td>CEMS 动态核算与履约风险</td></tr>
+<tr><td><code>routes/credit.js</code></td><td>5</td><td>碳信用资产与抵销</td></tr>
+<tr><td><code>routes/enterprise.js</code></td><td>15</td><td>企业端全部业务</td></tr>
+<tr><td><code>routes/verifier.js</code></td><td>9</td><td>核查机构端全部业务</td></tr>
+<tr><td><code>routes/regulator.js</code></td><td>14</td><td>监管端全部业务</td></tr>
+<tr><td><code>routes/public.js</code></td><td>5</td><td>公示大屏、名录、公告、碳价</td></tr>
+<tr><td><code>routes/ops.js</code></td><td>7</td><td>运维、监控、健康检查</td></tr>
+<tr><td><code>routes/telemetry.js</code></td><td>—</td><td>WebSocket 遥测通道 <code>/ws/telemetry</code></td></tr>
+<tr><td><strong>合计</strong></td><td><strong>85</strong></td><td>—</td></tr>
+</tbody></table>
+<hr>
+<h2>七、性能指标</h2>
+<p>以下数据由 <code>scripts/bench-crypto.js</code> 在本机（Intel i7-13650HX / Node.js v22.22.2 / OpenSSL 3.5.5）实测：</p>
+<table><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>
+<tr><td>SHA-256 摘要吞吐</td><td>1,353,214 次/秒（60 B 报文）</td></tr>
+<tr><td>SM3 摘要吞吐</td><td>812,138 次/秒（60 B 报文）</td></tr>
+<tr><td>ECDSA（secp256k1）签名／验签</td><td>905 次/秒 ／ 1,772 次/秒</td></tr>
+<tr><td>SM2 签名／验签</td><td>948 次/秒 ／ 1,936 次/秒</td></tr>
+<tr><td>Merkle 建根（1000 叶）</td><td>SHA-256 2.22 ms ／ SM3 5.38 ms</td></tr>
+<tr><td>Merkle 证明验证（1000 叶，路径 10 节点）</td><td>46,317 次/秒</td></tr>
+<tr><td>PoA 出块（每块 10 笔交易）</td><td>1.15 ms/块（约 8,711 TPS）</td></tr>
+<tr><td>全链校验（1000 区块 × 10 交易）</td><td>162 块/秒，含逐笔验签与链下重算绑定</td></tr>
+</tbody></table>
+<hr>
+<h2>八、常见问题</h2>
+<p><strong>Q1：服务启动后页面空白或接口 502？</strong></p>
+<p>先访问 <code>/api/health</code> 确认服务状态。若返回 <code>status: "UP"</code> 而页面仍异常，多为前端静态资源未加载或被浏览器缓存，尝试强制刷新（Ctrl+F5）。若为云端首次部署，免费实例冷启动可能需要 30～60 秒。</p>
+<p><strong>Q2：启动时进程立即退出，日志提示「安全配置检查未通过」？</strong></p>
+<p>这是安全自检的正常拦截。请按日志提示补齐环境变量：<code>JWT_SECRET</code>、<code>DB_PASSWORD</code>、<code>KEYSTORE_SECRET</code>。本地开发环境仅告警不阻断，生产与云平台语义下会拒绝启动。</p>
+<p><strong>Q3：登录提示「登录尝试过于频繁」？</strong></p>
+<p>登录接口限流为同 IP 同账号每分钟 10 次，等待 1 分钟后重试。</p>
+<p><strong>Q4：演示账号列表读取不到？</strong></p>
+<p>演示账号接口在生产环境默认关闭（返回 403）。若确需在演示环境开放，需显式设置 <code>DEMO_ACCOUNTS=true</code>。该接口另带按 IP 限流（120 次/分钟）。</p>
+<p><strong>Q5：链上校验报「链下重算绑定失配」？</strong></p>
+<p>说明某笔交易的链下业务明文与其链上锚定摘要已不一致。多为演示篡改后未还原所致，可调用 <code>/api/chain/repair-payload</code> 从备份还原。</p>
+<p><strong>Q6：换机器部署后链校验失败？</strong></p>
+<p>链上私钥采用<strong>确定性派生</strong>（由标签摘要决定），因此只要各环境使用同一套标签即可派生出逐字节一致的密钥；但 <code>KEYSTORE_SECRET</code> 用于加密私钥<strong>文件本身</strong>，更换后需重新生成密钥库文件。此外区块哈希包含时间戳，跨时区部署需保证数据库会话时区一致（系统已在 <code>syncTimeZone()</code> 中统一处理）。</p>
+<p><strong>Q7：如何复算实验结论？</strong></p>
+<p>执行 <code>node scripts/uncertainty.js</code>（核算与不确定度内核六项验证）、<code>node scripts/bench-crypto.js</code>（密码学与链性能基准）、<code>node scripts/browser-check.js</code>（全路由与交互回归）、<code>node scripts/smoke-test.js</code>（接口冒烟）。所有随机数由固定种子驱动，跨机器结果一致。</p>
+<hr>
+<h2>九、版本信息</h2>
+<table><thead><tr><th>项目</th><th>内容</th></tr></thead><tbody>
+<tr><td>软件全称</td><td>碳链通联盟链碳资产动态核算存证系统</td></tr>
+<tr><td>简称</td><td>碳链通 CarbonChain Hub</td></tr>
+<tr><td>版本号</td><td>V1.0</td></tr>
+<tr><td>开发语言</td><td>JavaScript（Node.js + 浏览器端）</td></tr>
+<tr><td>源程序量</td><td>23,485 行（服务端 33 文件、前端 24 文件、脚本 10 文件、数据库脚本 3 文件）</td></tr>
+<tr><td>运行平台</td><td>Node.js 18+ / MySQL 8.0+ / 支持 ES2020 的现代浏览器</td></tr>
+</tbody></table>
+</body></html>

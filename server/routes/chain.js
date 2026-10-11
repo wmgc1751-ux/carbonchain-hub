@@ -207,7 +207,16 @@ router.get('/pool', wrap(async (req, res) => {
 /* 全链完整性校验 ----------------------------------------------------- */
 router.get('/validate', wrap(async (req, res) => {
   const chain = await anchorSvc.getChain();
-  const r = await chain.validateChain({ fromIndex: Number(req.query.fromIndex) || 0 });
+  /* 全链校验是重活（对每个区块做出块签名验签 + Merkle 重建，对每笔交易做链下重算绑定）。
+   * 监管端与浏览器会高频轮询本接口，故走带缓存的入口：
+   *   · 默认 TTL 5s，且缓存键含链数据变更版本号 —— 出块/篡改/修复会立刻使其失效；
+   *   · 传 ?fresh=1 可强制穿透缓存重算（答辩现场演示防篡改时用，确保看到实时结果）。
+   * 返回体新增 cached / cacheAgeMs，如实告知调用方本次是否为复用结果。 */
+  const fresh = String(req.query.fresh || '') === '1';
+  const r = await chain.validateChainCached({
+    fromIndex: Number(req.query.fromIndex) || 0,
+    ttlMs: fresh ? 0 : 5000,
+  });
   ok(res, {
     ...r,
     errors: r.errors.slice(0, 50),
@@ -220,6 +229,11 @@ router.get('/validate', wrap(async (req, res) => {
       '⑤ 链下重算绑定：用链下业务明文重算 SHA-256，与链上锚定的 payload_hash 比对'
         + '（链下明细是否被改动而链上锚点未变 —— 这是"链上存证 + 链下存储"结构下唯一的链下完整性出口）',
     ],
+    // 如实披露本次结果是否为缓存复用。缓存键含链数据变更版本号，
+    // 因此任何写入（出块 / 篡改 / 修复）都会即时失效，不存在"链已破坏仍报 valid"的窗口。
+    freshness: r.cached
+      ? `复用 ${r.cacheAgeMs} ms 前的校验结果（链高与链数据版本均未变化）；如需强制重算请加 ?fresh=1`
+      : '本次为实时重算（缓存窗口外，或链数据刚发生变更）',
   });
 }));
 

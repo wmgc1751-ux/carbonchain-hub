@@ -31,6 +31,19 @@ const loginLimiter = rateLimit({
   message: '登录尝试过于频繁，请 1 分钟后再试',
 });
 
+/** 演示账号列表限流：本接口在演示态会返回账号与口令，属**有意公开**的演示特性
+ *  （登录页「演示账号一键切换」依赖它）。但公开不等于可被任意爬取，
+ *  故加一层按 IP 限流。
+ *  阈值取 120 次/分钟：正常打开登录页每次仅请求 1 次，余量极大；
+ *  同时考虑到答辩/评审现场往往多人共用同一 NAT 出口（校园网、会场 Wi-Fi），
+ *  阈值过低会误伤——按 120 计，即便 20 人同时反复刷新登录页也不会被拦，
+ *  而枚举型脚本（每秒数次以上）仍会被 429 挡下。 */
+const demoLimiter = rateLimit({
+  windowMs: 60 * 1000, max: 120,
+  keyFn: (req) => `demo|${req.ip}`,
+  message: '演示账号列表请求过于频繁，请稍后再试',
+});
+
 /* 登录 ------------------------------------------------------------- */
 router.post('/login', loginLimiter, wrap(async (req, res) => {
   const { username, password } = req.body || {};
@@ -115,8 +128,10 @@ router.post('/change-password', authRequired, wrap(async (req, res) => {
 }));
 
 /* 演示账号（方便答辩现场一键切换身份） ------------------------------- */
-router.get('/demo-accounts', wrap(async (req, res) => {
+router.get('/demo-accounts', demoLimiter, wrap(async (req, res) => {
   if (!DEMO_ACCOUNTS) return fail(res, '演示账号接口已在当前环境关闭', 403);
+  // 明确告知：这是演示特性，口令为公开的演示口令，切勿在生产环境开启
+  res.setHeader('X-Demo-Mode', 'true');
   const rows = await db.query(
     `SELECT id, username, real_name, role, org_name FROM sys_user
      WHERE username IN ('admin','reg001','ent001','ent002','ent003','ver001','ver002') ORDER BY id`
