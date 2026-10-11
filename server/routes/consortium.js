@@ -2,7 +2,8 @@
  * routes/consortium.js —— 联盟链治理 API
  * 成员节点列表 / 准入申请与审批 / 出块权吊销 / 链副本同步与一致性
  *
- * 读接口开放（联盟成员公开可审计）；写接口需监管角色。
+ * 读接口开放（联盟成员公开可审计）；除「加入申请」外，治理写接口（审批 / 吊销 /
+ * 同步 / 脱链）一律要求监管（REGULATOR）角色，防止匿名方篡改联盟链治理状态。
  */
 'use strict';
 
@@ -46,23 +47,23 @@ router.post('/nodes/:nodeId/revoke', authRequired, requireRole('REGULATOR'), wra
   ok(res, n, `节点 ${req.params.nodeId} 的出块权已被吊销`);
 }));
 
-/* 同步单节点副本 ----------------------------------------------------- */
-router.post('/nodes/:nodeId/sync', wrap(async (req, res) => {
+/* 同步单节点副本（监管/管理角色） ------------------------------------ */
+router.post('/nodes/:nodeId/sync', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
   const r = await cons.syncNode(req.params.nodeId, req.body || {});
   ok(res, r, r.synced > 0
     ? `节点 ${r.nodeId} 已同步 ${r.synced} 个区块，副本追平至高度 #${r.height}`
     : `节点 ${r.nodeId} 副本已是最新（高度 #${r.height}）`);
 }));
 
-/* 全部节点同步 ------------------------------------------------------- */
-router.post('/sync', wrap(async (req, res) => {
+/* 全部节点同步（监管/管理角色） --------------------------------------- */
+router.post('/sync', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
   const rs = await cons.syncAll();
   const total = rs.reduce((a, b) => a + b.synced, 0);
   ok(res, rs, `已完成 ${rs.length} 个节点的副本同步，共补拉 ${total} 个区块`);
 }));
 
-/* 【演示】令某节点链副本落后 ----------------------------------------- */
-router.post('/nodes/:nodeId/desync', wrap(async (req, res) => {
+/* 【演示】令某节点链副本落后（监管/管理角色） -------------------------- */
+router.post('/nodes/:nodeId/desync', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
   const keep = (req.body || {}).keepHeight !== undefined ? (req.body || {}).keepHeight
     : await db.value('SELECT GREATEST(block_index - 5, 0) FROM chain_block ORDER BY block_index DESC LIMIT 1');
   const r = await cons.desyncNode(req.params.nodeId, keep);

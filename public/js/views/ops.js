@@ -49,9 +49,15 @@
       let statsTimer = null, alertTimer = null, logTimer = null, chartTimer = null;
       let chart = null, chartEl = null;
 
+      /* 运维接口自 2026-10 起要求监管/管理角色，取数须携带令牌 */
+      const authHeaders = () => {
+        const t = localStorage.getItem('cch_token');
+        return t ? { Authorization: 'Bearer ' + t } : {};
+      };
+
       async function fetchStats() {
         try {
-          const r = await fetch('/api/ops/stats');
+          const r = await fetch('/api/ops/stats', { headers: authHeaders() });
           const j = await r.json();
           if (j && j.data) {
             stats.value = j.data;
@@ -63,7 +69,7 @@
       }
       async function fetchAlerts() {
         try {
-          const r = await fetch('/api/ops/alerts');
+          const r = await fetch('/api/ops/alerts', { headers: authHeaders() });
           const j = await r.json();
           if (j && j.data) alerts.value = j.data.alerts || [];
         } catch (e) {}
@@ -73,14 +79,14 @@
           const p = new URLSearchParams({ limit: '50' });
           if (logLevel.value) p.set('level', logLevel.value);
           if (logQuery.value) p.set('q', logQuery.value);
-          const r = await fetch('/api/ops/logs?' + p.toString());
+          const r = await fetch('/api/ops/logs?' + p.toString(), { headers: authHeaders() });
           const j = await r.json();
           if (j && j.data) logs.value = j.data.entries || [];
         } catch (e) {}
       }
       async function fetchCanary() {
         try {
-          const r = await fetch('/api/ops/canary');
+          const r = await fetch('/api/ops/canary', { headers: authHeaders() });
           const j = await r.json();
           if (j && j.data) canaryStatus.value = j.data;
         } catch (e) {}

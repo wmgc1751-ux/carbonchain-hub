@@ -125,7 +125,8 @@
           desc: '区别于按季度人工填报：本页数据来自工业源端边缘设备（智能电表 / 天然气计量表 / 蒸汽流量计 / CEMS 烟气分析仪）的在线监测，在边缘侧完成国密签名与物料平衡校验后上链，由智能合约按 ISO 14064 组织碳与 ISO 14067 产品碳足迹双轨标准、结合每小时同步的动态电网排放因子自动折算，并滚动预测配额缺口与履约风险。',
         }, {
           actions: () => [
-            h('button', { class: 'btn sm', disabled: busy.value, onClick: doIngest }, [h('x-icon', { name: 'refresh', size: 14 }), '采集一批实测数据']),
+            /* 采集为全局操作，仅监管/管理端可见可触发；企业端只保留对本企业的滚动核算 */
+            !isEnt.value && h('button', { class: 'btn sm', disabled: busy.value, onClick: doIngest }, [h('x-icon', { name: 'refresh', size: 14 }), '采集一批实测数据']),
             h('button', { class: 'btn sm chain', disabled: busy.value, onClick: doRecompute }, [h('x-icon', { name: 'chart', size: 14 }), '立即滚动核算']),
           ],
           default: () => [

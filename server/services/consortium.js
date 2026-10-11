@@ -18,6 +18,13 @@ const db = require('../db');
 const cu = require('../blockchain/crypto-utils');
 const keystore = require('../blockchain/keystore');
 
+/** 业务异常：带 HTTP 状态码，避免被全局错误处理统一当作 500 */
+function bizError(message, status = 400) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
 /** 联盟初始成员（许可制：出块权由联盟授予，权重决定轮值出块机会） */
 const SEED_NODES = [
   { node_id: 'node-regulator-01', node_name: '国家碳市场主节点', org_type: 'REGULATOR', org_name: '全国碳排放权注册登记结算机构', vote_weight: 3 },
@@ -92,9 +99,9 @@ async function listNodes() {
 
 /** 申请加入（PENDING，无出块权，需联盟审批） */
 async function applyNode({ nodeId, nodeName, orgType, orgName, remark }) {
-  if (!nodeId || !nodeName) throw new Error('缺少节点标识或名称');
+  if (!nodeId || !nodeName) throw bizError('缺少节点标识或名称');
   const exist = await db.one('SELECT id FROM chain_node WHERE node_id = ?', [nodeId]);
-  if (exist) throw new Error('该节点标识已存在');
+  if (exist) throw bizError('该节点标识已存在', 409);
   await registerNode({ node_id: nodeId, node_name: nodeName, org_type: orgType || 'ENTERPRISE', org_name: orgName, vote_weight: 1 },
     { status: 'PENDING' });
   await db.query("UPDATE chain_node SET remark = ? WHERE node_id = ?", [remark || '等待联盟审批', nodeId]);
@@ -104,7 +111,7 @@ async function applyNode({ nodeId, nodeName, orgType, orgName, remark }) {
 /** 审批通过：授予出块权（联盟许可制的核心动作） */
 async function approveNode(nodeId, weight) {
   const n = await db.one('SELECT * FROM chain_node WHERE node_id = ?', [nodeId]);
-  if (!n) throw new Error('节点不存在');
+  if (!n) throw bizError('节点不存在', 404);
   await db.query(
     "UPDATE chain_node SET status='ACTIVE', is_authorized=1, vote_weight=?, approved_at=NOW(), remark=? WHERE node_id=?",
     [Math.max(1, Number(weight) || 1), '联盟审批通过，已授予出块权', nodeId]
@@ -119,7 +126,7 @@ async function approveNode(nodeId, weight) {
  */
 async function revokeNode(nodeId, reason) {
   const n = await db.one('SELECT * FROM chain_node WHERE node_id = ?', [nodeId]);
-  if (!n) throw new Error('节点不存在');
+  if (!n) throw bizError('节点不存在', 404);
   await db.query(
     "UPDATE chain_node SET status='REVOKED', is_authorized=0, remark=? WHERE node_id=?",
     [reason || '联盟决议吊销其出块资格', nodeId]
@@ -133,7 +140,7 @@ async function revokeNode(nodeId, reason) {
  */
 async function syncNode(nodeId, opts = {}) {
   const node = await db.one('SELECT * FROM chain_node WHERE node_id = ?', [nodeId]);
-  if (!node) throw new Error('节点不存在');
+  if (!node) throw bizError('节点不存在', 404);
   const from = opts.from !== undefined ? Math.max(0, Number(opts.from)) : Math.max(0, Number(node.replica_height) + 1);
   const blocks = await db.query(
     'SELECT block_index, block_hash FROM chain_block WHERE block_index >= ? ORDER BY block_index ASC', [from]
@@ -155,7 +162,11 @@ async function syncNode(nodeId, opts = {}) {
 
 /** 令某节点"落后"到指定高度（模拟节点宕机/离线后链副本陈旧） */
 async function desyncNode(nodeId, keepHeight) {
+  // 历史缺陷：未校验节点是否存在，对不存在的 node_id 也返回"成功"（静默空操作）
+  const node = await db.one('SELECT node_id FROM chain_node WHERE node_id = ?', [nodeId]);
+  if (!node) throw bizError('节点不存在', 404);
   const h = Math.max(0, Number(keepHeight));
+  if (!Number.isFinite(h)) throw bizError('keepHeight 必须为合法数字');
   await db.query('DELETE FROM chain_node_replica WHERE node_id = ? AND block_index > ?', [nodeId, h]);
   const tip = await db.one('SELECT block_hash FROM chain_block WHERE block_index = ?', [h]);
   await db.query('UPDATE chain_node SET replica_height = ?, replica_tip = ? WHERE node_id = ?',

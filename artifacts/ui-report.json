@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-11T11:49:47.555Z",
+  "generatedAt": "2026-10-11T13:54:57.282Z",
   "base": "http://127.0.0.1:8300",
   "chain": {
-    "height": 341,
-    "totalTxs": 1164
+    "height": 390,
+    "totalTxs": 1213
   },
   "routes": {
     "total": 44,
@@ -26,13 +26,13 @@
     {
       "name": "排放上报 → 行点击打开详情弹窗",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"cols\":11},\"panel\":{\"open\":true,\"title\":\"上报单 ER202610111947576738\",\"textLen\":314,\"head\":\"上报单 ER202610111947576738 排放总量 25,668.68 tCO₂e 综合能耗 9,967.67 tce 报告期产值 904.33 万元 排放强度 28.38\"}}",
+      "detail": "{\"click\":{\"ok\":true,\"cols\":11},\"panel\":{\"open\":true,\"title\":\"上报单 ER202610112150062033\",\"textLen\":318,\"head\":\"上报单 ER202610112150062033 排放总量 26,224.57 tCO₂e 综合能耗 10,196.45 tce 报告期产值 1,413.02 万元 排放强度 18\"}}",
       "shot": "artifacts\\screens\\91-上报详情弹窗.png"
     },
     {
       "name": "区块链浏览器 → 区块详情（含 Merkle 根）",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/343\",\"textLen\":835,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
+      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/391\",\"textLen\":833,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
       "shot": "artifacts\\screens\\92-区块详情.png"
     },
     {
@@ -44,7 +44,7 @@
     {
       "name": "企业端存证按钮 → 链上核验弹窗（验签 + Merkle 路径）",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"label\":\"存证\"},\"panel\":{\"open\":true,\"textLen\":994,\"readouts\":4,\"merkle\":true,\"signed\":true,\"head\":\"链上存证核验 · 上报单链上存证核验 · ER202610111947576738 物理电表采集 边缘 TEE 签名 合约核算 机构背书上链 PASS ECDSA 数字签名验签 验签通过 PASS 存证数据摘要比对 一字未改 PASS 链下业务库与链上快照一致 完全一致 PASS\"}}",
+      "detail": "{\"click\":{\"ok\":true,\"label\":\"存证\"},\"panel\":{\"open\":true,\"textLen\":995,\"readouts\":4,\"merkle\":true,\"signed\":true,\"head\":\"链上存证核验 · 上报单链上存证核验 · ER202610112150062033 物理电表采集 边缘 TEE 签名 合约核算 机构背书上链 PASS ECDSA 数字签名验签 验签通过 PASS 存证数据摘要比对 一字未改 PASS 链下业务库与链上快照一致 完全一致 PASS\"}}",
       "shot": "artifacts\\screens\\94-链上存证核验.png"
     }
   ],
@@ -184,16 +184,16 @@
       "shot": "artifacts\\screens\\08-区块详情.png"
     },
     {
-      "route": "/explorer/tx/d87c968c0cb28177ab151d0e8e65b08ff8f507359cd27b0a3857be7a843f8c3b",
+      "route": "/explorer/tx/9572f0c3e2d47c79b3a0a1a8373d94d228c727dcd97c6f166fa24a49fcced32e",
       "role": null,
       "label": "交易详情（含 Merkle 路径）",
       "pass": true,
-      "textLen": 1432,
+      "textLen": 1347,
       "tables": 0,
       "rows": 0,
       "cards": 4,
       "charts": 0,
-      "hash": "#/explorer/tx/d87c968c0cb28177ab151d0e8e65b08ff8f507359cd27b0a3857be7a843f8c3b",
+      "hash": "#/explorer/tx/9572f0c3e2d47c79b3a0a1a8373d94d228c727dcd97c6f166fa24a49fcced32e",
       "logs": [],
       "errorBars": [],
       "shot": "artifacts\\screens\\09-交易详情（含 Merkle 路径）.png"
@@ -218,7 +218,7 @@
       "role": "ENTERPRISE",
       "label": "ENT-碳排放上报",
       "pass": true,
-      "textLen": 1478,
+      "textLen": 1479,
       "tables": 1,
       "rows": 10,
       "cards": 1,
@@ -233,7 +233,7 @@
       "role": "ENTERPRISE",
       "label": "ENT-动态核算",
       "pass": true,
-      "textLen": 5198,
+      "textLen": 5189,
       "tables": 4,
       "rows": 14,
       "cards": 22,
@@ -308,9 +308,9 @@
       "role": "ENTERPRISE",
       "label": "ENT-链上身份",
       "pass": true,
-      "textLen": 1720,
+      "textLen": 1868,
       "tables": 1,
-      "rows": 16,
+      "rows": 18,
       "cards": 2,
       "charts": 0,
       "hash": "#/ent/wallet",
@@ -413,7 +413,7 @@
       "role": "REGULATOR",
       "label": "REG-监管总览",
       "pass": true,
-      "textLen": 1842,
+      "textLen": 1836,
       "tables": 3,
       "rows": 28,
       "cards": 16,
@@ -443,7 +443,7 @@
       "role": "REGULATOR",
       "label": "REG-配额分配",
       "pass": true,
-      "textLen": 1620,
+      "textLen": 1641,
       "tables": 1,
       "rows": 12,
       "cards": 4,
@@ -503,7 +503,7 @@
       "role": "REGULATOR",
       "label": "REG-预警处置",
       "pass": true,
-      "textLen": 1558,
+      "textLen": 1557,
       "tables": 1,
       "rows": 12,
       "cards": 3,
@@ -533,7 +533,7 @@
       "role": "REGULATOR",
       "label": "REG-操作日志",
       "pass": true,
-      "textLen": 1448,
+      "textLen": 1480,
       "tables": 1,
       "rows": 15,
       "cards": 1,
@@ -691,7 +691,7 @@
       "role": "ADMIN",
       "label": "登录态-admin-生产运维监控",
       "pass": true,
-      "textLen": 4988,
+      "textLen": 4987,
       "tables": 0,
       "rows": 0,
       "cards": 8,
@@ -705,7 +705,7 @@
       "role": "REGULATOR",
       "label": "登录态-reg001-生产运维监控",
       "pass": true,
-      "textLen": 4952,
+      "textLen": 4951,
       "tables": 0,
       "rows": 0,
       "cards": 8,

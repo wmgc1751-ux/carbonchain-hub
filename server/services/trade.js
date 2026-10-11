@@ -15,6 +15,13 @@ const anchorSvc = require('./anchor');
 
 const LICENSE_FEE_RATE = 0.0006; // 交易手续费率
 
+/** 业务异常：带 HTTP 状态码，避免被全局错误处理统一当作 500（系统故障） */
+function bizError(message, status = 400) {
+  const e = new Error(message);
+  e.status = status;
+  return e;
+}
+
 /** 取企业某年配额账户，不存在则开户 */
 async function ensureQuota(entId, year) {
   let q = await db.one('SELECT * FROM carbon_quota WHERE ent_id = ? AND year = ?', [entId, year]);
@@ -38,13 +45,13 @@ async function placeOrder(p) {
   const price = Number(p.price);
   const amount = Number(p.amount);
 
-  if (!['BUY', 'SELL'].includes(side)) throw new Error('委托方向只能是 BUY 或 SELL');
-  if (!(price > 0)) throw new Error('委托价格必须大于 0');
-  if (!(amount > 0)) throw new Error('委托数量必须大于 0');
+  if (!['BUY', 'SELL'].includes(side)) throw bizError('委托方向只能是 BUY 或 SELL');
+  if (!(price > 0)) throw bizError('委托价格必须大于 0');
+  if (!(amount > 0)) throw bizError('委托数量必须大于 0');
 
   const ent = await db.one('SELECT * FROM enterprise WHERE id = ?', [p.entId]);
-  if (!ent) throw new Error('企业不存在');
-  if (ent.status === 'SUSPENDED') throw new Error('该企业已被暂停交易资格，无法挂单');
+  if (!ent) throw bizError('企业不存在', 404);
+  if (ent.status === 'SUSPENDED') throw bizError('该企业已被暂停交易资格，无法挂单');
 
   const quota = await ensureQuota(p.entId, year);
 
@@ -54,7 +61,7 @@ async function placeOrder(p) {
     const [lock] = await conn.query('SELECT available FROM carbon_quota WHERE id = ? FOR UPDATE', [quota.id]);
     const avail = Number(lock[0].available);
     if (side === 'SELL' && avail < amount) {
-      throw new Error(`可用配额不足：当前可用 ${avail.toFixed(2)} 吨，本次委托 ${amount} 吨`);
+      throw bizError(`可用配额不足：当前可用 ${avail.toFixed(2)} 吨，本次委托 ${amount} 吨`);
     }
     const [ins] = await conn.query(
       `INSERT INTO trade_order (order_no, ent_id, side, price, amount, filled_amount, status)
@@ -66,7 +73,7 @@ async function placeOrder(p) {
         'UPDATE carbon_quota SET available = available - ?, frozen = frozen + ? WHERE id = ? AND available >= ?',
         [amount, amount, quota.id, amount]
       );
-      if (!r.affectedRows) throw new Error('可用配额不足（并发下单，事务已回滚）');
+      if (!r.affectedRows) throw bizError('可用配额不足（并发下单，事务已回滚）');
     }
     return ins.insertId;
   });
@@ -177,9 +184,9 @@ async function match(order, year) {
 /** 撤单：解冻配额 */
 async function cancelOrder(orderId, entId) {
   const o = await db.one('SELECT * FROM trade_order WHERE id = ?', [orderId]);
-  if (!o) throw new Error('委托单不存在');
-  if (Number(o.ent_id) !== Number(entId)) throw new Error('只能撤销本企业的委托单');
-  if (['FILLED', 'CANCELLED'].includes(o.status)) throw new Error('该委托单已结束，无法撤销');
+  if (!o) throw bizError('委托单不存在', 404);
+  if (Number(o.ent_id) !== Number(entId)) throw bizError('只能撤销本企业的委托单', 403);
+  if (['FILLED', 'CANCELLED'].includes(o.status)) throw bizError('该委托单已结束，无法撤销');
 
   const remain = Number(o.amount) - Number(o.filled_amount);
   await db.query("UPDATE trade_order SET status = 'CANCELLED' WHERE id = ?", [orderId]);
