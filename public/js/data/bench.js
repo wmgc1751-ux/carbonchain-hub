@@ -5,10 +5,10 @@
  *   每次运行基准脚本会覆盖：数字来自对 server/blockchain/ 真实内核的实测，
  *   环境指纹与测量时间一并写入，供页面展示与评审复核。
  *
- * 生成时间：2026-10-11T04:53:56.395Z
+ * 生成时间：2026-10-11T10:55:44.496Z
  * 运行环境：Node v22.22.2 / OpenSSL 3.5.5
  *          13th Gen Intel(R) Core(TM) i7-13650HX ×20
- * 测量耗时：82.4s
+ * 测量耗时：163.3s
  */
 (function (global) {
   'use strict';
@@ -18,11 +18,11 @@
     "project": "碳链通 CarbonChain Hub",
     "title": "密码学与联盟链内核真实基准",
     "version": 1,
-    "elapsedSec": 82.4,
+    "elapsedSec": 163.3,
     "method": "node scripts/bench-crypto.js（对 server/blockchain/ 真实内核施加负载并计时）"
   },
   "environment": {
-    "measuredAt": "2026-10-11T04:53:56.395Z",
+    "measuredAt": "2026-10-11T10:55:44.496Z",
     "node": "v22.22.2",
     "v8": "12.4.254.21-node.39",
     "openssl": "3.5.5",
@@ -64,7 +64,7 @@
       }
     ],
     "pass": true,
-    "checkedAt": "2026-10-11T04:55:18.835Z",
+    "checkedAt": "2026-10-11T10:58:27.826Z",
     "conclusion": "SM3 实现与 GB/T 32905-2016 附录 A 官方测试向量**逐位一致**，可判定本平台所用 SM3 为国标合规实现（由 OpenSSL 3.x 提供）。"
   },
   "digest": {
@@ -73,29 +73,29 @@
     "rows": [
       {
         "label": "SHA-256（套件 A）",
-        "opsPerSec": 1306327,
-        "nsPerOp": 765.5,
-        "mbPerSec": 74.7
+        "opsPerSec": 1353214,
+        "nsPerOp": 739,
+        "mbPerSec": 77.4
       },
       {
         "label": "SM3（套件 B · 国密）",
-        "opsPerSec": 854209,
-        "nsPerOp": 1170.7,
-        "mbPerSec": 48.9
+        "opsPerSec": 812138,
+        "nsPerOp": 1231.3,
+        "mbPerSec": 46.5
       }
     ],
     "largeRows": [
       {
         "label": "SHA-256（套件 A）",
-        "opsPerSec": 2127,
-        "nsPerOp": 470130.5,
-        "mbPerSec": 2127.1
+        "opsPerSec": 2130,
+        "nsPerOp": 469412.5,
+        "mbPerSec": 2130.3
       },
       {
         "label": "SM3（套件 B · 国密）",
-        "opsPerSec": 306,
-        "nsPerOp": 3266642.5,
-        "mbPerSec": 306.1
+        "opsPerSec": 269,
+        "nsPerOp": 3722449.5,
+        "mbPerSec": 268.6
       }
     ]
   },
@@ -109,80 +109,80 @@
         "sha256": {
           "size": 1,
           "rootMs": 0,
-          "rootsPerSec": 12145749
+          "rootsPerSec": 8130081
         },
         "sm3": {
           "size": 1,
           "rootMs": 0,
-          "rootsPerSec": 1564945
+          "rootsPerSec": 653737
         }
       },
       {
         "size": 10,
         "sha256": {
           "size": 10,
-          "rootMs": 0.01,
-          "rootsPerSec": 99966
+          "rootMs": 0.04,
+          "rootsPerSec": 28378
         },
         "sm3": {
           "size": 10,
-          "rootMs": 0.03,
-          "rootsPerSec": 31316
+          "rootMs": 0.13,
+          "rootsPerSec": 7479
         }
       },
       {
         "size": 100,
         "sha256": {
           "size": 100,
-          "rootMs": 0.08,
-          "rootsPerSec": 12017
+          "rootMs": 0.27,
+          "rootsPerSec": 3732
         },
         "sm3": {
           "size": 100,
-          "rootMs": 0.2,
-          "rootsPerSec": 5111
+          "rootMs": 0.71,
+          "rootsPerSec": 1416
         }
       },
       {
         "size": 1000,
         "sha256": {
           "size": 1000,
-          "rootMs": 0.79,
-          "rootsPerSec": 1266
+          "rootMs": 2.22,
+          "rootsPerSec": 450
         },
         "sm3": {
           "size": 1000,
-          "rootMs": 1.77,
-          "rootsPerSec": 565
+          "rootMs": 5.38,
+          "rootsPerSec": 186
         }
       },
       {
         "size": 10000,
         "sha256": {
           "size": 10000,
-          "rootMs": 8.49,
-          "rootsPerSec": 118
+          "rootMs": 23.14,
+          "rootsPerSec": 43
         },
         "sm3": {
           "size": 10000,
-          "rootMs": 18.17,
-          "rootsPerSec": 55
+          "rootMs": 52.7,
+          "rootsPerSec": 19
         }
       }
     ],
     "proof": {
       "sha256": {
-        "genMs": 1.54,
-        "genPerSec": 650,
-        "verifyMs": 0.01,
-        "verifyPerSec": 135918,
+        "genMs": 3.98,
+        "genPerSec": 251,
+        "verifyMs": 0.02,
+        "verifyPerSec": 46317,
         "selfCheck": true
       },
       "sm3": {
-        "genMs": 3.41,
-        "genPerSec": 293,
+        "genMs": 5.37,
+        "genPerSec": 186,
         "verifyMs": 0.02,
-        "verifyPerSec": 56453,
+        "verifyPerSec": 53425,
         "selfCheck": true,
         "proofNodes": 10
       }
@@ -194,24 +194,24 @@
     "suiteA": {
       "curve": "secp256k1",
       "signatureBytes": 71,
-      "keygenPerSec": 2665,
-      "keygenMs": 0.38,
-      "signPerSec": 1889,
-      "signMs": 0.53,
-      "verifyPerSec": 3889,
-      "verifyMs": 0.26,
+      "keygenPerSec": 2714,
+      "keygenMs": 0.37,
+      "signPerSec": 905,
+      "signMs": 1.11,
+      "verifyPerSec": 1772,
+      "verifyMs": 0.56,
       "selfCheck": true,
       "tamperRejected": true,
       "address": "0xe1a83a3c78ed3d1ee00b8bd2337333d0ff5906c7"
     },
     "suiteB": {
       "signatureBytes": 71,
-      "keygenPerSec": 3066,
-      "keygenMs": 0.33,
-      "signPerSec": 2099,
-      "signMs": 0.48,
-      "verifyPerSec": 4189,
-      "verifyMs": 0.24,
+      "keygenPerSec": 1429,
+      "keygenMs": 0.7,
+      "signPerSec": 948,
+      "signMs": 1.05,
+      "verifyPerSec": 1936,
+      "verifyMs": 0.52,
       "selfCheck": true,
       "tamperRejected": true,
       "address": "0x79605ffc2668157b90d6b7d1b1bb8fbf8f449f39"
@@ -220,37 +220,37 @@
   "blockProduction": {
     "txPerBlock": 10,
     "poa": {
-      "blocksPerSec": 1823,
-      "msPerBlock": 0.55,
-      "tps": 18225,
-      "verifyMsPerBlock": 0.26,
-      "verifyPerSec": 3801,
+      "blocksPerSec": 871,
+      "msPerBlock": 1.15,
+      "tps": 8711,
+      "verifyMsPerBlock": 0.56,
+      "verifyPerSec": 1771,
       "note": "PoA 无挖矿，出块成本 = 1 次 Merkle 建根 + 1 次区块头哈希 + 1 次出块方签名；网络内其余节点各做 1 次签名验签即可确认。"
     },
     "powComparison": [
       {
         "difficulty": 1,
-        "avgMineMs": 0.02,
+        "avgMineMs": 0.07,
         "avgAttempts": 18,
-        "blocksPerSec": 51840.33
+        "blocksPerSec": 13782.65
       },
       {
         "difficulty": 2,
-        "avgMineMs": 0.25,
+        "avgMineMs": 0.86,
         "avgAttempts": 228,
-        "blocksPerSec": 3929.74
+        "blocksPerSec": 1167.67
       },
       {
         "difficulty": 3,
-        "avgMineMs": 4.85,
+        "avgMineMs": 11.16,
         "avgAttempts": 4972,
-        "blocksPerSec": 206.05
+        "blocksPerSec": 89.58
       },
       {
         "difficulty": 4,
-        "avgMineMs": 85.6,
+        "avgMineMs": 90.76,
         "avgAttempts": 87518,
-        "blocksPerSec": 11.68
+        "blocksPerSec": 11.02
       }
     ],
     "powNote": "PoW 即使只有 4 位十六进制前导零（难度 4，即 16⁴ ≈ 65 536 次期望尝试），单块耗时也已比 PoA 高出数个数量级；公有链的\"安全\"以吞吐为代价。联盟链被许可成员均为实名主体，作恶可追责（法律责任 + 成员资格撤销），故以 PoA 换取工业场景所需的吞吐与确定性时延。"
@@ -261,20 +261,20 @@
     "txTotal": 10000,
     "totalSizeBytes": 936890,
     "build": {
-      "totalMs": 5959.5,
-      "msPerBlock": 5.96,
-      "blocksPerSec": 168,
-      "tps": 1678
+      "totalMs": 6534.1,
+      "msPerBlock": 6.53,
+      "blocksPerSec": 153,
+      "tps": 1530
     },
     "verify": {
-      "totalMs": 2933.2,
-      "msPerBlock": 2.93,
-      "blocksPerSec": 341,
+      "totalMs": 6179.5,
+      "msPerBlock": 6.18,
+      "blocksPerSec": 162,
       "merkleRecomputed": 1000,
       "proposerSigVerified": 1000,
       "txSigVerified": 10000,
       "txPayloadBindingChecked": 10000,
-      "payloadBindingPerSec": 3409,
+      "payloadBindingPerSec": 1618,
       "errorsFound": 0,
       "pass": true
     },
@@ -318,17 +318,17 @@
   "password": {
     "scrypt": {
       "params": "N=16384, r=8, p=1（内存硬，约 16 MiB / 次）",
-      "msPerHash": 38.81,
-      "hashesPerSec": 25.8,
+      "msPerHash": 72.7,
+      "hashesPerSec": 13.8,
       "offLineCostNote": "单次约十几到几十毫秒，对交互式登录无感；但对离线爆破，每次尝试都要付出同样的时间与内存代价，配合随机盐使彩虹表与批量字典攻击失效。"
     },
     "legacySha256": {
       "msPerHash": 0,
-      "hashesPerSec": 1321926
+      "hashesPerSec": 585711
     },
     "randomSalt": {
       "bytes": 16,
-      "perSec": 718584
+      "perSec": 244995
     },
     "upgradePolicy": "verifyPassword 对历史 SHA256 摘要返回 legacy=true，登录成功后自动升级为 scrypt，存量数据可无感迁移，无需停机改密。"
   }

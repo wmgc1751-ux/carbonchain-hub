@@ -45,6 +45,17 @@ class Blockchain {
     this.pool = [];         // 交易池（待打包）
     this.mining = false;    // 出块锁，防止并发出块
     this.ready = false;
+    /* 链数据「变更版本号」：任何一次写入（出块 / 篡改 / 修复 / 重新装载）都自增。
+     * 用途见 validateChainCached()：全链校验的缓存键必须包含本字段，
+     * 否则「篡改后链高未变」会让缓存把一个已被破坏的链误报为 valid=true。 */
+    this._rev = 0;
+    this._validateCache = null; // { key, at, value }
+  }
+
+  /** 标记链数据已变更（使全链校验缓存失效） */
+  _bumpRev() {
+    this._rev++;
+    this._validateCache = null;
   }
 
   /* ================================================================
@@ -86,6 +97,7 @@ class Blockchain {
     );
     this.pool = pend.map((r) => this._rowToTx(r));
     this.ready = true;
+    this._bumpRev(); // 首次装载视为一次变更，丢弃可能存在的陈旧校验缓存
     return this;
   }
 
@@ -436,6 +448,7 @@ class Blockchain {
       }
 
       this.blocks.push(block);
+      this._bumpRev(); // 新区块入链 → 全链校验缓存失效
       return block;
     } finally {
       this.mining = false;
@@ -508,6 +521,36 @@ class Blockchain {
   /* ================================================================
    * 链完整性校验
    * ================================================================ */
+
+  /**
+   * 带短时缓存的全链校验 —— 面向「高频只读巡检」场景（浏览器/监管端轮询该接口）。
+   *
+   * 为什么需要缓存：validateChain 是 O(区块数 × 交易数) 的重活，一次调用要对
+   * 每个区块做 1 次区块头哈希 + 1 次出块签名验签（ECDSA ≈ 0.5 ms）+ 1 次 Merkle 建根，
+   * 还要对每笔交易做 1 次链下重算绑定。500+ 区块时单次耗时进入百毫秒级，
+   * 并发巡检会把单进程 CPU 打满（实测线上 100 并发全部超时）。
+   *
+   * 安全前提：缓存键包含 `_rev`（链数据变更版本号）与链高。任何写入 ——
+   * 出块、篡改、修复、重新装载 —— 都会 `_bumpRev()` 使缓存立即失效，
+   * 因此**不存在「链已被破坏但缓存仍报 valid=true」的窗口**。
+   *
+   * @param {object} opts { fromIndex, ttlMs } ttlMs 默认 5000，传 0 可强制重算
+   * @returns {Promise<object>} validateChain 的结果，额外带 cached / cacheAgeMs 字段
+   */
+  async validateChainCached(opts = {}) {
+    const from = Number(opts.fromIndex) || 0;
+    const ttl = opts.ttlMs === undefined ? 5000 : Number(opts.ttlMs);
+    const tip = this.blocks.length ? this.blocks[this.blocks.length - 1].index : -1;
+    const key = `${from}:${tip}:${this.blocks.length}:${this._rev}`;
+    const now = Date.now();
+    const c = this._validateCache;
+    if (ttl > 0 && c && c.key === key && (now - c.at) < ttl) {
+      return { ...c.value, cached: true, cacheAgeMs: now - c.at };
+    }
+    const value = await this.validateChain({ fromIndex: from });
+    this._validateCache = { key, at: Date.now(), value };
+    return { ...value, cached: false, cacheAgeMs: 0 };
+  }
 
   /**
    * 全链校验（五道校验，逐层递进）：
@@ -730,6 +773,7 @@ class Blockchain {
     await this.db.query(
       `UPDATE chain_block SET ${col} = ? WHERE block_index = ?`, [newValue, blockIndex]
     );
+    this._bumpRev(); // 链上字段被改写 → 缓存必须失效，否则会把已破坏的链误报为 valid
 
     const validation = await this.validateChain({ fromIndex: 0 });
     return {
@@ -793,6 +837,7 @@ class Blockchain {
     await this.db.query(
       'UPDATE chain_tx SET payload_json = ? WHERE tx_id = ?', [afterJson, tx.tx_id]
     );
+    this._bumpRev(); // 链下明细被改写 → 缓存失效（第五道校验的结果随之变化）
 
     const validation = await this.validateChain({ fromIndex: 0 });
     return {
@@ -851,6 +896,7 @@ class Blockchain {
       await this.db.query('DELETE FROM chain_payload_backup WHERE tx_id = ?', [r.tx_id]);
       restored++;
     }
+    this._bumpRev(); // 链下明细还原 → 缓存失效
 
     const validation = await this.validateChain({ fromIndex: 0 });
     return {
