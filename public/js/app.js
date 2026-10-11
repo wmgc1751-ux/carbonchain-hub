@@ -6,7 +6,7 @@
   const { defineComponent, ref, reactive, computed, onMounted, onUnmounted } = Vue;
   const h = App.h;
   const Router = App.Router;
-  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/cems', '/notice'];
+  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/cems', '/matrix', '/notice'];
 
   /* ==================================================================
    * 路由表
@@ -18,6 +18,7 @@
     ['/explorer', 'page-explorer'],
     ['/verify', 'page-verify'],
     ['/cems', 'page-cems'],
+    ['/matrix', 'page-matrix'],
     ['/ops', 'page-ops'],
     ['/explorer/block/:index', 'page-block-detail'],
     ['/explorer/tx/:txId', 'page-tx-detail'],
@@ -60,6 +61,7 @@
   const MENUS = {
     ENTERPRISE: [
       { group: '我的碳账本', items: [
+        { path: '/matrix', icon: 'chart', label: '碳矩阵工业大盘' },
         { path: '/ent/overview', icon: 'dash', label: '企业总览' },
         { path: '/ent/reports', icon: 'report', label: '碳排放上报' },
         { path: '/ent/dynamic', icon: 'leaf', label: '动态核算' },
@@ -81,6 +83,7 @@
     ],
     VERIFIER: [
       { group: '核查作业', items: [
+        { path: '/matrix', icon: 'chart', label: '碳矩阵工业大盘' },
         { path: '/ver/overview', icon: 'dash', label: '机构总览' },
         { path: '/ver/tasks', icon: 'verify', label: '核查任务' },
         { path: '/ver/reports', icon: 'report', label: '核查报告台账' },
@@ -94,6 +97,7 @@
     ],
     REGULATOR: [
       { group: '监管驾驶', items: [
+        { path: '/matrix', icon: 'chart', label: '碳矩阵工业大盘' },
         { path: '/reg/overview', icon: 'dash', label: '监管驾驶舱' },
         { path: '/reg/stats', icon: 'chart', label: '统计分析' },
       ] },
@@ -134,6 +138,7 @@
     '/reg/alerts': ['监管端', '预警与风险处置'], '/reg/stats': ['监管端', '统计分析'],
     '/reg/logs': ['监管端', '操作审计日志'], '/reg/system': ['监管端', '系统与链自检'],
     '/ops': ['运维', '生产监控中心'],
+    '/matrix': ['碳矩阵', '工业碳资产动态核算可信存证平台'],
     '/reg/consortium': ['监管端', '联盟链治理'], '/reg/dynamic': ['监管端', '动态核算监管'],
     '/reg/credit': ['监管端', '碳资产总览'],
     '/reg/notices': ['监管端', '通知公告管理'],
@@ -353,6 +358,7 @@
                 h('b', { style: 'color:var(--tx-0);font-size:14.5px' }, '碳链通'),
               ]),
               h('div', { class: 'flex gap-6', style: 'margin-left:18px' }, [
+                h('button', { class: ['btn sm', Router.path === '/matrix' && 'primary'], onClick: () => App.go('/matrix') }, '碳矩阵大盘'),
                 h('button', { class: ['btn sm', Router.path === '/screen' && 'primary'], onClick: () => App.go('/screen') }, '公示大屏'),
                 h('button', { class: ['btn sm', Router.path.startsWith('/explorer') && 'primary'], onClick: () => App.go('/explorer') }, '区块链浏览器'),
                 h('button', { class: ['btn sm', Router.path === '/verify' && 'primary'], onClick: () => App.go('/verify') }, '科研验证中心'),
