@@ -23,6 +23,218 @@
       const tamper = reactive({ blockIndex: 20, field: 'merkle_root' });
       const panel = ref(null);   // 篡改/修复结果面板
 
+      /* ── 碳资产存证：批次级存证记录 / 产品数字护照 DPP / 穿透式验真 ── */
+      const allBatches = App.Industry.batches;
+      const dppRef = ref(null);     // 当前打开 DPP 的批次
+      const proofRef = ref(null);   // 当前打开穿透式验真的批次
+      const kwBatch = ref('');
+      const batchStatusCn = { CERTIFIED: '已第三方核证', PENDING: '待核查机构核证', BLOCKED: '物料平衡异常·已阻断' };
+      const batchStatusCls = { CERTIFIED: 'ok', PENDING: 'warn', BLOCKED: 'err' };
+      const filteredBatches = computed(() => {
+        const k = (kwBatch.value || '').trim().toLowerCase();
+        if (!k) return allBatches;
+        return allBatches.filter((b) =>
+          (b.batchNo + b.product + b.entName + b.deviceDid + b.txHash + b.verifierName).toLowerCase().indexOf(k) >= 0);
+      });
+      const batchStat = computed(() => ({
+        total: allBatches.length,
+        tco2e: allBatches.reduce((s, b) => s + b.totalTco2e, 0),
+        certified: allBatches.filter((b) => b.status === 'CERTIFIED').length,
+      }));
+      const dppQR = computed(() => (dppRef.value ? App.Industry.qrMatrix(dppRef.value.dppNo + '|' + dppRef.value.txHash, 29) : null));
+      const pipeline = computed(() => (proofRef.value ? App.Industry.tracePipeline(proofRef.value) : null));
+      function openDpp(b) { dppRef.value = b; }
+      function openProof(b) { proofRef.value = b; }
+
+      /** 前端生成防伪二维码点阵（SVG，无外部依赖） */
+      function qrSvg(matrix, size) {
+        if (!matrix) return null;
+        const n = matrix.length;
+        const cells = [];
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+          if (matrix[y][x]) cells.push(h('rect', { key: y + '-' + x, x, y, width: 1, height: 1 }));
+        }
+        return h('svg', {
+          class: 'qr', viewBox: '0 0 ' + n + ' ' + n, width: size || 138, height: size || 138,
+          fill: '#0b1018', shapeRendering: 'crispEdges',
+        }, [h('rect', { x: 0, y: 0, width: n, height: n, fill: '#ffffff' })].concat(cells));
+      }
+
+      /* ------------------------------------------------------------------
+       * 产品数字护照（DPP）—— 面向欧盟新电池法案 / CBAM 的交付物
+       * ------------------------------------------------------------------ */
+      function renderDpp() {
+        const b = dppRef.value;
+        if (!b) return null;
+        const dev = b.device || {};
+        return h('x-modal', {
+          modelValue: true, title: '产品数字护照（Digital Product Passport）', width: '900px',
+          'onUpdate:modelValue': (v) => { if (!v) dppRef.value = null; },
+        }, {
+          default: () => h('div', { class: 'dpp' }, [
+            /* 护照头 */
+            h('div', { class: 'dpp-head' }, [
+              h('div', {}, [
+                h('div', { class: 'tiny dim' }, '数字护照编号 / DPP ID'),
+                h('div', { class: 'mono', style: 'font-size:15px;color:var(--chain-l)' }, b.dppNo),
+                h('div', { class: 'tiny dim mt-8' }, '申报口径：欧盟新电池法案 (EU) 2023/1542 · CBAM (EU) 2023/956 · ISO 14067'),
+                h('div', { class: 'tiny dim' }, '签发主体：' + b.entName + '（链上钱包已实名映射）'),
+              ]),
+              h('div', { class: 'dpp-qr' }, [
+                qrSvg(dppQR.value, 132),
+                h('div', { class: 'tiny dim', style: 'text-align:center;margin-top:6px' }, '扫码验真 · 链上核验入口'),
+              ]),
+            ]),
+
+            h('div', { class: 'alertbar ok mb-16' }, [
+              h('x-icon', { name: 'check', size: 15 }),
+              '本护照数据由边缘设备国密签名后上链，第三方核查机构节点（' + b.verifierName + '）已使用其私钥签名背书，任何人可凭该机构公钥独立验证。',
+            ]),
+
+            /* 产品与批次信息 */
+            h('div', { class: 'grid g2 mb-16' }, [
+              h('x-card', { title: '产品与批次', tight: true }, {
+                default: () => h('dl', { class: 'kv', style: 'grid-template-columns:104px 1fr' }, [
+                  h('dt', {}, '批次编号'), h('dd', { class: 'mono' }, b.batchNo),
+                  h('dt', {}, '产品名称'), h('dd', {}, b.product),
+                  h('dt', {}, '规格型号'), h('dd', {}, b.spec),
+                  h('dt', {}, '生产产线'), h('dd', {}, b.line),
+                  h('dt', {}, '批次产量'), h('dd', { class: 'mono' }, App.fmt.num(b.qty, 2) + ' ' + b.unit),
+                  h('dt', {}, '生产企业'), h('dd', {}, b.entName + '（' + b.industry + ' · ' + b.region + '）'),
+                ]),
+              }),
+              h('x-card', { title: '碳足迹核算结果', tight: true }, {
+                default: () => h('div', {}, [
+                  h('div', { class: 'res-big' }, [
+                    h('span', { class: 'mono' }, App.fmt.num(b.totalTco2e, 2)),
+                    h('span', { class: 'unit' }, 'tCO₂e'),
+                  ]),
+                  h('div', { class: 'tiny dim mb-12' }, '批次碳足迹总量（ISO 14067 产品碳足迹口径）'),
+                  h('dl', { class: 'kv', style: 'grid-template-columns:110px 1fr' }, [
+                    h('dt', {}, '单位产品强度'), h('dd', { class: 'mono' }, b.intensity.toFixed(4) + ' tCO₂e/' + b.unit),
+                    h('dt', {}, '范围一 直接排放'), h('dd', { class: 'mono' }, App.fmt.num(b.scope1, 2) + ' tCO₂e'),
+                    h('dt', {}, '范围二 间接排放'), h('dd', { class: 'mono' }, App.fmt.num(b.scope2, 2) + ' tCO₂e'),
+                    h('dt', {}, '电网因子'), h('dd', { class: 'mono' }, App.Industry.oracle.baseline.toFixed(4) + ' kgCO₂/kWh'),
+                  ]),
+                ]),
+              }),
+            ]),
+
+            /* BOM 碳排放构成 */
+            h('x-card', { title: 'BOM 碳排放构成（工序级分摊）', sub: '用于 CBAM 申报的嵌入式排放明细', class: 'mb-16', tight: true }, {
+              default: () => h('div', {}, [
+                h('x-bars', {
+                  items: App.Industry.bomBars(b), valueKey: 'value', labelKey: 'name',
+                  format: (v, it) => App.fmt.num(v, 2) + ' t  (' + (it.share * 100).toFixed(1) + '%)',
+                }),
+                h('div', { class: 'bom-table mt-12' }, b.bom.stages.map((st) => h('div', { class: 'bom-line' }, [
+                  h('span', { class: 'bl-name' }, st.name),
+                  h('span', { class: 'bl-share mono' }, (st.share * 100).toFixed(1) + '%'),
+                  h('span', { class: 'bl-val mono' }, App.fmt.num(st.tco2e, 2) + ' tCO₂e'),
+                ]))),
+              ]),
+            }),
+
+            /* 签名与存证 */
+            h('div', { class: 'grid g2' }, [
+              h('x-card', { title: '第三方核查节点公钥签名', tight: true }, {
+                default: () => h('dl', { class: 'kv', style: 'grid-template-columns:110px 1fr' }, [
+                  h('dt', {}, '核查机构'), h('dd', {}, b.verifierName),
+                  h('dt', {}, '节点标识'), h('dd', { class: 'mono' }, b.verifierNode),
+                  h('dt', {}, '资质编号'), h('dd', { class: 'mono' }, b.verifierCert),
+                  h('dt', {}, '公钥指纹'), h('dd', { class: 'mono', style: 'font-size:11.6px' }, b.verifierPub),
+                  h('dt', {}, '签名算法'), h('dd', { class: 'mono' }, 'ECDSA / secp256k1 + SHA-256'),
+                  h('dt', {}, '签名值'), h('dd', { class: 'hashbox' }, b.signature),
+                ]),
+              }),
+              h('x-card', { title: '链上存证锚点', tight: true }, {
+                default: () => h('dl', { class: 'kv', style: 'grid-template-columns:110px 1fr' }, [
+                  h('dt', {}, '交易哈希'), h('dd', { class: 'hashbox' }, [h('b', {}, b.txHash)]),
+                  h('dt', {}, '区块高度'), h('dd', { class: 'mono' }, '#' + b.blockHeight),
+                  h('dt', {}, '区块哈希'), h('dd', { class: 'hashbox' }, b.blockHash),
+                  h('dt', {}, '业务数据摘要'), h('dd', { class: 'hashbox' }, b.payloadHash),
+                  h('dt', {}, '共识节点'), h('dd', { class: 'mono', style: 'font-size:11.6px' }, b.consensusNodes.join(' · ')),
+                  h('dt', {}, '共识时间戳'), h('dd', { class: 'mono' }, App.fmt.dt(b.consensusAt)),
+                  h('dt', {}, '边缘设备 DID'), h('dd', { class: 'mono', style: 'font-size:11.6px' }, b.deviceDid + (dev.chip ? '（' + dev.chip + ' · ' + dev.alg + '）' : '')),
+                ]),
+              }),
+            ]),
+          ]),
+          footer: () => [
+            h('button', { class: 'btn', onClick: () => { dppRef.value = null; } }, '关闭'),
+            h('button', { class: 'btn', onClick: () => App.notify.info('数字护照为链上数据的可核验呈现，导出功能对接 CBAM 申报模板（演示环境不落盘）。') }, [h('x-icon', { name: 'download', size: 15 }), '导出申报包']),
+            h('button', { class: 'btn chain', onClick: () => { dppRef.value = null; proofRef.value = b; } }, [h('x-icon', { name: 'search', size: 15 }), '穿透式验真']),
+          ],
+        });
+      }
+
+      /* ------------------------------------------------------------------
+       * 穿透式公钥验真 —— 源端到链上四段流水线
+       * ------------------------------------------------------------------ */
+      function renderProof() {
+        const b = proofRef.value;
+        if (!b) return null;
+        const steps = pipeline.value || [];
+        const blocked = b.status === 'BLOCKED';
+        return h('x-modal', {
+          modelValue: true, title: '穿透式公钥验真 · ' + b.batchNo, width: '960px',
+          'onUpdate:modelValue': (v) => { if (!v) proofRef.value = null; },
+        }, {
+          default: () => h('div', {}, [
+            h('x-readout', {
+              pass: !blocked,
+              label: blocked
+                ? '验真未通过 —— 物料平衡异常，该批次已被边缘侧阻断上链'
+                : '第三方认证机构公钥匹配通过，数据自物理源端至链上全程防篡改',
+              detail: blocked ? '等待人工核查能源计量台账后重放' : '公钥指纹 ' + b.verifierPub.slice(0, 18) + '…',
+            }),
+
+            h('div', { class: 'trace-flow mt-16' }, steps.flatMap((st, i) => {
+              const card = h('div', { class: ['trace-step', st.ok ? 'ok' : 'bad'] }, [
+                h('div', { class: 'ts-head' }, [
+                  h('span', { class: 'ts-stage' }, st.stage),
+                  h('span', { class: 'ts-ico' }, [h('x-icon', { name: st.icon, size: 14 })]),
+                  h('span', { class: 'ts-key' }, st.key),
+                ]),
+                h('div', { class: 'ts-title' }, st.title),
+                h('div', { class: 'ts-sub tiny dim' }, st.sub),
+                h('dl', { class: 'kv ts-kv' }, st.detail.flatMap((dd) => [
+                  h('dt', {}, dd.k),
+                  h('dd', { class: 'mono' }, dd.v),
+                ])),
+                h('div', { class: 'ts-frame' }, [
+                  h('div', { class: 'tiny dim' }, '原始数据 / 中间产物'),
+                  h('pre', { class: 'mono-pre' }, st.frame),
+                ]),
+                h('div', { class: 'ts-seal' }, [
+                  h('i', { class: ['ind-lamp', st.ok ? 'NORMAL' : 'ANOMALY'], style: 'width:7px;height:7px' }),
+                  h('span', { class: 'tiny' }, st.ok ? '校验通过' : '校验失败'),
+                ]),
+              ]);
+              return i < steps.length - 1 ? [card, h('i', { class: 'ts-arrow' }, '→')] : [card];
+            })),
+
+            h('div', { class: 'alertbar ok mt-16' }, [
+              h('x-icon', { name: 'shield', size: 16 }),
+              h('div', {}, [
+                h('b', {}, '第三方认证机构公钥匹配通过，数据自物理源端至链上全程防篡改。'),
+                h('div', { class: 'tiny mt-8' }, '验证路径：用 ' + b.verifierName + ' 的公开公钥（指纹 ' + b.verifierPub.slice(0, 24) + '…）解开链上签名 → 得到合约核算结果摘要 → 与链上 payloadHash 比对一致 → 该摘要又由设备 TEE 内的国密私钥签名，而设备私钥不可导出。因此任何环节（报文、核算、存证）被改动，验真都会失败。'),
+              ]),
+            ]),
+
+            h('div', { class: 'flex gap-8 mt-16 wrap' }, [
+              h('button', { class: 'btn sm', onClick: () => App.copyText(b.txHash) }, [h('x-icon', { name: 'copy', size: 14 }), '复制 TxHash']),
+              h('button', { class: 'btn sm', onClick: () => App.copyText(b.verifierPub) }, [h('x-icon', { name: 'key', size: 14 }), '复制核查机构公钥']),
+              h('button', { class: 'btn sm chain', onClick: () => { proofRef.value = null; App.go('/explorer/tx/' + b.txHash); } }, [h('x-icon', { name: 'block', size: 14 }), '在浏览器中查看该交易']),
+            ]),
+          ]),
+          footer: () => [
+            h('button', { class: 'btn', onClick: () => { proofRef.value = null; } }, '关闭'),
+            h('button', { class: 'btn chain', onClick: () => { proofRef.value = null; dppRef.value = b; } }, [h('x-icon', { name: 'report', size: 15 }), '查看数字护照']),
+          ],
+        });
+      }
+
       async function loadStats() {
         stats.value = await App.API.request('GET', '/chain/stats', null, { noAuth: true });
         blocksConsistent();
@@ -207,6 +419,65 @@
               ]),
             }),
 
+            /* ==================================================================
+               碳资产存证记录（批次级）· 产品数字护照 DPP · 穿透式验真
+               ================================================================== */
+            h('div', { class: 'sect-head' }, [
+              h('span', { class: 'no' }, '03'),
+              h('div', {}, [
+                h('h3', {}, '碳资产存证记录与产品数字护照（DPP）'),
+                h('p', {}, '每一批产品从「物理计量 → 边缘国密签名 → 合约动态核算 → 多节点共识」全链条留痕。此处的存证记录同时是生成欧盟新电池法案 / CBAM 碳关税申报所需产品数字护照的数据底座。'),
+              ]),
+            ]),
+
+            h('x-card', {
+              title: '存证记录（批次级）',
+              sub: `共 ${batchStat.value.total} 个批次 · 累计核算碳足迹 ${App.fmt.num(Math.round(batchStat.value.tco2e))} tCO₂e · 已第三方核证 ${batchStat.value.certified} 个`,
+              class: 'mb-16',
+            }, {
+              actions: () => h('div', { class: 'input-group', style: 'width:300px' }, [
+                h('input', {
+                  class: 'input', placeholder: '搜索批次 / 产品 / 企业 / DID / TxHash', value: kwBatch.value,
+                  onInput: (e) => { kwBatch.value = e.target.value; },
+                }),
+                h('button', { class: 'btn', onClick: () => { kwBatch.value = ''; } }, [h('x-icon', { name: 'close', size: 14 })]),
+              ]),
+              default: () => h('div', { class: 'tbl-wrap', style: 'max-height:520px;overflow:auto' }, [
+                h('table', { class: 'tbl' }, [
+                  h('thead', {}, h('tr', {}, ['批次编号', '产品 / 企业', '核算碳足迹总量', '边缘设备 DID', '交易哈希 TxHash', '区块高度', '共识时间戳', '交付操作'].map((t) => h('th', {}, t)))),
+                  h('tbody', {}, filteredBatches.value.map((b) => h('tr', {}, [
+                    h('td', {}, [
+                      h('div', { class: 'mono nowrap', style: 'font-size:12px;color:var(--chain-l);cursor:copy', title: '点击复制批次编号', onClick: () => App.copyText(b.batchNo) }, b.batchNo),
+                      h('div', { class: 'tiny dim nowrap' }, b.dppNo),
+                    ]),
+                    h('td', {}, [
+                      h('div', { class: 'nowrap', style: 'font-size:12.6px;color:var(--tx-0)' }, b.product),
+                      h('div', { class: 'tiny dim nowrap' }, b.entShort + ' · ' + b.industry),
+                      h('div', { class: 'mt-4' }, h('span', { class: ['tag', batchStatusCls[b.status]] }, batchStatusCn[b.status])),
+                    ]),
+                    h('td', { class: 'nowrap' }, [
+                      h('div', { class: 'mono', style: 'color:var(--tx-0)' }, App.fmt.num(b.totalTco2e, 2) + ' tCO₂e'),
+                      h('div', { class: 'tiny dim mono' }, b.intensity.toFixed(4) + ' tCO₂e/' + b.unit),
+                    ]),
+                    h('td', {}, [
+                      h('div', { class: 'did mono', title: '点击复制 DID', onClick: () => App.copyText(b.deviceDid) }, b.deviceDid),
+                      h('div', { class: 'tiny dim nowrap' }, (b.device ? b.device.chipCn + ' · ' + b.device.alg : '边缘签名已固化')),
+                    ]),
+                    h('td', {}, [
+                      h('x-hash', { value: b.txHash, len: 16 }),
+                      h('div', { class: 'tiny dim mono nowrap' }, 'payload ' + App.fmt.short(b.payloadHash, 6)),
+                    ]),
+                    h('td', {}, h('x-chainbadge', { block: b.blockHeight, hash: b.blockHash, label: '点击复制区块哈希' })),
+                    h('td', { class: 'tiny mono nowrap' }, App.fmt.dt(b.consensusAt)),
+                    h('td', {}, [
+                      h('button', { class: 'btn xs chain', onClick: () => openDpp(b) }, [h('x-icon', { name: 'report', size: 12 }), '数字护照']),
+                      h('button', { class: 'btn xs', style: 'margin-top:5px', onClick: () => openProof(b) }, [h('x-icon', { name: 'search', size: 12 }), '穿透式验真']),
+                    ]),
+                  ]))),
+                ]),
+              ]),
+            }),
+
             /* 区块 / 交易列表 */
             h('div', { class: 'card' }, [
               h('div', { class: 'card-head' }, [
@@ -228,6 +499,7 @@
 
               tab.value === 'blocks' ? [
                 h('x-table', {
+                  class: 'tbl-blocks',
                   columns: [
                     { key: 'block_index', title: '高度', width: '90px' },
                     { key: 'block_hash', title: '区块哈希' },
@@ -252,6 +524,7 @@
                 h('x-pager', { page: blocks.page, pages: blocks.pages, total: blocks.total, size: blocks.size, onChange: (p) => { blocks.page = p; loadBlocks(); } }),
               ] : [
                 h('x-table', {
+                  class: 'tbl-txs',
                   columns: [
                     { key: 'tx_id', title: '交易号' },
                     { key: 'txTypeCn', title: '类型', width: '140px' },
@@ -276,6 +549,8 @@
             ]),
           ],
         }),
+        renderDpp(),
+        renderProof(),
       ]);
     },
   });

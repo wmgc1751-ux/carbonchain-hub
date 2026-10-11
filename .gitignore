@@ -25,6 +25,8 @@ artifacts/video/frames/
 
 # ---- 答辩证据截图（约 13MB，本地保留即可，不入库以保持部署包精简）----
 artifacts/screens/
+# ---- 工业闭环模块的分区验收截图（同样本地保留）----
+artifacts/industry/
 
 # ---- 编辑器 / 系统 ----
 .vscode/
