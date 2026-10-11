@@ -156,12 +156,23 @@ router.get('/reports/:id', wrap(async (req, res) => {
 router.post('/reports', wrap(async (req, res) => {
   const id = entId(req);
   const { year, quarter, dataSource, items, submit } = req.body || {};
-  if (!year || !quarter) return fail(res, '请选择核算年度与季度', 400);
+
+  /* 入参校验：年度/季度/消耗量必须为合法值。
+     历史缺陷：仅校验非空，导致 quarter=99、year=1800、amount 为负数或非数字
+     均可入库（负数会算出"负排放"），且非数字会经 Number(x)||0 被静默当作 0。 */
+  const y = Number(year);
+  const q = Number(quarter);
+  if (!Number.isInteger(y) || y < 2000 || y > 2100) {
+    return fail(res, '核算年度不合法（应为 2000–2100 之间的整数）', 400);
+  }
+  if (!Number.isInteger(q) || q < 1 || q > 4) {
+    return fail(res, '核算季度不合法（应为 1–4）', 400);
+  }
   if (!Array.isArray(items) || items.length === 0) return fail(res, '请至少填写一项能源消耗数据', 400);
 
   const exists = await db.one('SELECT id FROM emission_report WHERE ent_id = ? AND year = ? AND quarter = ?',
-    [id, year, quarter]);
-  if (exists) return fail(res, `${year} 年第 ${quarter} 季度已存在上报单，请勿重复上报`, 400);
+    [id, y, q]);
+  if (exists) return fail(res, `${y} 年第 ${q} 季度已存在上报单，请勿重复上报`, 400);
 
   const ent = await db.one('SELECT * FROM enterprise WHERE id = ?', [id]);
 
@@ -171,7 +182,10 @@ router.post('/reports', wrap(async (req, res) => {
   for (const it of items) {
     const meta = require('../scripts/seed-pools').ENERGY_TYPES.find((x) => x.name === it.energyType);
     if (!meta) continue;
-    const amount = Number(it.amount) || 0;
+    const amount = Number(it.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return fail(res, `能源「${it.energyType}」的消耗量必须为大于 0 的数字`, 400);
+    }
     const co2 = Number((amount * meta.factor).toFixed(3));
     if (meta.scope === 1) s1 += co2; else s2 += co2;
     const TCE = { 原煤: 0.7143, 焦炭: 0.9714, 天然气: 12.143, 柴油: 1.4571, 燃料油: 1.4286, 电力: 0.3025, 热力: 0.03412 };
@@ -181,7 +195,7 @@ router.post('/reports', wrap(async (req, res) => {
   if (!rows.length) return fail(res, '能源品种不合法', 400);
 
   const yearReports = await db.query(
-    'SELECT IFNULL(SUM(output_value),0) AS o FROM emission_report WHERE ent_id = ? AND year = ?', [id, year]
+    'SELECT IFNULL(SUM(output_value),0) AS o FROM emission_report WHERE ent_id = ? AND year = ?', [id, y]
   );
   const outputValue = Number((Number(yearReports[0].o) / 4 || Number(ent.annual_output) / 4).toFixed(2));
   const total = Number((s1 + s2).toFixed(2));
@@ -194,7 +208,7 @@ router.post('/reports', wrap(async (req, res) => {
       (report_no, ent_id, year, quarter, period, scope1_emission, scope2_emission, total_emission,
        energy_consumption, output_value, intensity, yoy_rate, data_source, status, submit_time, created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-    [reportNo, id, year, quarter, `${year}Q${quarter}`, Number(s1.toFixed(2)), Number(s2.toFixed(2)), total,
+    [reportNo, id, y, q, `${y}Q${q}`, Number(s1.toFixed(2)), Number(s2.toFixed(2)), total,
       Number(energy.toFixed(2)), outputValue, intensity, 0, dataSource || '排放因子法', status,
       submit ? new Date() : null]
   );
@@ -216,18 +230,18 @@ router.post('/reports', wrap(async (req, res) => {
       bizNo: reportNo,
       fromLabel: `ent:${id}`,
       payload: {
-        reportNo, entId: id, entName: ent.ent_name, period: `${year}Q${quarter}`,
+        reportNo, entId: id, entName: ent.ent_name, period: `${y}Q${q}`,
         scope1: Number(s1.toFixed(2)), scope2: Number(s2.toFixed(2)), totalEmission: total,
         intensity, dataSource: dataSource || '排放因子法',
       },
     });
     await db.query('UPDATE emission_report SET chain_block_index = ?, chain_tx_id = ? WHERE id = ?',
       [chain.blockIndex, chain.txId, reportId]);
-    await assignVerifier(reportId, id, year, quarter);
+    await assignVerifier(reportId, id, y, q);
   }
 
   await writeLog(req, '碳排上报', submit ? '提交上报' : '暂存草稿', reportNo,
-    `报告期 ${year}Q${quarter}，排放总量 ${total} tCO2e`);
+    `报告期 ${y}Q${q}，排放总量 ${total} tCO2e`);
 
   ok(res, { reportId, reportNo, total, chain }, submit ? '上报成功，数据已上链存证' : '草稿已保存');
 }));

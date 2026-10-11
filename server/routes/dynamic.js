@@ -9,7 +9,7 @@
 
 const express = require('express');
 const db = require('../db');
-const { authRequired, ok, fail, wrap } = require('../middleware/auth');
+const { authRequired, requireRole, ok, fail, wrap } = require('../middleware/auth');
 const dyn = require('../services/dynamic');
 
 const router = express.Router();
@@ -31,6 +31,9 @@ router.get('/readings', authRequired, wrap(async (req, res) => {
   const scoped = scopedEntId(req);
   const entId = scoped || Number(req.query.entId);
   if (!entId) return fail(res, '缺少参数 entId', 400);
+
+  /* 数据可见范围（产品口径）：企业端仅本企业（scoped 锁定）；核查 / 监管 / 管理
+   * 角色可查看全部企业的实时监测数据（核查机构需跨企业核验，故与监管端同级可见）。 */
   const ent = await db.one('SELECT id, ent_name, industry, scale FROM enterprise WHERE id = ?', [entId]);
   if (!ent) return fail(res, '企业不存在', 404);
   ok(res, {
@@ -40,14 +43,14 @@ router.get('/readings', authRequired, wrap(async (req, res) => {
   });
 }));
 
-/* 手动触发一次采数 --------------------------------------------------- */
-router.post('/ingest', authRequired, wrap(async (req, res) => {
+/* 手动触发一次采数（监管/管理角色；采集为全局操作） ------------------- */
+router.post('/ingest', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
   const r = await dyn.ingest({ days: Number((req.body || {}).days) || 1 });
   ok(res, r, `已采集 ${r.inserted} 条 CEMS 实测读数（批次 ${r.batchNo}）`);
 }));
 
-/* 手动触发滚动核算 --------------------------------------------------- */
-router.post('/recompute', authRequired, wrap(async (req, res) => {
+/* 手动触发滚动核算（企业仅本企业；监管/管理可指定企业或全量） --------- */
+router.post('/recompute', authRequired, requireRole('ENTERPRISE', 'REGULATOR'), wrap(async (req, res) => {
   const scoped = scopedEntId(req);
   const target = scoped || (req.body && req.body.entId ? Number(req.body.entId) : null);
   const rs = await dyn.recompute(target);
