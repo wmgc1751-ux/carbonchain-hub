@@ -426,9 +426,11 @@ async function main() {
   });
 
   // C3. 区块链浏览器 → 点进区块详情
+  //     注意：浏览器页除「区块列表」外还有「存证记录」等表格，必须限定到区块表，
+  //     否则会点到存证记录的「数字护照」按钮（历史缺陷：依赖「第一个 tbody 即区块表」）。
   await loadRoute(null, '/explorer');
   const blk = await cdp.evaluate(`(function () {
-    var rows = document.querySelectorAll('tbody tr');
+    var rows = document.querySelectorAll('.tbl-blocks tbody tr');
     if (!rows.length) return { ok: false, why: '无区块行' };
     var t = rows[0].querySelector('a,button,.link,.block-idx');
     if (t) { t.click(); return { ok: true, via: 'link', label: (t.innerText||'').trim() }; }
