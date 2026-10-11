@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-10-11T06:41:01.259Z",
+  "generatedAt": "2026-10-11T07:29:24.633Z",
   "base": "http://127.0.0.1:8300",
   "chain": {
-    "height": 305,
-    "totalTxs": 1128
+    "height": 306,
+    "totalTxs": 1129
   },
   "routes": {
     "total": 34,
@@ -26,7 +26,7 @@
     {
       "name": "区块链浏览器 → 区块详情（含 Merkle 根）",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/306\",\"textLen\":835,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
+      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/307\",\"textLen\":832,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
       "shot": "artifacts\\screens\\92-区块详情.png"
     },
     {
@@ -65,7 +65,7 @@
       "role": null,
       "label": "数据公示大屏",
       "pass": true,
-      "textLen": 1399,
+      "textLen": 1401,
       "tables": 0,
       "rows": 0,
       "cards": 11,
@@ -80,7 +80,7 @@
       "role": null,
       "label": "区块链浏览器",
       "pass": true,
-      "textLen": 3811,
+      "textLen": 3813,
       "tables": 2,
       "rows": 18,
       "cards": 10,
@@ -110,10 +110,10 @@
       "role": null,
       "label": "CEMS 实测流监控",
       "pass": true,
-      "textLen": 1225,
+      "textLen": 1468,
       "tables": 0,
       "rows": 0,
-      "cards": 7,
+      "cards": 8,
       "charts": 0,
       "hash": "#/cems",
       "logs": [],
@@ -151,7 +151,7 @@
       "shot": "artifacts\\screens\\07-区块详情.png"
     },
     {
-      "route": "/explorer/tx/3d18cb21c4bfb3676a2694c120051e128d74efa22dc097ef24095ab63771d6e6",
+      "route": "/explorer/tx/008c1965452c9c4bc16be1c056ae8b06b2b58023947844ce99bc534d8223cfca",
       "role": null,
       "label": "交易详情（含 Merkle 路径）",
       "pass": true,
@@ -160,7 +160,7 @@
       "rows": 0,
       "cards": 4,
       "charts": 0,
-      "hash": "#/explorer/tx/3d18cb21c4bfb3676a2694c120051e128d74efa22dc097ef24095ab63771d6e6",
+      "hash": "#/explorer/tx/008c1965452c9c4bc16be1c056ae8b06b2b58023947844ce99bc534d8223cfca",
       "logs": [],
       "errorBars": [],
       "shot": "artifacts\\screens\\08-交易详情（含 Merkle 路径）.png"

@@ -136,7 +136,7 @@ async function bootstrap() {
      原因：云平台（Render 等）的健康检查依赖端口尽早可用；若在这里同步 await 远程
      数据库（跨区连接可能耗时数分钟），新实例会被判定「启动过慢」，结果是部署虽然
      显示成功、流量却没有切到新实例 —— 表现为线上仍是上一版代码。 */
-  app.listen(config.port, config.host, () => {
+  const server = app.listen(config.port, config.host, () => {
     console.log('─'.repeat(64));
     console.log('  碳链通 CarbonChain Hub 已启动');
     console.log(`  访问地址: http://localhost:${config.port}`);
@@ -146,6 +146,13 @@ async function bootstrap() {
       ` · 跨域${CORS_ORIGINS.length ? `白名单(${CORS_ORIGINS.length})` : (config.isProd ? '仅同源' : '宽松')}`);
     console.log('─'.repeat(64));
   });
+
+  /* 挂载工业物联网 WebSocket 实时通道（容错：ws 库未装则跳过，前端降级归档模式）
+     渠道：/ws/telemetry —— 推送 CEMS 烟气实时流 / 车间电表 / 联盟链出块事件 */
+  try {
+    const telemetry = require('./routes/telemetry');
+    telemetry.attach(server);
+  } catch (e) { console.warn('⚠ WebSocket 通道挂载跳过：', e.message); }
 
   /* 后台预热：幂等、失败仅告警，绝不阻塞端口可用性 */
   warmup().catch((e) => {
