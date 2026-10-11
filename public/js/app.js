@@ -6,7 +6,7 @@
   const { defineComponent, ref, reactive, computed, onMounted, onUnmounted } = Vue;
   const h = App.h;
   const Router = App.Router;
-  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/notice'];
+  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/notice'];
 
   /* ==================================================================
    * 路由表
@@ -16,6 +16,7 @@
     ['/login', 'page-login'],
     ['/screen', 'page-screen'],
     ['/explorer', 'page-explorer'],
+    ['/verify', 'page-verify'],
     ['/explorer/block/:index', 'page-block-detail'],
     ['/explorer/tx/:txId', 'page-tx-detail'],
     ['/notice/:id', 'page-notice'],
@@ -71,6 +72,7 @@
       { group: '信息服务', items: [
         { path: '/ent/notices', icon: 'book', label: '通知公告' },
         { path: '/explorer', icon: 'block', label: '区块链浏览器' },
+        { path: '/verify', icon: 'shield', label: '科研验证中心' },
         { path: '/screen', icon: 'globe', label: '公示大屏' },
       ] },
     ],
@@ -84,6 +86,7 @@
         { path: '/ver/wallet', icon: 'wallet', label: '机构链上身份' },
         { path: '/ver/notices', icon: 'book', label: '通知公告' },
         { path: '/explorer', icon: 'block', label: '区块链浏览器' },
+        { path: '/verify', icon: 'shield', label: '科研验证中心' },
       ] },
     ],
     REGULATOR: [
@@ -105,6 +108,7 @@
         { path: '/reg/logs', icon: 'shield', label: '操作审计日志' },
         { path: '/reg/system', icon: 'db', label: '系统与链自检' },
         { path: '/explorer', icon: 'block', label: '区块链浏览器' },
+        { path: '/verify', icon: 'shield', label: '科研验证中心' },
       ] },
     ],
   };
@@ -128,6 +132,7 @@
     '/reg/credit': ['监管端', '碳资产总览'],
     '/reg/notices': ['监管端', '通知公告管理'],
     '/explorer': ['公开', '区块链浏览器'], '/screen': ['公开', '数据公示大屏'],
+    '/verify': ['公开', '科研验证中心'],
     '/login': ['公开', '登录'],
   };
 
@@ -297,7 +302,7 @@
       function guard() {
         if (!App.Store.user) return;
         const prefix = ROLE_PREFIX[App.Store.user.role];
-        const publicish = ['/login', '/screen', '/explorer', '/notice', '/'];
+        const publicish = ['/login', '/screen', '/explorer', '/verify', '/notice', '/'];
         if (publicish.some((p) => Router.path === p || Router.path.startsWith(p + '/'))) return;
         if (!Router.path.startsWith(prefix)) {
           App.notify.warn('当前身份无权访问该模块，已返回你的工作台');
@@ -343,6 +348,7 @@
               h('div', { class: 'flex gap-6', style: 'margin-left:18px' }, [
                 h('button', { class: ['btn sm', Router.path === '/screen' && 'primary'], onClick: () => App.go('/screen') }, '公示大屏'),
                 h('button', { class: ['btn sm', Router.path.startsWith('/explorer') && 'primary'], onClick: () => App.go('/explorer') }, '区块链浏览器'),
+                h('button', { class: ['btn sm', Router.path === '/verify' && 'primary'], onClick: () => App.go('/verify') }, '科研验证中心'),
               ]),
               h('div', { class: 'topbar-right' }, [
                 h('span', { class: 'chip live', title: '链尾哈希 ' + App.Store.chain.tipHash }, [

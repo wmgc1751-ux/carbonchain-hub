@@ -339,6 +339,18 @@ CREATE TABLE chain_tx (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='链上存证交易表';
 
 -- ---------------------------------------------------------------------
+-- 13b. chain_payload_backup  链下明细篡改演示的原文备份
+--      仅用于「篡改链下明细 → 第五道校验告警 → 一键还原」的演示闭环，
+--      保证演示可反复进行、不污染链下业务数据。正式业务流程不写入本表。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS chain_payload_backup (
+  tx_id        VARCHAR(80) NOT NULL           COMMENT '被篡改的交易号',
+  payload_json TEXT                 DEFAULT NULL COMMENT '篡改前的链下明文负载（原文备份）',
+  backed_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '备份时间',
+  PRIMARY KEY (tx_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='链下明细篡改演示原文备份';
+
+-- ---------------------------------------------------------------------
 -- 14. alert_record  监管预警记录
 -- ---------------------------------------------------------------------
 CREATE TABLE alert_record (

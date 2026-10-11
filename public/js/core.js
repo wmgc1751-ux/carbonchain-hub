@@ -149,6 +149,27 @@
       if (!isFinite(n)) return '-';
       return n.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits });
     },
+    /**
+     * 把数据文本里的 Markdown 强调标记 `**xx**` 渲染为 <b>xx</b>。
+     * ------------------------------------------------------------------
+     * 背景：台账（App.Sources）等数据源里的说明文字天然带 `**` 强调意图，
+     * 但直接用 h('div', {}, 字符串) 渲染时 `**` 会**原样显示**，既难看也说明不了重点。
+     * 这里统一提供一个"纯文本 → 带强调片段"的渲染器，供各视图复用：
+     *   h('div', {}, App.fmt.md(someText))
+     * @param {string} s
+     * @returns {Array} vnode 数组（可安全作为 children 传入）
+     */
+    md(s) {
+      const str = String(s === null || s === undefined ? '' : s);
+      const parts = str.split('**');
+      return parts.map((seg, i) => (i % 2 === 1
+        ? h('b', { style: 'color:var(--tx-0)' }, seg)
+        : seg)).filter((x) => x !== '');
+    },
+    /** 只去掉 `**` 标记（用于 title 属性等纯文本场景） */
+    plain(s) {
+      return String(s === null || s === undefined ? '' : s).replace(/\*\*/g, '');
+    },
     /** 自动量级（万 / 亿） */
     big(v) {
       const n = Number(v) || 0;

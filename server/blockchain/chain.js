@@ -294,6 +294,21 @@ class Blockchain {
     return cu.verify(tx.pubKey, content, tx.signature);
   }
 
+  /**
+   * 【第五道校验】链下重算绑定：用交易明文负载重算 SHA-256，与链上锚定摘要比对。
+   * ------------------------------------------------------------------
+   * 前四道校验（区块头哈希 / 前向引用 / Merkle 根 / 出块与交易签名）全部只覆盖
+   * **链上字段**。它们能证明"链上记录没人改过"，却证明不了"链下明细和链上锚点还对得上"。
+   * 若攻击者只改链下 payload 正文而不动 payloadHash，前四道全绿、篡改却已发生。
+   * 本方法补上这个断点：hashObject(payload) 必须等于 payloadHash。
+   * @param {object} tx 至少含 { payload, payloadHash }
+   * @returns {boolean}
+   */
+  static isTxPayloadBound(tx) {
+    if (!tx || !tx.payloadHash) return false;
+    return cu.verifyPayloadBinding(tx.payload, tx.payloadHash);
+  }
+
   /** 交易落库为 PENDING */
   async persistTx(tx) {
     await this.db.query(
@@ -495,9 +510,15 @@ class Blockchain {
    * ================================================================ */
 
   /**
-   * 全链校验：逐块重算哈希、校验前向引用、校验 PoW、比对 Merkle 根
+   * 全链校验（五道校验，逐层递进）：
+   *   ① 区块头哈希重算          —— 链上区块内容是否被改
+   *   ② 出块签名 / PoW / 出块资格 —— 是否由获授权节点出块、区块头是否被改
+   *   ③ 前向引用 prevHash       —— 链是否断裂、区块是否被抽换
+   *   ④ Merkle 根重算           —— 区块内交易是否被增删
+   *   ⑤ 链下重算绑定            —— 链下业务明文是否仍与链上锚定摘要一致
+   * 前四道只覆盖链上字段；第五道是"链上存证 + 链下存储"架构下唯一的链下完整性出口。
    * @param {object} opts { fromIndex } 仅校验某高度之后
-   * @returns {Promise<object>}
+   * @returns {Promise<object>} { valid, checkedBlocks, height, coverage, errors }
    */
   async validateChain(opts = {}) {
     await this.syncTimeZone();
@@ -525,15 +546,26 @@ class Blockchain {
      * 实测一次全链校验要跑几十分钟，接口必然超时。
      * 改成单条查询 + 内存分组后，往返次数恒为 1。 */
     const [allTx] = await this.db.query(
-      'SELECT block_index, tx_id FROM chain_tx WHERE block_index >= ? ORDER BY block_index ASC, id ASC',
+      `SELECT block_index, tx_id, payload_hash, payload_json
+         FROM chain_tx WHERE block_index >= ? ORDER BY block_index ASC, id ASC`,
       [from]
     );
-    const txByBlock = new Map();
+    const txByBlock = new Map();      // 区块高度 → [tx_id]（供 Merkle 根重算）
+    const txRowsByBlock = new Map();  // 区块高度 → [整行]（供第五道「链下重算绑定」校验）
     for (const t of allTx) {
       const k = Number(t.block_index);
       if (!txByBlock.has(k)) txByBlock.set(k, []);
       txByBlock.get(k).push(t.tx_id);
+      if (!txRowsByBlock.has(k)) txRowsByBlock.set(k, []);
+      txRowsByBlock.get(k).push(t);
     }
+
+    // 第五道校验的计数器与错误明细（明细限量，避免异常时错误数组爆掉接口响应）
+    let txChecked = 0;
+    let payloadBound = 0;
+    let payloadMismatch = 0;
+    const payloadErrors = [];
+    const PAYLOAD_ERROR_LIMIT = 20;
 
     for (let i = 0; i < blocks.length; i++) {
       const raw = blocks[i];
@@ -606,12 +638,50 @@ class Blockchain {
           message: `区块 #${b.index} 的交易 Merkle 根与链上交易表不一致（交易被增删改）`,
         });
       }
+
+      // (5) 链下重算绑定：逐笔用明文负载重算摘要，与链上锚定摘要比对。
+      //     这是唯一能发现"链下业务明细被改、链上锚点未变"的校验点。
+      const bindRows = txRowsByBlock.get(b.index) || [];
+      for (const t of bindRows) {
+        txChecked++;
+        const payload = t.payload_json === null || t.payload_json === undefined
+          ? null : safeParse(t.payload_json);
+        if (cu.verifyPayloadBinding(payload, t.payload_hash)) {
+          payloadBound++;
+        } else {
+          payloadMismatch++;
+          if (payloadErrors.length < PAYLOAD_ERROR_LIMIT) {
+            payloadErrors.push({
+              index: b.index, txId: t.tx_id, type: 'PAYLOAD_BINDING_MISMATCH',
+              message: `区块 #${b.index} 的交易 ${String(t.tx_id).slice(0, 16)}… 链下明细与链上锚定摘要不符`
+                + '（链下业务数据被改动，或锚点被改动）',
+            });
+          }
+        }
+      }
+    }
+
+    // 把第五道校验的失配汇总进 errors（限量明细 + 一条汇总）
+    for (const e of payloadErrors) errors.push(e);
+    if (payloadMismatch > PAYLOAD_ERROR_LIMIT) {
+      errors.push({
+        index: -1, type: 'PAYLOAD_BINDING_MISMATCH_SUMMARY',
+        message: `另有 ${payloadMismatch - PAYLOAD_ERROR_LIMIT} 笔交易存在链下重算绑定失配（明细已省略）`,
+      });
     }
 
     return {
       valid: errors.length === 0,
       checkedBlocks: checked,
       height: this.blocks.length ? this.blocks[this.blocks.length - 1].index : -1,
+      /* 校验覆盖面（透明度指标）：本次到底验了什么、验了多少 */
+      coverage: {
+        blocksHashRecomputed: checked,
+        merkleRootsRecomputed: checked,
+        txPayloadBindingChecked: txChecked,
+        txPayloadBoundOk: payloadBound,
+        txPayloadBindingMismatch: payloadMismatch,
+      },
       errors,
       verifiedAt: new Date().toISOString(),
     };
@@ -624,11 +694,20 @@ class Blockchain {
   /**
    * 【演示】模拟一个恶意节点绕过应用层、直接修改数据库中的区块数据。
    * 修改后不重算哈希 —— 这正是攻击者最容易犯的错，也是区块链能抓到的点。
+   *
+   * 支持两类篡改目标：
+   *   · 链上字段（merkle_root / prev_hash / nonce / block_time）—— 由前四道校验捕获
+   *   · 链下明细（offchain_payload）—— 只改 chain_tx.payload_json 正文、**不动**
+   *     payload_hash 与区块头。这条路径前四道校验全部通过，只有第五道「链下重算绑定」
+   *     能抓到，用于演示"链上没被改 ≠ 数据没被改"。
+   *
    * @param {number} blockIndex
-   * @param {string} field 'merkle_root' | 'prev_hash' | 'nonce' | 'block_time'
+   * @param {string} field 'merkle_root' | 'prev_hash' | 'nonce' | 'block_time' | 'offchain_payload'
    * @returns {Promise<object>} 篡改前后对比
    */
   async tamper(blockIndex, field = 'merkle_root') {
+    if (field === 'offchain_payload') return this.tamperOffChainPayload(blockIndex);
+
     const [rows] = await this.db.query(
       'SELECT * FROM chain_block WHERE block_index = ?', [blockIndex]
     );
@@ -660,6 +739,124 @@ class Blockchain {
       after: newValue,
       validation,
       tip: '链上数据一旦被改写，全链校验立刻失败 —— 这就是"不可篡改"的技术含义。',
+    };
+  }
+
+  /**
+   * 【演示】只篡改**链下明细**：改动某区块内一笔交易的 payload_json 正文，
+   * 保持 payload_hash、tx_id、区块头、Merkle 根全部不变。
+   * 用于证明第五道「链下重算绑定」校验的必要性。
+   *
+   * 演示前先把原文备份到 chain_payload_backup（幂等建表），
+   * 使 `repairOffChainPayload()` 可一键还原，演示可反复进行、不污染数据。
+   * @param {number} blockIndex
+   * @returns {Promise<object>}
+   */
+  async tamperOffChainPayload(blockIndex) {
+    const [rows] = await this.db.query(
+      `SELECT tx_id, payload_hash, payload_json FROM chain_tx
+        WHERE block_index = ? ORDER BY id ASC LIMIT 1`, [blockIndex]
+    );
+    if (!rows.length) throw new Error(`区块 #${blockIndex} 内没有交易，无法演示链下明细篡改`);
+    const tx = rows[0];
+
+    // 先把原文备份走（同一 tx 只保留最早一次原文，避免重复演示时把被污染的值当原文）
+    await this.db.query(
+      `CREATE TABLE IF NOT EXISTS chain_payload_backup (
+         tx_id        VARCHAR(80) NOT NULL,
+         payload_json TEXT                 DEFAULT NULL,
+         backed_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+         PRIMARY KEY (tx_id)
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`
+    );
+    await this.db.query(
+      `INSERT IGNORE INTO chain_payload_backup (tx_id, payload_json, backed_at)
+       VALUES (?, ?, NOW())`,
+      [tx.tx_id, tx.payload_json]
+    );
+
+    const payload = safeParse(tx.payload_json);
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('该交易的 payload_json 不是可解析的对象，无法演示');
+    }
+
+    // 找第一个数值字段并把它的值改掉（不改 key，保持结构不变）
+    const key = Object.keys(payload).find((k) => typeof payload[k] === 'number');
+    const beforeJson = JSON.stringify(payload);
+    if (key) {
+      payload[key] = Math.round((Number(payload[key]) + 1234.5) * 100) / 100;
+    } else {
+      payload.__tampered = true;  // 没有数值字段就注入一个标记字段
+    }
+    const afterJson = JSON.stringify(payload);
+
+    await this.db.query(
+      'UPDATE chain_tx SET payload_json = ? WHERE tx_id = ?', [afterJson, tx.tx_id]
+    );
+
+    const validation = await this.validateChain({ fromIndex: 0 });
+    return {
+      blockIndex,
+      field: 'offchain_payload',
+      txId: tx.tx_id,
+      changedKey: key || '__tampered',
+      before: beforeJson.slice(0, 160),
+      after: afterJson.slice(0, 160),
+      payloadHashUnchanged: tx.payload_hash,
+      backups: 1,
+      note: '注意：payload_hash、tx_id、区块头、Merkle 根**全部未改动**。'
+        + '前四道链上校验因此全部通过（链上确实没人动过），'
+        + '只有第五道「链下重算绑定」能发现链下明细已与链上锚点脱钩。',
+      validation,
+      tip: '链上存证必须配套链下重算 —— 否则"链上没被改"会被误读为"数据没被改"。',
+    };
+  }
+
+  /**
+   * 把链下 payload_json 从备份还原（配合 tamperOffChainPayload 使用）。
+   * 不传 blockIndex 时还原全部备份。
+   * @param {number} [blockIndex]
+   * @returns {Promise<object>}
+   */
+  async repairOffChainPayload(blockIndex) {
+    const scoped = Number.isFinite(Number(blockIndex));
+    // 注意：不要在 SQL 里 JOIN chain_tx —— 演示表是运行期按需创建的，
+    // 其列排序规则取自服务器默认（MySQL 8 为 utf8mb4_0900_ai_ci），
+    // 而既有 chain_tx 为 utf8mb4_general_ci，跨排序规则 JOIN VARCHAR 会报
+    // ER_CANT_AGGREGATE_2COLLATIONS（本机实测踩到）。改为两次独立查询 + 内存求交，
+    // 既绕开排序规则差异，也避免各版本 MySQL/TiDB 的行为分歧。
+    let backups;
+    try {
+      [backups] = await this.db.query(
+        'SELECT tx_id, payload_json AS backup_json FROM chain_payload_backup'
+      );
+    } catch (e) {
+      // 备份表不存在 → 没有需要还原的内容
+      return { restored: 0, validation: null, tip: '没有链下明细篡改记录需要还原。' };
+    }
+    if (!backups.length) return { restored: 0, validation: null, tip: '没有需要还原的内容。' };
+
+    let allow = null;
+    if (scoped) {
+      const [txRows] = await this.db.query(
+        'SELECT tx_id FROM chain_tx WHERE block_index = ?', [Number(blockIndex)]
+      );
+      allow = new Set(txRows.map((r) => r.tx_id));
+    }
+
+    let restored = 0;
+    for (const r of backups) {
+      if (allow && !allow.has(r.tx_id)) continue;
+      await this.db.query('UPDATE chain_tx SET payload_json = ? WHERE tx_id = ?', [r.backup_json, r.tx_id]);
+      await this.db.query('DELETE FROM chain_payload_backup WHERE tx_id = ?', [r.tx_id]);
+      restored++;
+    }
+
+    const validation = await this.validateChain({ fromIndex: 0 });
+    return {
+      restored,
+      validation,
+      tip: restored ? '链下明细已还原为备份原文，第五道校验重新通过。' : '没有匹配到需要还原的内容。',
     };
   }
 
@@ -793,7 +990,12 @@ class Blockchain {
 }
 
 function safeParse(s) {
-  try { return JSON.parse(s); } catch (e) { return null; }
+  try {
+    // mysql2 对 TEXT 列返回字符串；若某部署把该列建成 JSON 类型，驱动可能已解析成对象，
+    // 此时直接返回，避免对对象再 JSON.parse 触发异常。
+    if (s !== null && typeof s === 'object') return s;
+    return JSON.parse(s);
+  } catch (e) { return null; }
 }
 
 module.exports = { Blockchain, GENESIS_PREV_HASH };

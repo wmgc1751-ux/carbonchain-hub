@@ -324,12 +324,17 @@
             }),
 
             /* 排放因子预言机 */
-            h('div', { class: 'grid g-2-1 mb-16' }, [
-              h('x-card', { title: '动态电网排放因子 · 预言机（Oracle）', sub: '每整点由预言机拉取国家发布的区域电网基准线因子并写链存证，合约按「取数时刻」自动选用对应小时的因子' }, {
+            h('div', { class: 'grid g2 mb-16' }, [
+              h('div', { style: 'grid-column:1/-1' }, [
+              h('x-card', {
+                title: '动态电网排放因子 · 预言机（Oracle）',
+                sub: '每整点由预言机拉取国家发布的电网排放因子并写链存证，合约按「取数时刻」自动选用对应小时的因子。'
+                  + '口径纪律：本卡只服务组织层面范围二核算，基准线因子与碳足迹因子另列、不混算。',
+              }, {
                 default: () => h('div', {}, [
                   h('div', { class: 'oracle-hero' }, [
                     h('div', {}, [
-                      h('div', { class: 'tiny dim' }, '国家电网基准因子（发布值）'),
+                      h('div', { class: 'tiny dim' }, '全国电网平均排放因子（发布值）'),
                       h('div', { class: 'mono big' }, oracle.baseline.toFixed(4)),
                       h('div', { class: 'tiny dim' }, oracle.unit),
                     ]),
@@ -342,8 +347,12 @@
                     h('div', { style: 'margin-left:auto;text-align:right' }, [
                       h('div', { class: 'flex gap-6', style: 'align-items:center;justify-content:flex-end' }, [lamp('NORMAL', 8), h('span', { class: 'tiny', style: 'color:var(--chain-l)' }, '预言机在线')]),
                       h('div', { class: 'tiny dim mt-8' }, '数据源：' + oracle.source),
-                      h('div', { class: 'tiny dim' }, '发布：' + oracle.publisher),
+                      h('div', { class: 'tiny dim' }, '文号：' + oracle.doc.slice(0, 22) + '…'),
                     ]),
+                  ]),
+                  h('div', { class: 'alertbar info mt-12' }, [
+                    h('x-icon', { name: 'info', size: 14 }),
+                    h('span', {}, '口径：' + oracle.scopeCn + '　|　适用范围：企业外购电力的范围二间接排放核算'),
                   ]),
                   h('div', { class: 'tiny dim mt-16 mb-8' }, '近 24 小时因子序列（每小时一个采样点，实时刷新）'),
                   h('div', { class: 'spark' }, oracle.series.map((p, i) => {
@@ -356,27 +365,72 @@
                       title: App.fmt.dt(p.t) + ' · ' + p.factor.toFixed(4) + ' ' + oracle.unit,
                     });
                   })),
+                  h('div', { class: 'tiny dim mt-8' }, ['⚠ ', ...App.fmt.md(oracle.seriesNote)]),
                   h('dl', { class: 'kv mt-16', style: 'grid-template-columns:130px 1fr' }, [
-                    h('dt', {}, '组合边际公式'), h('dd', { class: 'mono' }, oracle.formula),
-                    h('dt', {}, '电量边际 OM'), h('dd', { class: 'mono' }, oracle.combMargin.toFixed(4) + ' ' + oracle.unit),
-                    h('dt', {}, '容量边际 BM'), h('dd', { class: 'mono' }, oracle.buildMargin.toFixed(4) + ' ' + oracle.unit),
+                    h('dt', {}, '基准发布值'), h('dd', { class: 'mono' }, oracle.baseline.toFixed(4) + ' ' + oracle.unit + '（' + oracle.dataYear + ' 年度）'),
                     h('dt', {}, '同步周期'), h('dd', {}, '每 1 小时（整点触发）'),
                     h('dt', {}, '最近同步'), h('dd', { class: 'mono' }, App.fmt.dt(oracle.lastSync)),
+                    h('dt', {}, '可信度'), h('dd', {}, h('x-tag', { text: 'A 级 · 一手官方发布', cls: 'ok' })),
                   ]),
                 ]),
               }),
-              h('x-card', { title: '标准排放因子库（GB/T 32151）', sub: '与预言机因子共同构成合约中的 EF 参数表' }, {
+              ]),
+              h('x-card', { title: '同一电网的三种口径（严禁混用）', sub: '行业最常见的低级错误：把不同口径的电力因子混为一谈' }, {
+                default: () => h('div', {}, [
+                  h('table', { class: 'tbl' }, [
+                    h('thead', {}, h('tr', {}, ['口径', '数值', '单位', '适用场景'].map((t) => h('th', {}, t)))),
+                    h('tbody', {}, [
+                      h('tr', { class: 'row-hot' }, [
+                        h('td', {}, [h('b', {}, '全国电网平均排放因子'), h('div', { class: 'tiny dim' }, '本平台默认取值')]),
+                        h('td', { class: 'mono' }, oracle.baseline.toFixed(4)),
+                        h('td', { class: 'mono nowrap' }, 'tCO₂/MWh'),
+                        h('td', { class: 'tiny' }, '组织碳核算 · 范围二（外购电力间接排放）'),
+                      ]),
+                      h('tr', {}, [
+                        h('td', {}, h('b', {}, '电网基准线 OM / BM')),
+                        h('td', { class: 'mono' }, oracle.baselineFactors.om.toFixed(4) + ' / ' + oracle.baselineFactors.bm.toFixed(4)),
+                        h('td', { class: 'mono nowrap' }, 'tCO₂/MWh'),
+                        h('td', { class: 'tiny' }, [
+                          h('span', {}, 'CCER 减排项目额外性与减排量核算　'),
+                          h('x-tag', { text: oracle.baselineFactors.region + ' ' + oracle.baselineFactors.year, cls: '' }),
+                        ]),
+                      ]),
+                      h('tr', {}, [
+                        h('td', {}, h('b', {}, '电力碳足迹因子')),
+                        h('td', { class: 'mono' }, oracle.footprintFactor.value.toFixed(4)),
+                        h('td', { class: 'mono nowrap' }, 'kgCO₂e/kWh'),
+                        h('td', { class: 'tiny' }, '产品碳足迹（PCF）· 生命周期口径（含燃料开采与输配电）'),
+                      ]),
+                    ]),
+                  ]),
+                  h('div', { class: 'alertbar stop mt-12' }, [
+                    h('x-icon', { name: 'alert', size: 14 }),
+                    h('span', {}, '口径修正留痕：本平台早期版本此处误填 OM 0.9421 / BM 0.4812（无官方出处）。'
+                      + '现修正为 2023 年官方发布值 '
+                      + oracle.baselineFactors.om.toFixed(4) + ' / ' + oracle.baselineFactors.bm.toFixed(4) + '，'
+                      + '来源：' + oracle.baselineFactors.issuedBy + '（' + oracle.baselineFactors.issuedAt + '）。'),
+                  ]),
+                  h('div', { class: 'tiny dim mt-8' }, App.fmt.md(oracle.baselineFactors.usage)),
+                ]),
+              }),
+              h('x-card', { title: '标准排放因子库（台账取值 · 附文号可追溯）', sub: '数值统一取自 App.Sources 因子台账，出厂即带 IPCC 公式复算校验' }, {
                 default: () => h('div', { class: 'tbl-wrap', style: 'max-height:400px;overflow:auto' }, [
                   h('table', { class: 'tbl' }, [
-                    h('thead', {}, h('tr', {}, ['能源 / 物料', '缺省因子', '单位', '适用范围'].map((t) => h('th', {}, t)))),
+                    h('thead', {}, h('tr', {}, ['能源 / 物料', '缺省因子', '单位', '适用范围', '来源文号'].map((t) => h('th', {}, t)))),
                     h('tbody', {}, Object.keys(App.Industry.FACTORS).map((k) => {
                       const f = App.Industry.FACTORS[k];
                       const hot = k === 'ELECTRICITY';
+                      const c = (App.Sources && f.cite) ? App.Sources.cite(f.cite) : null;
                       return h('tr', { class: hot ? 'row-hot' : '' }, [
                         h('td', {}, [h('div', { style: 'font-size:12.6px;color:var(--tx-0)' }, f.cn), h('div', { class: 'tiny dim mono' }, f.key)]),
                         h('td', {}, h('span', { class: 'mono', style: 'color:' + (hot ? 'var(--chain-l)' : 'var(--tx-1)') }, f.value.toFixed(4))),
                         h('td', { class: 'tiny mono' }, f.unit),
                         h('td', {}, h('span', { class: ['tag', f.scope === '范围一' ? 'warn' : 'info'] }, f.scope)),
+                        h('td', { class: 'tiny', style: 'max-width:210px' }, [
+                          c ? h('span', { class: 'mono', style: 'color:var(--cyan)' }, c.short) : h('span', { class: 'dim' }, '—'),
+                          h('div', { class: 'tiny dim', style: 'line-height:1.35' }, f.src),
+                          f.traceLevel === 'C' ? h('span', { class: 'tag warn', style: 'margin-top:3px' }, '示例值 C 级') : null,
+                        ]),
                       ]);
                     })),
                   ]),
