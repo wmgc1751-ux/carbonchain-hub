@@ -343,7 +343,7 @@ signature   = ECDSA-secp256k1-SHA256(交易核心字段, 发起方私钥)
 │   └── vendor/                     Vue 3.4 / ECharts 5.5（已本地化）
 ├── scripts/                        自检与证据生成工具
 │   ├── smoke-test.js               接口冒烟自检（50 条用例）
-│   ├── browser-check.js            无头 Edge 逐页巡检（32 路由 + 5 交互 + 截图）
+│   ├── browser-check.js            无头 Edge 逐页巡检（44 路由 + 6 回归 + 截图）
 │   ├── bench.js                    接口性能采样
 │   ├── make-gallery.js             汇总生成证据总览页
 │   ├── record-tour.js              自动录制演示视频（需 ffmpeg）
@@ -420,7 +420,7 @@ set DB_PASSWORD=你的密码
 
 ```bash
 node scripts/smoke-test.js     # 后端接口自检：50 条用例（含越权、重复上报、篡改→修复闭环）
-node scripts/browser-check.js  # 无头 Edge 逐页巡检：32 条路由 + 5 项交互，并落盘截图
+node scripts/browser-check.js  # 无头 Edge 逐页巡检：44 条路由 + 6 项回归，并落盘截图
 node scripts/bench.js 15       # 10 个代表性接口各采样 15 次，输出性能表
 node scripts/make-gallery.js   # 汇总为 artifacts/证据总览.html（一览式证据页）
 node scripts/record-tour.js    # 自动录制演示视频（需 ffmpeg，可选）
@@ -584,7 +584,7 @@ Windows 控制台默认代码页为 GBK。使用 `start.bat`（已内置 `chcp 6
 | `artifacts/backend-smoke.txt` | 50 条接口自检完整输出 |
 | `artifacts/ui-report.md` / `.json` | UI 巡检明细报告与原始数据 |
 | `artifacts/perf-report.md` | 接口性能采样表 |
-| `artifacts/screens/` | 37 张真实截图（32 路由 + 5 交互弹窗） |
+| `artifacts/screens/` | 146 张真实截图（44 路由 + 6 回归弹窗） |
 
 > 说明：`artifacts/` 内的证据由 `scripts/` 下脚本在本机真实执行生成，可随项目一起交付；若需重新生成，见 [7.4](#74-自检与证据生成)。
 
