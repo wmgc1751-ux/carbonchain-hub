@@ -9,7 +9,13 @@
     "start": "node server/scripts/start-prod.js",
     "start:app": "node server/app.js",
     "dev": "node server/app.js",
-    "export-sql": "node server/scripts/export-sql.js"
+    "export-sql": "node server/scripts/export-sql.js",
+    "bench": "node scripts/bench.js",
+    "bench:crypto": "node scripts/bench-crypto.js",
+    "bench:crypto:fast": "node scripts/bench-crypto.js --fast",
+    "verify:nucleus": "node scripts/uncertainty.js",
+    "check:ui": "node scripts/browser-check.js",
+    "check:api": "node scripts/smoke-test.js"
   },
   "engines": {
     "node": ">=18"

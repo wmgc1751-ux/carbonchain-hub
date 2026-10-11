@@ -28,6 +28,11 @@ artifacts/screens/
 # ---- 工业闭环模块的分区验收截图（同样本地保留）----
 artifacts/industry/
 
+# ---- 因子台账/科研验证视图的分区验收截图（同样本地保留，单张数 MB 不入库）----
+artifacts/ledger/
+artifacts/verify/
+artifacts/bench/
+
 # ---- 编辑器 / 系统 ----
 .vscode/
 .idea/

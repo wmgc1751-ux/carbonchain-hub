@@ -144,26 +144,70 @@
   }
 
   /* ------------------------------------------------------------------
-   * 三、标准排放因子库（GB/T 32151 / 发改办气候〔2023〕）
+   * 三、标准排放因子库
+   *    ⚠ 数据来源一律以 `App.Sources`（真实公开数据源与因子台账）为准，
+   *      此处只做"取用 + 标注文号"，不再重复维护数值，避免两份数值漂移。
+   *      每条因子带 `cite`（台账 citations 的 id），页面可点击追溯到发文文号。
    * ------------------------------------------------------------------ */
+  const SRC = (global.App && global.App.Sources) || null;
+  /** 从台账取燃料因子值（取不到时退回内置兜底值，保证离线可用） */
+  function factorFromLedger(code, fallbackValue, fallbackUnit) {
+    if (SRC && SRC.fuelFactor) {
+      const f = SRC.fuelFactor(code);
+      if (f) {
+        // 台账里天然气以 万Nm³ 计，展示口径统一换算为 Nm³
+        const divisor = code === 'NATURAL_GAS' ? 1e4 : 1000;
+        return {
+          value: Math.round((f.ef / divisor) * 10000) / 10000,
+          unit: fallbackUnit,
+          cite: (f.cites && f.cites[0]) || null,
+          traceLevel: f.traceLevel,
+        };
+      }
+    }
+    return { value: fallbackValue, unit: fallbackUnit, cite: null, traceLevel: 'C' };
+  }
+
+  const _fNG = factorFromLedger('NATURAL_GAS', 2.1622, 'kgCO₂/Nm³');
+  const _fCoal = factorFromLedger('RAW_COAL', 1.9003, 'kgCO₂/kg');
+  const _fCoke = factorFromLedger('COKE', 2.8604, 'kgCO₂/kg');
+  const _fDiesel = factorFromLedger('DIESEL', 3.0987, 'kgCO₂/kg');
+  const _fFuelOil = factorFromLedger('FUEL_OIL', 3.1733, 'kgCO₂/kg');
+
   const FACTORS = {
-    ELECTRICITY: { key: 'ELECTRICITY', cn: '外购电力', value: 0.5703, unit: 'kgCO₂/kWh', scope: '范围二', src: '国家电网 · 华北区域电网基准线排放因子（2023 年度）' },
-    NATURAL_GAS: { key: 'NATURAL_GAS', cn: '天然气', value: 2.1622, unit: 'kgCO₂/Nm³', scope: '范围一', src: 'GB/T 32151.1 化石燃料燃烧缺省值' },
-    RAW_COAL: { key: 'RAW_COAL', cn: '原煤', value: 1.9003, unit: 'kgCO₂/kg', scope: '范围一', src: 'GB/T 32151.1 化石燃料燃烧缺省值' },
-    COKE: { key: 'COKE', cn: '焦炭', value: 2.8604, unit: 'kgCO₂/kg', scope: '范围一', src: 'GB/T 32151.1 化石燃料燃烧缺省值' },
-    DIESEL: { key: 'DIESEL', cn: '柴油', value: 3.0959, unit: 'kgCO₂/kg', scope: '范围一', src: 'GB/T 32151.1 化石燃料燃烧缺省值' },
-    FUEL_OIL: { key: 'FUEL_OIL', cn: '燃料油', value: 3.1705, unit: 'kgCO₂/kg', scope: '范围一', src: 'GB/T 32151.1 化石燃料燃烧缺省值' },
-    STEAM: { key: 'STEAM', cn: '外购热力（蒸汽折算）', value: 0.1100, unit: 'tCO₂/GJ', scope: '范围二', src: 'GB/T 32151.1 外购热力缺省值' },
+    ELECTRICITY: {
+      key: 'ELECTRICITY', cn: '外购电力', value: 0.5703, unit: 'kgCO₂/kWh', scope: '范围二',
+      cite: 'MEE-2023-43', traceLevel: 'A',
+      src: '生态环境部办公厅 · 全国电网平均排放因子（环办气候函〔2023〕43号，2023-02-07）',
+      caveat: '这是**范围二口径**的全国电网平均排放因子，与"区域电网基准线排放因子（OM/BM）"'
+        + '和"电力碳足迹因子（生命周期）"是三种不同口径，不可混用。',
+    },
+    NATURAL_GAS: { key: 'NATURAL_GAS', cn: '天然气', value: _fNG.value, unit: _fNG.unit, scope: '范围一', cite: _fNG.cite, traceLevel: _fNG.traceLevel, src: 'GB/T 46053-2025 附录A + 《省级温室气体清单编制指南(试行)》' },
+    RAW_COAL: { key: 'RAW_COAL', cn: '原煤', value: _fCoal.value, unit: _fCoal.unit, scope: '范围一', cite: _fCoal.cite, traceLevel: _fCoal.traceLevel, src: 'GB/T 46053-2025 附录A + 《省级温室气体清单编制指南(试行)》' },
+    COKE: { key: 'COKE', cn: '焦炭', value: _fCoke.value, unit: _fCoke.unit, scope: '范围一', cite: _fCoke.cite, traceLevel: _fCoke.traceLevel, src: 'GB/T 46053-2025 附录A + 《省级温室气体清单编制指南(试行)》' },
+    DIESEL: { key: 'DIESEL', cn: '柴油', value: _fDiesel.value, unit: _fDiesel.unit, scope: '范围一', cite: _fDiesel.cite, traceLevel: _fDiesel.traceLevel, src: 'GB/T 46053-2025 附录A（低位发热量取自《中国能源统计年鉴2023》）' },
+    FUEL_OIL: { key: 'FUEL_OIL', cn: '燃料油', value: _fFuelOil.value, unit: _fFuelOil.unit, scope: '范围一', cite: _fFuelOil.cite, traceLevel: _fFuelOil.traceLevel, src: 'GB/T 46053-2025 附录A（低位发热量取自《中国能源统计年鉴2023》）' },
+    STEAM: {
+      key: 'STEAM', cn: '外购热力（蒸汽折算）', value: 0.1100, unit: 'tCO₂/GJ', scope: '范围二',
+      cite: null, traceLevel: 'C',
+      src: '蒸汽无全国统一缺省排放因子',
+      caveat: '本值为常见工程取值，属**示例值**。正式核算须采用供热单位实测值或合同约定值。',
+    },
   };
 
   /* ------------------------------------------------------------------
    * 四、电网排放因子预言机（Oracle）—— 每小时动态同步
+   *    ⚠ 口径纪律：本预言机服务的是【组织层面范围二】核算，
+   *      因此基准值取"全国电网平均排放因子"。
+   *      区域电网基准线因子（OM/BM）与电力碳足迹因子口径不同，
+   *      单独放在 `baselineFactors` / `footprintFactor` 里，绝不与基准值混算。
    * ------------------------------------------------------------------ */
   function buildOracle() {
     const now = new Date();
     const hourMs = 3600 * 1000;
     const lastSyncHour = Math.floor(now.getTime() / hourMs) * hourMs;
     const r = rng(0x7A1E5EED);
+    const BASE = 0.5703; // 全国电网平均排放因子（环办气候函〔2023〕43号）
     const series = [];
     for (let i = 23; i >= 0; i--) {
       const t = lastSyncHour - i * hourMs;
@@ -171,20 +215,64 @@
       const h = new Date(t).getHours();
       const wave = Math.sin(((h - 4) / 24) * Math.PI * 2) * 0.0048;
       const noise = (r() - 0.5) * 0.0016;
-      series.push({ t, factor: +(0.5703 + wave + noise).toFixed(4) });
+      series.push({ t, factor: +(BASE + wave + noise).toFixed(4) });
     }
+    // 从台账取华北区域基准线（2023 年官方发布值）
+    const gb = SRC && SRC.gridBaseline ? SRC.gridBaseline('NORTH') : null;
     return {
-      source: '国家电网 · 华北区域电网基准线排放因子',
-      publisher: '国家应对气候变化战略研究和国际合作中心',
-      baseline: 0.5703,            // 基准统一因子 kgCO₂/kWh
-      combMargin: 0.9421,          // 电量边际 OM（含线损）
-      buildMargin: 0.4812,         // 容量边际 BM
-      formula: 'NCM = 0.75 × OM + 0.25 × BM',
+      scope: 'GRID_AVG',
+      scopeCn: '全国电网平均排放因子（组织层面范围二口径）',
+      source: '生态环境部办公厅 · 全国电网平均排放因子',
+      publisher: '生态环境部办公厅',
+      cite: 'MEE-2023-43',
+      doc: '环办气候函〔2023〕43号《关于做好2023—2025年发电行业企业温室气体排放报告管理有关工作的通知》',
+      issuedAt: '2023-02-07',
+      dataYear: 2022,
+      traceLevel: 'A',
+      baseline: BASE,              // 基准统一因子 kgCO₂/kWh
       unit: 'kgCO₂/kWh',
       intervalMs: hourMs,
       lastSync: lastSyncHour,
       nextSync: lastSyncHour + hourMs,
       series,
+      /* 日内波动为**按物理机理工况建模的模拟序列**，非实测数据 —— 如实标注 */
+      seriesIsSimulated: true,
+      seriesNote: '小时序列按"夜间火电占比高、午间光伏大发"的物理机理建模生成（振幅约 ±0.48%），'
+        + '用于演示预言机"高频同步 + 可存证"的机制；**不是从电网调度系统抓取的实测值**。'
+        + '接入真实数据源时，只需替换 series 的取值，其余机制不变。',
+
+      /* ---- 口径隔离区：以下两个因子与上面的 baseline **不同口径**，不可相加或混算 ---- */
+      baselineFactors: {
+        scope: 'GRID_BASELINE',
+        scopeCn: '电网基准线排放因子（CCER 减排项目口径）',
+        region: '华北区域电网',
+        year: gb ? gb.year : 2023,
+        om: gb ? gb.om : 0.9350,          // 电量边际（2019–2021 年供电量加权平均）
+        bm: gb ? gb.bm : 0.3020,          // 容量边际（新增装机加权平均）
+        alphaWindPv: gb ? gb.alphaWindPv : 0.77675,
+        formula: 'α(风电/光伏) = 0.75 × OM + 0.25 × BM',
+        cite: 'NCSC-2024-GRID-BL',
+        issuedBy: '生态环境部应对气候变化司（国家气候战略中心发布）',
+        issuedAt: '2024-07-08',
+        traceLevel: 'A',
+        usage: '**仅用于 CCER / CDM 减排项目的额外性论证与减排量核算**，'
+          + '不得用于组织碳核算（范围二）或产品碳足迹。',
+        correction: '本平台早期版本此处误填 OM 0.9421 / BM 0.4812（无官方出处）。'
+          + '现修正为 2023 年官方发布值 OM 0.9350 / BM 0.3020，并保留本条修正记录以备核查。',
+      },
+      footprintFactor: {
+        scope: 'POWER_FOOTPRINT',
+        scopeCn: '电力碳足迹因子（产品碳足迹 PCF 口径）',
+        value: 0.6205,
+        unit: 'kgCO₂e/kWh',
+        year: 2023,
+        cite: 'MEE-2025-01-POWER',
+        issuedBy: '生态环境部、国家统计局、国家能源局',
+        issuedAt: '2025-01',
+        traceLevel: 'A',
+        usage: '用于**产品碳足迹（PCF）**中电力投入的排放核算。'
+          + '数值高于电网平均排放因子，因为覆盖"燃料开采 → 发电 → 输配电"全生命周期。',
+      },
       /* 小时同步记录（预言机调用链存证），oracleTx 在文件末尾统一补齐 */
       pulls: series.slice(-6).map((p) => ({ at: p.t, factor: p.factor, oracleTx: '' })),
     };
@@ -259,14 +347,20 @@
         tco2e: +(totalTco2e * bomShare[k]).toFixed(2),
         intensity: +((totalTco2e * bomShare[k]) / qty).toFixed(4),
       }));
+      /* 范围一占比：钢铁 / 铜冶炼 / 造纸 / 化工 / 有色加工各有差异，取 36%~45% 区间 */
+      const scope1Value = totalTco2e * (0.36 + r() * 0.09);
       return {
         seq: i + 1,
         batchNo, product, spec: specText, line, qty, unit,
         entId, entName: ent.name, entShort: ent.short, industry: ent.industry, region: ent.region,
         totalTco2e,
-        /* 范围拆分：范围一（直接燃烧）+ 范围二（外购电热） */
-        scope1: +(totalTco2e * (0.36 + r() * 0.09)).toFixed(2),
-        scope2: +(totalTco2e * (0.55 + r() * 0.09)).toFixed(2),
+        /* 范围拆分：范围一（直接燃烧）+ 范围二（外购电热）。
+         * 说明：产品碳足迹（PCF）的核算边界只含范围一 + 范围二（GB/T 24067-2024 /
+         * ISO 14067 的 cradle-to-gate 口径下，上游原辅料以内置因子形式计入各工序，
+         * 不单列范围三）。因此 scope2 由总碳足迹减去范围一取补，保证
+         * totalTco2e === scope1 + scope2 恒成立，避免出现合不上的"幽灵碳"。 */
+        scope1: +scope1Value.toFixed(2),
+        scope2: +(totalTco2e - scope1Value).toFixed(2),
         intensity: +(totalTco2e / qty).toFixed(4),
         deviceDid,
         device: null, // 视图层按 did 关联设备详情

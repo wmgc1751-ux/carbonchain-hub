@@ -56,6 +56,27 @@ function hashObject(obj) {
   return sha256(stableStringify(obj));
 }
 
+/**
+ * 【链下重算绑定校验】用链下明文负载重算摘要，与链上锚定的摘要比对。
+ * ------------------------------------------------------------------
+ * 为什么必须有这一步（本平台在一次内核基准中被自己抓出的真实缺口）：
+ *   区块链只承诺 `payloadHash`—— 交易签名签的是 payloadHash，Merkle 叶也是
+ *   txId（由 payloadHash 派生）。因此如果攻击者绕过应用层，直接改**链下明细库**
+ *   里某笔存证的 payload 正文（如把 13842 kWh 改成 842 kWh），而**不动** payloadHash，
+ *   那么：交易签名依旧通过、Merkle 根依旧一致、区块哈希依旧匹配 —— 四道链上校验
+ *   一道都不会报警。链上数据"没被动过"，但链下数据已经和链上锚点脱钩了。
+ *   这正是"链上存证 + 链下存储"架构里最容易被忽略的信任断点。
+ *   补上本函数后，任何链下正文改动都会立刻被重算摘要捕获。
+ *
+ * @param {*} payload 链下明文负载对象
+ * @param {string} payloadHash 链上锚定的摘要
+ * @returns {boolean} true 表示链下正文与链上锚定一致（未被篡改）
+ */
+function verifyPayloadBinding(payload, payloadHash) {
+  if (!payloadHash) return false;
+  return hashObject(payload) === payloadHash;
+}
+
 /* ==================================================================
  * 二、Merkle 树
  * ================================================================== */
@@ -308,6 +329,7 @@ module.exports = {
   sha256,
   stableStringify,
   hashObject,
+  verifyPayloadBinding,
   merkleRoot,
   merkleProof,
   verifyMerkleProof,
