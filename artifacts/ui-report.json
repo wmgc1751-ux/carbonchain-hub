@@ -1,16 +1,22 @@
 {
-  "generatedAt": "2026-10-11T11:11:29.560Z",
+  "generatedAt": "2026-10-11T11:49:47.555Z",
   "base": "http://127.0.0.1:8300",
   "chain": {
-    "height": 330,
-    "totalTxs": 1153
+    "height": 341,
+    "totalTxs": 1164
   },
   "routes": {
-    "total": 35,
-    "pass": 35,
+    "total": 44,
+    "pass": 44,
     "fail": 0
   },
   "interactions": [
+    {
+      "name": "菜单可达性穷举（各角色侧边栏每一项都须进得去）",
+      "pass": true,
+      "detail": "{\"roles\":[\"ENTERPRISE\",\"VERIFIER\",\"REGULATOR\",\"ADMIN\"],\"entries\":56,\"broken\":[],\"anonBroken\":[],\"totalRoutes\":37}",
+      "shot": ""
+    },
     {
       "name": "登录页表单登录 → 跳转企业端",
       "pass": true,
@@ -20,13 +26,13 @@
     {
       "name": "排放上报 → 行点击打开详情弹窗",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"cols\":11},\"panel\":{\"open\":true,\"title\":\"上报单 ER202610111902563440\",\"textLen\":316,\"head\":\"上报单 ER202610111902563440 排放总量 25,510.56 tCO₂e 综合能耗 9,902.60 tce 报告期产值 1,130.41 万元 排放强度 22.\"}}",
+      "detail": "{\"click\":{\"ok\":true,\"cols\":11},\"panel\":{\"open\":true,\"title\":\"上报单 ER202610111947576738\",\"textLen\":314,\"head\":\"上报单 ER202610111947576738 排放总量 25,668.68 tCO₂e 综合能耗 9,967.67 tce 报告期产值 904.33 万元 排放强度 28.38\"}}",
       "shot": "artifacts\\screens\\91-上报详情弹窗.png"
     },
     {
       "name": "区块链浏览器 → 区块详情（含 Merkle 根）",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/331\",\"textLen\":838,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
+      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/343\",\"textLen\":835,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
       "shot": "artifacts\\screens\\92-区块详情.png"
     },
     {
@@ -38,10 +44,22 @@
     {
       "name": "企业端存证按钮 → 链上核验弹窗（验签 + Merkle 路径）",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"label\":\"存证\"},\"panel\":{\"open\":true,\"textLen\":995,\"readouts\":4,\"merkle\":true,\"signed\":true,\"head\":\"链上存证核验 · 上报单链上存证核验 · ER202610111902563440 物理电表采集 边缘 TEE 签名 合约核算 机构背书上链 PASS ECDSA 数字签名验签 验签通过 PASS 存证数据摘要比对 一字未改 PASS 链下业务库与链上快照一致 完全一致 PASS\"}}",
+      "detail": "{\"click\":{\"ok\":true,\"label\":\"存证\"},\"panel\":{\"open\":true,\"textLen\":994,\"readouts\":4,\"merkle\":true,\"signed\":true,\"head\":\"链上存证核验 · 上报单链上存证核验 · ER202610111947576738 物理电表采集 边缘 TEE 签名 合约核算 机构背书上链 PASS ECDSA 数字签名验签 验签通过 PASS 存证数据摘要比对 一字未改 PASS 链下业务库与链上快照一致 完全一致 PASS\"}}",
       "shot": "artifacts\\screens\\94-链上存证核验.png"
     }
   ],
+  "menuAudit": {
+    "roles": [
+      "ENTERPRISE",
+      "VERIFIER",
+      "REGULATOR",
+      "ADMIN"
+    ],
+    "entries": 56,
+    "broken": [],
+    "anonBroken": [],
+    "totalRoutes": 37
+  },
   "failures": [],
   "interactionFailures": [],
   "details": [
@@ -80,7 +98,7 @@
       "role": null,
       "label": "区块链浏览器",
       "pass": true,
-      "textLen": 3681,
+      "textLen": 3815,
       "tables": 2,
       "rows": 18,
       "cards": 10,
@@ -166,16 +184,16 @@
       "shot": "artifacts\\screens\\08-区块详情.png"
     },
     {
-      "route": "/explorer/tx/6cc70015d495f858807cd53a209018ba348030a9a9584d2e0587189766ad7da9",
+      "route": "/explorer/tx/d87c968c0cb28177ab151d0e8e65b08ff8f507359cd27b0a3857be7a843f8c3b",
       "role": null,
       "label": "交易详情（含 Merkle 路径）",
       "pass": true,
-      "textLen": 1433,
+      "textLen": 1432,
       "tables": 0,
       "rows": 0,
       "cards": 4,
       "charts": 0,
-      "hash": "#/explorer/tx/6cc70015d495f858807cd53a209018ba348030a9a9584d2e0587189766ad7da9",
+      "hash": "#/explorer/tx/d87c968c0cb28177ab151d0e8e65b08ff8f507359cd27b0a3857be7a843f8c3b",
       "logs": [],
       "errorBars": [],
       "shot": "artifacts\\screens\\09-交易详情（含 Merkle 路径）.png"
@@ -185,7 +203,7 @@
       "role": "ENTERPRISE",
       "label": "ENT-企业总览",
       "pass": true,
-      "textLen": 1042,
+      "textLen": 1043,
       "tables": 1,
       "rows": 3,
       "cards": 10,
@@ -200,7 +218,7 @@
       "role": "ENTERPRISE",
       "label": "ENT-碳排放上报",
       "pass": true,
-      "textLen": 1446,
+      "textLen": 1478,
       "tables": 1,
       "rows": 10,
       "cards": 1,
@@ -260,7 +278,7 @@
       "role": "ENTERPRISE",
       "label": "ENT-碳配额交易",
       "pass": true,
-      "textLen": 1327,
+      "textLen": 1330,
       "tables": 2,
       "rows": 10,
       "cards": 5,
@@ -290,9 +308,9 @@
       "role": "ENTERPRISE",
       "label": "ENT-链上身份",
       "pass": true,
-      "textLen": 1498,
+      "textLen": 1720,
       "tables": 1,
-      "rows": 13,
+      "rows": 16,
       "cards": 2,
       "charts": 0,
       "hash": "#/ent/wallet",
@@ -425,7 +443,7 @@
       "role": "REGULATOR",
       "label": "REG-配额分配",
       "pass": true,
-      "textLen": 1587,
+      "textLen": 1620,
       "tables": 1,
       "rows": 12,
       "cards": 4,
@@ -515,7 +533,7 @@
       "role": "REGULATOR",
       "label": "REG-操作日志",
       "pass": true,
-      "textLen": 1456,
+      "textLen": 1448,
       "tables": 1,
       "rows": 15,
       "cards": 1,
@@ -545,10 +563,10 @@
       "role": "REGULATOR",
       "label": "REG-系统设置",
       "pass": true,
-      "textLen": 254,
-      "tables": 0,
-      "rows": 0,
-      "cards": 0,
+      "textLen": 934,
+      "tables": 1,
+      "rows": 4,
+      "cards": 9,
       "charts": 0,
       "hash": "#/reg/system",
       "logs": [],
@@ -569,6 +587,132 @@
       "logs": [],
       "errorBars": [],
       "shot": "artifacts\\screens\\35-REG-通知公告.png"
+    },
+    {
+      "route": "/matrix",
+      "role": "ADMIN",
+      "label": "登录态-admin-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/matrix",
+      "role": "REGULATOR",
+      "label": "登录态-reg001-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/matrix",
+      "role": "ENTERPRISE",
+      "label": "登录态-ent001-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/matrix",
+      "role": "ENTERPRISE",
+      "label": "登录态-ent002-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/matrix",
+      "role": "ENTERPRISE",
+      "label": "登录态-ent003-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/matrix",
+      "role": "VERIFIER",
+      "label": "登录态-ver001-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/matrix",
+      "role": "VERIFIER",
+      "label": "登录态-ver002-碳矩阵工业大盘",
+      "pass": true,
+      "textLen": 1287,
+      "tables": 1,
+      "rows": 5,
+      "cards": 9,
+      "charts": 1,
+      "hash": "#/matrix",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/ops",
+      "role": "ADMIN",
+      "label": "登录态-admin-生产运维监控",
+      "pass": true,
+      "textLen": 4988,
+      "tables": 0,
+      "rows": 0,
+      "cards": 8,
+      "charts": 1,
+      "hash": "#/ops",
+      "logs": [],
+      "errorBars": []
+    },
+    {
+      "route": "/ops",
+      "role": "REGULATOR",
+      "label": "登录态-reg001-生产运维监控",
+      "pass": true,
+      "textLen": 4952,
+      "tables": 0,
+      "rows": 0,
+      "cards": 8,
+      "charts": 1,
+      "hash": "#/ops",
+      "logs": [],
+      "errorBars": []
     }
   ]
 }

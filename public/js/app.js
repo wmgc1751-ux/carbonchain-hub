@@ -6,7 +6,30 @@
   const { defineComponent, ref, reactive, computed, onMounted, onUnmounted } = Vue;
   const h = App.h;
   const Router = App.Router;
-  const PUBLIC_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/cems', '/matrix', '/notice'];
+  /* ==================================================================
+   * 路由访问模型（单一来源）
+   * ------------------------------------------------------------------
+   * 这份常量同时被「公开布局判定」与「路由守卫」引用，新增开放页只改这一处。
+   *
+   * 历史缺陷（2026-10-11 修复）：守卫曾内联维护一份独立的 publicish 列表，
+   * 且漏掉了 /matrix。结果 7 个演示账号在侧边栏点击「碳矩阵工业大盘」时，
+   * 布局按公开路由渲染（侧边栏消失），守卫却判定越权并踢回工作台 —— 两个
+   * 列表不一致造成的死路。教训：权限白名单必须只有一个来源。
+   * ================================================================== */
+
+  /** 开放路由：不限定角色，任何身份（含未登录）均可访问 */
+  const OPEN_ROUTES = ['/login', '/screen', '/explorer', '/verify', '/cems', '/matrix', '/notice', '/'];
+  /** 全屏独立页：不套应用外壳（无侧边栏），大盘 / 大屏类页面走公开布局渲染 */
+  const STANDALONE_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/cems', '/matrix', '/notice'];
+  /** 额外角色授权：路径不落在角色前缀下、但确属该角色职能的路由。
+   *  /ops 生产运维监控挂在监管端菜单的「系统治理」分组，而 REGULATOR 的
+   *  前缀是 /reg，不加这条会被守卫误判为越权。 */
+  const EXTRA_ALLOW = { REGULATOR: ['/ops'], ADMIN: ['/ops'] };
+
+  /** 路径是否命中前缀列表（支持 `/a` 与 `/a/xxx`；`/` 只做精确匹配，避免通配全站） */
+  function matchPrefix(list, p) {
+    return list.some((x) => (x === '/' ? p === '/' : (p === x || p.startsWith(x + '/'))));
+  }
 
   /* ==================================================================
    * 路由表
@@ -54,6 +77,14 @@
 
   const ROLE_HOME = { ENTERPRISE: '/ent/overview', VERIFIER: '/ver/overview', REGULATOR: '/reg/overview', ADMIN: '/reg/overview' };
   const ROLE_PREFIX = { ENTERPRISE: '/ent', VERIFIER: '/ver', REGULATOR: '/reg', ADMIN: '/reg' };
+
+  /** 该角色能否进入该路径 —— 守卫与巡检脚本共用的唯一判据（纯函数） */
+  function canEnter(role, p) {
+    if (matchPrefix(OPEN_ROUTES, p)) return true;
+    const prefix = ROLE_PREFIX[role];
+    if (prefix && (p === prefix || p.startsWith(prefix + '/'))) return true;
+    return matchPrefix(EXTRA_ALLOW[role] || [], p);
+  }
 
   /* ==================================================================
    * 菜单
@@ -122,6 +153,11 @@
     ],
   };
   MENUS.ADMIN = MENUS.REGULATOR;
+
+  /* 路由访问模型对外只读暴露 —— 供 scripts/browser-check.js 用同一套判据穷举断言
+     「侧边栏里的每一项、每个角色都进得去」。历史上 /matrix 与 /ops 都是因为
+     菜单与守卫两份名单不一致而变成死链，这个断言就是为了让同类缺陷跑不掉。 */
+  App.routeAccess = { OPEN_ROUTES, STANDALONE_PREFIX, EXTRA_ALLOW, ROLE_HOME, ROLE_PREFIX, MENUS, ROUTES, canEnter };
 
   const CRUMB = {
     '/ent/overview': ['企业端', '企业总览'], '/ent/reports': ['企业端', '碳排放上报'],
@@ -293,7 +329,7 @@
 
       const isPublicRoute = computed(() => {
         if (!App.Store.user) return true;
-        return PUBLIC_PREFIX.some((p) => Router.path === p || Router.path.startsWith(p + '/'));
+        return matchPrefix(STANDALONE_PREFIX, Router.path);
       });
 
       const menus = computed(() => (App.Store.user ? (MENUS[App.Store.user.role] || []) : []));
@@ -310,16 +346,13 @@
        *  key 用完整路径，保证从「区块 A」跳到「区块 B」时组件重新挂载并重新拉数。 */
       function viewProps() { return Object.assign({ key: Router.path }, Router.params); }
 
-      /* 路由守卫 */
+      /* 路由守卫：判据来自 canEnter（与 isPublicRoute 共用同一份白名单） */
       function guard() {
         if (!App.Store.user) return;
-        const prefix = ROLE_PREFIX[App.Store.user.role];
-        const publicish = ['/login', '/screen', '/explorer', '/verify', '/cems', '/notice', '/'];
-        if (publicish.some((p) => Router.path === p || Router.path.startsWith(p + '/'))) return;
-        if (!Router.path.startsWith(prefix)) {
-          App.notify.warn('当前身份无权访问该模块，已返回你的工作台');
-          App.go(ROLE_HOME[App.Store.user.role] || '/screen');
-        }
+        const role = App.Store.user.role;
+        if (canEnter(role, Router.path)) return;
+        App.notify.warn('当前身份无权访问该模块，已返回你的工作台');
+        App.go(ROLE_HOME[role] || '/screen');
       }
       Vue.watch(() => Router.path, guard);
 

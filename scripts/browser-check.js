@@ -261,9 +261,11 @@ async function main() {
   const accounts = await api('/auth/demo-accounts');
   const tokens = {};
   const users = {};
+  const acctSessions = [];   // 逐个演示账号保留会话，用于「登录态可进入性」回归
   for (const a of accounts) {
-    if (tokens[a.role]) continue;
     const d = await api('/auth/login', 'POST', { username: a.username, password: a.password });
+    acctSessions.push({ username: a.username, role: a.role, token: d.token, user: d.user });
+    if (tokens[a.role]) continue;
     tokens[a.role] = d.token;
     users[a.role] = d.user;
   }
@@ -304,20 +306,19 @@ async function main() {
 
   const results = [];
 
-  /** 载入指定角色会话 + 路由（整页重载，确保 App.Store 与 localStorage 一致） */
-  async function loadRoute(role, route, { keepSession = false } = {}) {
-    if (!keepSession) {
-      const token = tokens[role] || '';
-      const user = users[role] || null;
-      await cdp.evaluate(`(function(){
-        ${token ? `localStorage.setItem('cch_token', ${JSON.stringify(token)});` : `localStorage.removeItem('cch_token');`}
-        ${user ? `localStorage.setItem('cch_user', ${JSON.stringify(JSON.stringify(user))});` : `localStorage.removeItem('cch_user');`}
-        return true;
-      })()`);
-    }
+  /** 把指定会话写入 localStorage（token 为空即匿名） */
+  async function writeSession(token, user) {
+    await cdp.evaluate(`(function(){
+      ${token ? `localStorage.setItem('cch_token', ${JSON.stringify(token)});` : `localStorage.removeItem('cch_token');`}
+      ${user ? `localStorage.setItem('cch_user', ${JSON.stringify(JSON.stringify(user))});` : `localStorage.removeItem('cch_user');`}
+      return true;
+    })()`);
+  }
+
+  /** 导航到路由并等到渲染稳定，返回探针结果 */
+  async function navigateAndProbe(route) {
     const url = `${BASE}/?_=${Date.now()}#${route}`;
     await cdp.send('Page.navigate', { url });
-    // 等待渲染稳定
     const t0 = Date.now();
     let probe = null;
     while (Date.now() - t0 < 14000) {
@@ -327,6 +328,18 @@ async function main() {
     }
     await sleep(1250); // 等异步数据与图表
     return probe;
+  }
+
+  /** 用某个演示账号的会话载入路由（逐账号回归用） */
+  async function loadAs(sess, route) {
+    await writeSession(sess.token, sess.user);
+    return navigateAndProbe(route);
+  }
+
+  /** 载入指定角色会话 + 路由（整页重载，确保 App.Store 与 localStorage 一致） */
+  async function loadRoute(role, route, { keepSession = false } = {}) {
+    if (!keepSession) await writeSession(tokens[role] || '', users[role] || null);
+    return navigateAndProbe(route);
   }
 
   async function shoot(name) {
@@ -382,6 +395,73 @@ async function main() {
 
   /* ---- C. 交互回归 ---- */
   const interactions = [];
+
+  /* ---- C0. 登录态可进入性回归 ----
+     背景：2026-10-11 用户报「碳矩阵工业大盘栏 7 个演示用户都无法进入」。
+     根因是路由守卫里内联的那份 publicish 名单漏了 /matrix —— 而它和布局判定用的
+     PUBLIC_PREFIX 是两份互不相干的列表。原巡检只在未登录状态下访问 /matrix，
+     可 guard() 在 !App.Store.user 时提前 return，所以这类缺陷必然测不出来。
+     这里补齐两件事：① 静态穷举「每个角色侧边栏里的每一项都进得去」；
+                  ② 逐个演示账号真实跳转，断言不被打回工作台。 */
+
+  // ① 静态穷举：判据直接取自页面内的 App.routeAccess.canEnter（与守卫同一份白名单）
+  const menuAudit = await cdp.evaluate(`(function () {
+    var RA = window.App && App.routeAccess;
+    if (!RA) return { error: 'App.routeAccess 未暴露' };
+    var roles = Object.keys(RA.MENUS);
+    var broken = [], entries = 0;
+    roles.forEach(function (role) {
+      RA.MENUS[role].forEach(function (g) {
+        g.items.forEach(function (it) {
+          entries++;
+          if (!RA.canEnter(role, it.path)) broken.push(role + ' → ' + it.path + '（' + it.label + '）');
+        });
+      });
+    });
+    var anon = [];
+    RA.OPEN_ROUTES.forEach(function (p) { if (!RA.canEnter('__anon__', p)) anon.push(p); });
+    return { roles: roles, entries: entries, broken: broken, anonBroken: anon, totalRoutes: RA.ROUTES.length };
+  })()`);
+  interactions.push({
+    name: '菜单可达性穷举（各角色侧边栏每一项都须进得去）',
+    pass: !menuAudit.error && menuAudit.broken.length === 0 && menuAudit.anonBroken.length === 0,
+    detail: JSON.stringify(menuAudit),
+    shot: '',
+  });
+  console.log(`${interactions[interactions.length - 1].pass ? 'PASS' : 'FAIL'}  [静态] 菜单可达性  条目=${menuAudit.entries} 角色=${(menuAudit.roles || []).join('/')} 破链=${(menuAudit.broken || []).join(';') || '无'}`);
+
+  // ② 逐账号真实跳转：7 个演示账号都须能进入碳矩阵工业大盘
+  const ACCT_PROBE = `(function () {
+    return {
+      hash: location.hash,
+      matrixRendered: !!document.querySelector('.matrix'),
+      toasts: Array.prototype.map.call(document.querySelectorAll('.toasts .toast'), function (t) { return (t.innerText || '').trim(); }),
+      denied: /无权访问/.test(document.body.innerText || ''),
+    };
+  })()`;
+
+  for (const sess of acctSessions) {
+    const probe = await loadAs(sess, '/matrix');
+    const st = await cdp.evaluate(ACCT_PROBE);
+    const pass = !!probe && st.hash === '#/matrix' && !st.denied && probe.textLen > 200
+      && probe.errorBars.length === 0 && st.matrixRendered;
+    const label = `登录态-${sess.username}-碳矩阵工业大盘`;
+    results.push({ seq, role: sess.role, route: '/matrix', label, pass, probe, shot: (await shoot(`${String(seq).padStart(2, '0')}-${label}`)).file });
+    console.log(`${pass ? 'PASS' : 'FAIL'}  [${sess.role}] ${sess.username} → /matrix  hash=${st.hash} 大盘DOM=${st.matrixRendered} 文本=${probe ? probe.textLen : '-'} denied=${st.denied} toasts=${JSON.stringify(st.toasts)}`);
+    seq++;
+  }
+
+  // ③ /ops 生产运维监控：挂在监管端菜单「系统治理」分组，但路径前缀不是 /reg，需额外授权
+  for (const sess of acctSessions) {
+    if (!['REGULATOR', 'ADMIN'].includes(sess.role)) continue;
+    const probe = await loadAs(sess, '/ops');
+    const st = await cdp.evaluate(ACCT_PROBE);
+    const pass = !!probe && st.hash === '#/ops' && !st.denied && probe.textLen > 200 && probe.errorBars.length === 0;
+    const label = `登录态-${sess.username}-生产运维监控`;
+    results.push({ seq, role: sess.role, route: '/ops', label, pass, probe, shot: (await shoot(`${String(seq).padStart(2, '0')}-${label}`)).file });
+    console.log(`${pass ? 'PASS' : 'FAIL'}  [${sess.role}] ${sess.username} → /ops  hash=${st.hash} 文本=${probe ? probe.textLen : '-'} denied=${st.denied}`);
+    seq++;
+  }
 
   // C1. 登录页真实登录（清空会话 → 填表 → 点登录）
   await cdp.evaluate(`localStorage.clear(); true`);
@@ -518,6 +598,7 @@ async function main() {
     chain: { height: chain.height, totalTxs: chain.totalTxs },
     routes: { total: results.length, pass: passRoutes, fail: results.length - passRoutes },
     interactions: { total: interactions.length, pass: passInter, fail: interactions.length - passInter },
+    menuAudit: menuAudit,
     failures: results.filter((r) => !r.pass).map((r) => ({
       route: r.route, role: r.role, label: r.label,
       booting: r.probe.booting, textLen: r.probe.textLen,
@@ -549,11 +630,11 @@ async function main() {
     '| # | 角色 | 路由 | 页面 | 结果 | 文本量 | 表格 | 图表 | 控制台异常 |',
     '|---|------|------|------|------|--------|------|------|------------|',
     ...results.map((r, i) => `| ${i + 1} | ${r.role || '公众'} | \`${r.route}\` | ${r.label} | ${r.pass ? '✅' : '❌'} | ${r.probe.textLen} | ${r.probe.tables} | ${r.probe.charts} | ${r.probe.logs.length} |`),    '',
-    '## 二、关键交互',
+    '## 二、关键交互与可进入性',
     '',
     '| 交互 | 结果 | 细节 | 截图 |',
     '|------|------|------|------|',
-    ...interactions.map((x) => `| ${x.name} | ${x.pass ? '✅' : '❌'} | \`${x.detail}\` | \`${x.shot}\` |`),
+    ...interactions.map((x) => `| ${x.name} | ${x.pass ? '✅' : '❌'} | \`${x.detail}\` | ${x.shot ? '`' + x.shot + '`' : '—'} |`),
     '',
   ];
   if (summary.failures.length) {
