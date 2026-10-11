@@ -1,13 +1,13 @@
 {
-  "generatedAt": "2026-10-11T05:27:45.086Z",
+  "generatedAt": "2026-10-11T06:41:01.259Z",
   "base": "http://127.0.0.1:8300",
   "chain": {
-    "height": 303,
-    "totalTxs": 1126
+    "height": 305,
+    "totalTxs": 1128
   },
   "routes": {
-    "total": 33,
-    "pass": 33,
+    "total": 34,
+    "pass": 34,
     "fail": 0
   },
   "interactions": [
@@ -26,7 +26,7 @@
     {
       "name": "区块链浏览器 → 区块详情（含 Merkle 根）",
       "pass": true,
-      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/304\",\"textLen\":827,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
+      "detail": "{\"click\":{\"ok\":true,\"via\":\"row\"},\"after\":{\"hash\":\"#/explorer/block/306\",\"textLen\":835,\"err\":\"\",\"merkle\":true,\"hashes\":16}}",
       "shot": "artifacts\\screens\\92-区块详情.png"
     },
     {
@@ -50,7 +50,7 @@
       "role": null,
       "label": "统一登录",
       "pass": true,
-      "textLen": 948,
+      "textLen": 956,
       "tables": 0,
       "rows": 0,
       "cards": 0,
@@ -65,7 +65,7 @@
       "role": null,
       "label": "数据公示大屏",
       "pass": true,
-      "textLen": 1387,
+      "textLen": 1399,
       "tables": 0,
       "rows": 0,
       "cards": 11,
@@ -80,7 +80,7 @@
       "role": null,
       "label": "区块链浏览器",
       "pass": true,
-      "textLen": 3801,
+      "textLen": 3811,
       "tables": 2,
       "rows": 18,
       "cards": 10,
@@ -95,7 +95,7 @@
       "role": null,
       "label": "科研验证中心",
       "pass": true,
-      "textLen": 983,
+      "textLen": 991,
       "tables": 1,
       "rows": 6,
       "cards": 6,
@@ -106,11 +106,26 @@
       "shot": "artifacts\\screens\\04-科研验证中心.png"
     },
     {
+      "route": "/cems",
+      "role": null,
+      "label": "CEMS 实测流监控",
+      "pass": true,
+      "textLen": 1225,
+      "tables": 0,
+      "rows": 0,
+      "cards": 7,
+      "charts": 0,
+      "hash": "#/cems",
+      "logs": [],
+      "errorBars": [],
+      "shot": "artifacts\\screens\\05-CEMS 实测流监控.png"
+    },
+    {
       "route": "/notice/55",
       "role": null,
       "label": "公告详情",
       "pass": true,
-      "textLen": 267,
+      "textLen": 275,
       "tables": 0,
       "rows": 0,
       "cards": 1,
@@ -118,14 +133,14 @@
       "hash": "#/notice/55",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\05-公告详情.png"
+      "shot": "artifacts\\screens\\06-公告详情.png"
     },
     {
       "route": "/explorer/block/1",
       "role": null,
       "label": "区块详情",
       "pass": true,
-      "textLen": 1527,
+      "textLen": 1535,
       "tables": 1,
       "rows": 7,
       "cards": 3,
@@ -133,29 +148,29 @@
       "hash": "#/explorer/block/1",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\06-区块详情.png"
+      "shot": "artifacts\\screens\\07-区块详情.png"
     },
     {
-      "route": "/explorer/tx/69e3910081d979125535e59467e0bfce7a2ccfcff4da28e012fe786c3de81cd9",
+      "route": "/explorer/tx/3d18cb21c4bfb3676a2694c120051e128d74efa22dc097ef24095ab63771d6e6",
       "role": null,
       "label": "交易详情（含 Merkle 路径）",
       "pass": true,
-      "textLen": 1430,
+      "textLen": 1340,
       "tables": 0,
       "rows": 0,
       "cards": 4,
       "charts": 0,
-      "hash": "#/explorer/tx/69e3910081d979125535e59467e0bfce7a2ccfcff4da28e012fe786c3de81cd9",
+      "hash": "#/explorer/tx/3d18cb21c4bfb3676a2694c120051e128d74efa22dc097ef24095ab63771d6e6",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\07-交易详情（含 Merkle 路径）.png"
+      "shot": "artifacts\\screens\\08-交易详情（含 Merkle 路径）.png"
     },
     {
       "route": "/ent/overview",
       "role": "ENTERPRISE",
       "label": "ENT-企业总览",
       "pass": true,
-      "textLen": 1023,
+      "textLen": 1033,
       "tables": 1,
       "rows": 3,
       "cards": 10,
@@ -163,14 +178,14 @@
       "hash": "#/ent/overview",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\08-ENT-企业总览.png"
+      "shot": "artifacts\\screens\\09-ENT-企业总览.png"
     },
     {
       "route": "/ent/reports",
       "role": "ENTERPRISE",
       "label": "ENT-碳排放上报",
       "pass": true,
-      "textLen": 1292,
+      "textLen": 1302,
       "tables": 1,
       "rows": 9,
       "cards": 1,
@@ -178,14 +193,14 @@
       "hash": "#/ent/reports",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\09-ENT-碳排放上报.png"
+      "shot": "artifacts\\screens\\10-ENT-碳排放上报.png"
     },
     {
       "route": "/ent/dynamic",
       "role": "ENTERPRISE",
       "label": "ENT-动态核算",
       "pass": true,
-      "textLen": 5180,
+      "textLen": 5190,
       "tables": 4,
       "rows": 14,
       "cards": 22,
@@ -193,14 +208,14 @@
       "hash": "#/ent/dynamic",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\10-ENT-动态核算.png"
+      "shot": "artifacts\\screens\\11-ENT-动态核算.png"
     },
     {
       "route": "/ent/credit",
       "role": "ENTERPRISE",
       "label": "ENT-碳信用与抵销",
       "pass": true,
-      "textLen": 629,
+      "textLen": 639,
       "tables": 2,
       "rows": 1,
       "cards": 7,
@@ -208,14 +223,14 @@
       "hash": "#/ent/credit",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\11-ENT-碳信用与抵销.png"
+      "shot": "artifacts\\screens\\12-ENT-碳信用与抵销.png"
     },
     {
       "route": "/ent/quota",
       "role": "ENTERPRISE",
       "label": "ENT-碳配额账户",
       "pass": true,
-      "textLen": 784,
+      "textLen": 794,
       "tables": 2,
       "rows": 5,
       "cards": 4,
@@ -223,14 +238,14 @@
       "hash": "#/ent/quota",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\12-ENT-碳配额账户.png"
+      "shot": "artifacts\\screens\\13-ENT-碳配额账户.png"
     },
     {
       "route": "/ent/trade",
       "role": "ENTERPRISE",
       "label": "ENT-碳配额交易",
       "pass": true,
-      "textLen": 1161,
+      "textLen": 1171,
       "tables": 2,
       "rows": 8,
       "cards": 5,
@@ -238,14 +253,14 @@
       "hash": "#/ent/trade",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\13-ENT-碳配额交易.png"
+      "shot": "artifacts\\screens\\14-ENT-碳配额交易.png"
     },
     {
       "route": "/ent/analytics",
       "role": "ENTERPRISE",
       "label": "ENT-数据分析",
       "pass": true,
-      "textLen": 389,
+      "textLen": 399,
       "tables": 0,
       "rows": 0,
       "cards": 8,
@@ -253,14 +268,14 @@
       "hash": "#/ent/analytics",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\14-ENT-数据分析.png"
+      "shot": "artifacts\\screens\\15-ENT-数据分析.png"
     },
     {
       "route": "/ent/wallet",
       "role": "ENTERPRISE",
       "label": "ENT-链上身份",
       "pass": true,
-      "textLen": 1184,
+      "textLen": 1194,
       "tables": 1,
       "rows": 9,
       "cards": 2,
@@ -268,14 +283,14 @@
       "hash": "#/ent/wallet",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\15-ENT-链上身份.png"
+      "shot": "artifacts\\screens\\16-ENT-链上身份.png"
     },
     {
       "route": "/ent/notices",
       "role": "ENTERPRISE",
       "label": "ENT-通知公告",
       "pass": true,
-      "textLen": 820,
+      "textLen": 830,
       "tables": 1,
       "rows": 10,
       "cards": 1,
@@ -283,7 +298,7 @@
       "hash": "#/ent/notices",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\16-ENT-通知公告.png"
+      "shot": "artifacts\\screens\\17-ENT-通知公告.png"
     },
     {
       "route": "/ver/overview",
@@ -298,7 +313,7 @@
       "hash": "#/ver/overview",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\17-VER-核查总览.png"
+      "shot": "artifacts\\screens\\18-VER-核查总览.png"
     },
     {
       "route": "/ver/tasks",
@@ -313,7 +328,7 @@
       "hash": "#/ver/tasks",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\18-VER-核查任务.png"
+      "shot": "artifacts\\screens\\19-VER-核查任务.png"
     },
     {
       "route": "/ver/reports",
@@ -328,7 +343,7 @@
       "hash": "#/ver/reports",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\19-VER-核查报告.png"
+      "shot": "artifacts\\screens\\20-VER-核查报告.png"
     },
     {
       "route": "/ver/wallet",
@@ -343,7 +358,7 @@
       "hash": "#/ver/wallet",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\20-VER-机构链上身份.png"
+      "shot": "artifacts\\screens\\21-VER-机构链上身份.png"
     },
     {
       "route": "/ver/notices",
@@ -358,14 +373,14 @@
       "hash": "#/ver/notices",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\21-VER-通知公告.png"
+      "shot": "artifacts\\screens\\22-VER-通知公告.png"
     },
     {
       "route": "/reg/overview",
       "role": "REGULATOR",
       "label": "REG-监管总览",
       "pass": true,
-      "textLen": 1817,
+      "textLen": 1827,
       "tables": 3,
       "rows": 28,
       "cards": 16,
@@ -373,14 +388,14 @@
       "hash": "#/reg/overview",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\22-REG-监管总览.png"
+      "shot": "artifacts\\screens\\23-REG-监管总览.png"
     },
     {
       "route": "/reg/enterprises",
       "role": "REGULATOR",
       "label": "REG-企业名录",
       "pass": true,
-      "textLen": 1449,
+      "textLen": 1459,
       "tables": 1,
       "rows": 12,
       "cards": 1,
@@ -388,14 +403,14 @@
       "hash": "#/reg/enterprises",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\23-REG-企业名录.png"
+      "shot": "artifacts\\screens\\24-REG-企业名录.png"
     },
     {
       "route": "/reg/allocations",
       "role": "REGULATOR",
       "label": "REG-配额分配",
       "pass": true,
-      "textLen": 1517,
+      "textLen": 1527,
       "tables": 1,
       "rows": 12,
       "cards": 4,
@@ -403,14 +418,14 @@
       "hash": "#/reg/allocations",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\24-REG-配额分配.png"
+      "shot": "artifacts\\screens\\25-REG-配额分配.png"
     },
     {
       "route": "/reg/trades",
       "role": "REGULATOR",
       "label": "REG-交易监管",
       "pass": true,
-      "textLen": 1841,
+      "textLen": 1851,
       "tables": 2,
       "rows": 16,
       "cards": 7,
@@ -418,14 +433,14 @@
       "hash": "#/reg/trades",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\25-REG-交易监管.png"
+      "shot": "artifacts\\screens\\26-REG-交易监管.png"
     },
     {
       "route": "/reg/dynamic",
       "role": "REGULATOR",
       "label": "REG-动态核算监管",
       "pass": true,
-      "textLen": 6786,
+      "textLen": 6796,
       "tables": 4,
       "rows": 22,
       "cards": 22,
@@ -433,14 +448,14 @@
       "hash": "#/reg/dynamic",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\26-REG-动态核算监管.png"
+      "shot": "artifacts\\screens\\27-REG-动态核算监管.png"
     },
     {
       "route": "/reg/credit",
       "role": "REGULATOR",
       "label": "REG-碳资产总览",
       "pass": true,
-      "textLen": 3876,
+      "textLen": 3886,
       "tables": 2,
       "rows": 42,
       "cards": 7,
@@ -448,14 +463,14 @@
       "hash": "#/reg/credit",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\27-REG-碳资产总览.png"
+      "shot": "artifacts\\screens\\28-REG-碳资产总览.png"
     },
     {
       "route": "/reg/alerts",
       "role": "REGULATOR",
       "label": "REG-预警处置",
       "pass": true,
-      "textLen": 1533,
+      "textLen": 1543,
       "tables": 1,
       "rows": 12,
       "cards": 3,
@@ -463,14 +478,14 @@
       "hash": "#/reg/alerts",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\28-REG-预警处置.png"
+      "shot": "artifacts\\screens\\29-REG-预警处置.png"
     },
     {
       "route": "/reg/stats",
       "role": "REGULATOR",
       "label": "REG-统计分析",
       "pass": true,
-      "textLen": 1452,
+      "textLen": 1462,
       "tables": 1,
       "rows": 20,
       "cards": 10,
@@ -478,14 +493,14 @@
       "hash": "#/reg/stats",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\29-REG-统计分析.png"
+      "shot": "artifacts\\screens\\30-REG-统计分析.png"
     },
     {
       "route": "/reg/logs",
       "role": "REGULATOR",
       "label": "REG-操作日志",
       "pass": true,
-      "textLen": 1423,
+      "textLen": 1433,
       "tables": 1,
       "rows": 15,
       "cards": 1,
@@ -493,14 +508,14 @@
       "hash": "#/reg/logs",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\30-REG-操作日志.png"
+      "shot": "artifacts\\screens\\31-REG-操作日志.png"
     },
     {
       "route": "/reg/consortium",
       "role": "REGULATOR",
       "label": "REG-联盟链治理",
       "pass": true,
-      "textLen": 2132,
+      "textLen": 2164,
       "tables": 1,
       "rows": 5,
       "cards": 7,
@@ -508,14 +523,14 @@
       "hash": "#/reg/consortium",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\31-REG-联盟链治理.png"
+      "shot": "artifacts\\screens\\32-REG-联盟链治理.png"
     },
     {
       "route": "/reg/system",
       "role": "REGULATOR",
       "label": "REG-系统设置",
       "pass": true,
-      "textLen": 908,
+      "textLen": 918,
       "tables": 1,
       "rows": 4,
       "cards": 9,
@@ -523,14 +538,14 @@
       "hash": "#/reg/system",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\32-REG-系统设置.png"
+      "shot": "artifacts\\screens\\33-REG-系统设置.png"
     },
     {
       "route": "/reg/notices",
       "role": "REGULATOR",
       "label": "REG-通知公告",
       "pass": true,
-      "textLen": 1062,
+      "textLen": 1072,
       "tables": 1,
       "rows": 12,
       "cards": 1,
@@ -538,7 +553,7 @@
       "hash": "#/reg/notices",
       "logs": [],
       "errorBars": [],
-      "shot": "artifacts\\screens\\33-REG-通知公告.png"
+      "shot": "artifacts\\screens\\34-REG-通知公告.png"
     }
   ]
 }
