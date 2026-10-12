@@ -65,3 +65,4 @@ tools/out/
 # ---- 巡检/QA 运行时产物（截图与打包中间文件，不入库） ----
 /qa-out/
 /qa-pack/
+/_artifacts/
