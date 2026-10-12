@@ -341,9 +341,9 @@
               '，字段：a01011=CO₂浓度 · a01012=烟气流量 · a01013=烟温 · a01014=烟压 · a06001=含氧量。',
             ]),
             h('div', { class: 'card', style: 'background:var(--panel-2)' }, [
-              h('div', { class: 'card-head' }, [h('h3', {}, '硬件安全摘要')]),
+              h('div', { class: 'card-head' }, [h('h3', {}, '边缘可信签名摘要')]),
               h('div', { class: 'card-body tight' }, [
-                kv([['采集网关 DID', Cems.OUTLET.gatewayDid], ['设备标识 MN', Cems.OUTLET.mn], ['硬件安全状态', '板载 TEE 密码学芯片已固化']], '120px'),
+                kv([['采集网关 DID', Cems.OUTLET.gatewayDid], ['设备标识 MN', Cems.OUTLET.mn], ['边缘签名状态', '网关国密签名已固化（演示数据）']], '120px'),
                 kv([
                   ['国密 SM3 报文指纹', p.fields && App.SM3 ? App.SM3.sm3(p.packet).slice(0, 24) + '…' : '—（SM3 未就绪）'],
                   ['国密 SM2 网关签名', (App.SM3 ? App.SM3.sm3(App.SM3.sm3(p.packet) + Cems.OUTLET.gatewaySk) : '').slice(0, 24) + '…'],

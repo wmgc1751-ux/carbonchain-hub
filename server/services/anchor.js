@@ -18,7 +18,11 @@ let chain = null;
 /** 取全局唯一链实例（懒加载 + 从数据库恢复） */
 async function getChain() {
   if (!chain) {
-    chain = new Blockchain(db.pool, config.chain);
+    /* ⚠ 必须传 `db.chainPool` 而不是 `db.pool`：
+     * 链内核会执行 `SET time_zone='+00:00'`（为了 DATETIME ↔ 秒数的跨库恒等），
+     * 这条会话级 SET 会随连接回到池里。若与业务共池，会污染业务的 NOW() 口径，
+     * 使按时间窗的统计静默判错。理由详见 server/db.js#chainPool 的注释。 */
+    chain = new Blockchain(db.chainPool, config.chain);
     await chain.init();
   }
   return chain;

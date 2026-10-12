@@ -23,8 +23,15 @@
   const STANDALONE_PREFIX = ['/login', '/screen', '/explorer', '/verify', '/cems', '/matrix', '/notice'];
   /** 额外角色授权：路径不落在角色前缀下、但确属该角色职能的路由。
    *  /ops 生产运维监控挂在监管端菜单的「系统治理」分组，而 REGULATOR 的
-   *  前缀是 /reg，不加这条会被守卫误判为越权。 */
-  const EXTRA_ALLOW = { REGULATOR: ['/ops'], TRADER: ['/ent/credit'], ADMIN: ['/ops', '/reg/consortium', '/reg/system'] };
+   *  前缀是 /reg，不加这条会被守卫误判为越权。
+   *  /gov 是**监管与管理共用**的治理看板（源端接入 / 数据质量 / 审计链），
+   *  两个角色的职能都需要，故一并授给两者 —— 避免复制两份页面。 */
+  const EXTRA_ALLOW = {
+    REGULATOR: ['/ops', '/gov', '/keys'],
+    TRADER: ['/ent/credit'],
+    ADMIN: ['/ops', '/gov', '/keys', '/reg/consortium', '/reg/system',
+      '/reg/uncertainty', '/reg/cbam', '/reg/greenpower', '/reg/dual-report'],
+  };
 
   /** 路径是否命中前缀列表（支持 `/a` 与 `/a/xxx`；`/` 只做精确匹配，避免通配全站） */
   function matchPrefix(list, p) {
@@ -43,8 +50,12 @@
     ['/cems', 'page-cems'],
     ['/matrix', 'page-matrix'],
     ['/ops', 'page-ops'],
+    ['/gov/iot', 'page-iot-devices'],
+    ['/gov/quality', 'page-data-quality'],
+    ['/gov/audit-chain', 'page-audit-chain'],
     ['/explorer/block/:index', 'page-block-detail'],
     ['/explorer/tx/:txId', 'page-tx-detail'],
+    ['/notice', 'page-notice-list'],
     ['/notice/:id', 'page-notice'],
     ['/ent/overview', 'page-ent-overview'],
     ['/ent/reports', 'page-ent-reports'],
@@ -81,6 +92,16 @@
     ['/admin/factors', 'page-admin-factors'],
     ['/admin/users', 'page-admin-users'],
     ['/admin/reconcile', 'page-admin-reconcile'],
+    /* 第 2 轮（WP4 核算升级 / WP2 密码学生产化 / WP5 国际互认） */
+    ['/keys', 'page-keymgmt'],
+    ['/ent/uncertainty', 'page-ent-uncertainty'],
+    ['/reg/uncertainty', 'page-reg-uncertainty'],
+    ['/ent/cbam', 'page-cbam'],
+    ['/reg/cbam', 'page-cbam'],
+    ['/ent/greenpower', 'page-greenpower'],
+    ['/reg/greenpower', 'page-greenpower'],
+    ['/ent/dual-report', 'page-dual-report'],
+    ['/reg/dual-report', 'page-dual-report'],
   ];
   ROUTES.forEach(([p, v]) => App.define(p, v));
 
@@ -114,6 +135,12 @@
         { path: '/ent/analytics', icon: 'chart', label: '数据分析' },
         { path: '/ent/wallet', icon: 'wallet', label: '链上身份' },
       ] },
+      { group: '合规与不确定度', items: [
+        { path: '/ent/uncertainty', icon: 'target', label: '核算不确定度' },
+        { path: '/ent/cbam', icon: 'globe', label: 'CBAM 碳关税申报' },
+        { path: '/ent/greenpower', icon: 'leaf', label: '绿电溯源' },
+        { path: '/ent/dual-report', icon: 'report', label: '双轨报告' },
+      ] },
       { group: '信息服务', items: [
         { path: '/ent/notices', icon: 'book', label: '通知公告' },
         { path: '/explorer', icon: 'block', label: '区块链浏览器' },
@@ -146,12 +173,20 @@
         { path: '/reg/allocations', icon: 'coin', label: '配额分配管理' },
         { path: '/reg/dynamic', icon: 'leaf', label: '动态核算监管' },
         { path: '/cems', icon: 'factory', label: 'CEMS 实测监管' },
+        { path: '/gov/iot', icon: 'factory', label: '设备接入看板' },
+        { path: '/gov/quality', icon: 'shield', label: '数据质量看板' },
         { path: '/reg/credit', icon: 'coin', label: '碳资产总览' },
-        { path: '/reg/trades', icon: 'chart', label: '交易监管' },
+        { path: '/reg/trades', icon: 'chart', label: '履约流转监管' },
         { path: '/reg/alerts', icon: 'alert', label: '预警与风险处置' },
+        { path: '/reg/uncertainty', icon: 'target', label: '不确定度监管' },
+        { path: '/reg/cbam', icon: 'globe', label: 'CBAM 申报监管' },
+        { path: '/reg/greenpower', icon: 'leaf', label: '绿电溯源监管' },
+        { path: '/reg/dual-report', icon: 'report', label: '双轨报告台账' },
       ] },
       { group: '系统治理', items: [
         { path: '/reg/consortium', icon: 'chain', label: '联盟链治理' },
+        { path: '/keys', icon: 'key', label: '国密密钥治理' },
+        { path: '/gov/audit-chain', icon: 'lock', label: '审计链校验' },
         { path: '/reg/notices', icon: 'book', label: '通知公告管理' },
         { path: '/reg/logs', icon: 'shield', label: '操作审计日志' },
         { path: '/reg/system', icon: 'db', label: '系统与链自检' },
@@ -161,10 +196,10 @@
       ] },
     ],
     TRADER: [
-      { group: '市场交易', items: [
+      { group: '配额履约流转', items: [
         { path: '/trade/market', icon: 'chart', label: '市场行情' },
-        { path: '/trade/orders', icon: 'coin', label: '交易下单' },
-        { path: '/trade/deals', icon: 'report', label: '交易记录' },
+        { path: '/trade/orders', icon: 'coin', label: '挂牌与成交' },
+        { path: '/trade/deals', icon: 'report', label: '成交记录' },
       ] },
       { group: '我的资产', items: [
         { path: '/trade/account', icon: 'wallet', label: '我的账户' },
@@ -179,14 +214,22 @@
       { group: '平台治理', items: [
         { path: '/admin/overview', icon: 'dash', label: '管理总览' },
         { path: '/reg/consortium', icon: 'chain', label: '联盟链治理' },
+        { path: '/keys', icon: 'key', label: '国密密钥治理' },
         { path: '/admin/users', icon: 'shield', label: '用户与权限' },
       ] },
       { group: '标准与一致性', items: [
         { path: '/admin/factors', icon: 'coin', label: '因子库维护' },
         { path: '/admin/reconcile', icon: 'db', label: '对账中心' },
+        { path: '/reg/uncertainty', icon: 'target', label: '不确定度汇总' },
+        { path: '/reg/dual-report', icon: 'report', label: '双轨报告台账' },
+        { path: '/reg/cbam', icon: 'globe', label: 'CBAM 申报台账' },
+        { path: '/reg/greenpower', icon: 'leaf', label: '绿电溯源' },
       ] },
       { group: '运维监控', items: [
         { path: '/reg/system', icon: 'db', label: '系统与链自检' },
+        { path: '/gov/iot', icon: 'factory', label: '设备接入看板' },
+        { path: '/gov/quality', icon: 'shield', label: '数据质量看板' },
+        { path: '/gov/audit-chain', icon: 'lock', label: '审计链校验' },
         { path: '/ops', icon: 'chart', label: '生产运维监控' },
         { path: '/explorer', icon: 'block', label: '区块链浏览器' },
       ] },
@@ -213,20 +256,33 @@
     '/reg/allocations': ['监管端', '配额分配管理'],
     '/reg/alerts': ['监管端', '预警与风险处置'], '/reg/stats': ['监管端', '统计分析'],
     '/reg/logs': ['监管端', '操作审计日志'], '/reg/system': ['监管端', '系统与链自检'],
-    '/reg/trades': ['监管端', '交易监管'],
+    '/reg/trades': ['监管端', '履约流转监管'],
     '/ops': ['运维', '生产监控中心'],
+    '/gov/iot': ['治理', '工业设备接入看板'],
+    '/gov/quality': ['治理', '数据质量看板'],
+    '/gov/audit-chain': ['治理', '审计日志哈希链校验'],
     '/matrix': ['碳矩阵', '工业碳资产动态核算可信存证平台'],
     '/reg/consortium': ['监管端', '联盟链治理'], '/reg/dynamic': ['监管端', '动态核算监管'],
     '/reg/credit': ['监管端', '碳资产总览'],
     '/reg/notices': ['监管端', '通知公告管理'],
-    '/trade/market': ['交易端', '市场行情'], '/trade/orders': ['交易端', '交易下单'],
-    '/trade/account': ['交易端', '我的账户'], '/trade/deals': ['交易端', '交易记录'],
+    '/trade/market': ['交易端', '市场行情'], '/trade/orders': ['交易端', '挂牌与成交'],
+    '/trade/account': ['交易端', '我的账户'], '/trade/deals': ['交易端', '成交记录'],
     '/trade/offset': ['交易端', '抵销清缴'],
     '/admin/overview': ['管理端', '管理总览'], '/admin/factors': ['管理端', '因子库维护'],
     '/admin/users': ['管理端', '用户与权限'], '/admin/reconcile': ['管理端', '对账中心'],
+    '/keys': ['治理', '国密密钥治理'],
+    '/ent/uncertainty': ['企业端', '核算不确定度报告'],
+    '/reg/uncertainty': ['监管端', '不确定度监管'],
+    '/ent/cbam': ['企业端', 'CBAM 碳关税申报'],
+    '/reg/cbam': ['监管端', 'CBAM 申报监管'],
+    '/ent/greenpower': ['企业端', '小时级绿电溯源'],
+    '/reg/greenpower': ['监管端', '绿电溯源监管'],
+    '/ent/dual-report': ['企业端', '双轨报告导出'],
+    '/reg/dual-report': ['监管端', '双轨报告台账'],
     '/explorer': ['公开', '区块链浏览器'], '/screen': ['公开', '数据公示大屏'],
     '/verify': ['公开', '科研验证中心'],
     '/cems': ['公开', 'CEMS 实测流监控'],
+    '/notice': ['公开', '通知公告'],
     '/login': ['公开', '登录'],
   };
 
@@ -450,6 +506,7 @@
                 h('button', { class: ['btn sm', Router.path.startsWith('/explorer') && 'primary'], onClick: () => App.go('/explorer') }, '区块链浏览器'),
                 h('button', { class: ['btn sm', Router.path === '/verify' && 'primary'], onClick: () => App.go('/verify') }, '科研验证中心'),
                 h('button', { class: ['btn sm', Router.path === '/cems' && 'primary'], onClick: () => App.go('/cems') }, 'CEMS 监控'),
+                h('button', { class: ['btn sm', Router.path.startsWith('/notice') && 'primary'], onClick: () => App.go('/notice') }, '通知公告'),
               ]),
               h('div', { class: 'topbar-right' }, [
                 h('span', { class: 'chip live', title: '链尾哈希 ' + App.Store.chain.tipHash }, [

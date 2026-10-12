@@ -2,10 +2,14 @@
   "name": "carbonchain-hub",
   "version": "1.0.0",
   "private": true,
-  "description": "碳链通 CarbonChainHub —— 面向工业场景的联盟链碳资产动态核算与可信存证平台（国产联盟链 + 国密硬件防伪 + 链上动态核算 + 零知识证明隐私出证 + 多角色协同）",
+  "description": "碳链通 CarbonChainHub —— 面向工业场景的联盟链碳资产动态核算可信存证平台（自研许可制联盟链 + 国密算法套件 SM2/SM3 + CEMS 实测滚动动态核算 + 五道校验可信存证 + 企业/核查/监管/管理多角色协同）",
   "main": "server/app.js",
   "scripts": {
     "initdb": "node server/scripts/init-db.js",
+    "seed:iter2": "node server/scripts/seed-iter2.js",
+    "migrate": "node server/scripts/migrate-iter1.js",
+    "migrate:iter2": "node server/scripts/migrate-iter2.js",
+    "cems:regen": "node server/scripts/regen-cems.js",
     "start": "node server/scripts/start-prod.js",
     "start:app": "node server/app.js",
     "dev": "node server/app.js",
@@ -15,7 +19,19 @@
     "bench:crypto:fast": "node scripts/bench-crypto.js --fast",
     "verify:nucleus": "node scripts/uncertainty.js",
     "check:ui": "node scripts/browser-check.js",
-    "check:api": "node scripts/smoke-test.js"
+    "check:api": "node scripts/smoke-test.js",
+    "chain:export": "node tools/export-chain.mjs",
+    "chain:verify": "node tools/verify-offline.mjs --input tools/out/chain-export.json",
+    "chain:selftest": "node tools/selftest-verify.mjs",
+    "chain:crosscheck": "node tools/cross-check-internal.cjs",
+    "chain:prove": "node tools/export-chain.mjs && node tools/verify-offline.mjs --input tools/out/chain-export.json && node tools/selftest-verify.mjs && node tools/cross-check-internal.cjs",
+    "audit:selftest": "node tools/audit-chain-selftest.mjs",
+    "protocol:check": "node tools/protocol-check.cjs",
+    "iot:selftest": "node tools/iot-selftest.mjs",
+    "uncertainty:selftest": "node tools/uncertainty-selftest.mjs",
+    "keymgmt:selftest": "node tools/keymgmt-selftest.mjs",
+    "api:iter2": "node tools/api-iter2-check.mjs",
+    "verify:all": "node tools/uncertainty-selftest.mjs && node tools/keymgmt-selftest.mjs && node tools/audit-chain-selftest.mjs && node tools/iot-selftest.mjs && node tools/protocol-check.cjs && node tools/api-iter2-check.mjs"
   },
   "engines": {
     "node": ">=18"

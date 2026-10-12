@@ -1,5 +1,5 @@
 -- =====================================================================
---  碳链通 CarbonChain Hub —— 企业碳足迹存证与碳配额交易平台
+--  碳链通 CarbonChain Hub —— 面向工业场景的联盟链碳资产动态核算可信存证平台
 --  数据库结构定义脚本 (MySQL 8.0)
 --  文件: db/01_schema.sql
 --  说明: 本文件为纯 DDL，不含数据。数据由 server/scripts/init-db.js 生成，
@@ -14,7 +14,7 @@ SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- ---------------------------------------------------------------------
--- 1. sys_user  统一用户账号表（四端共用一套账号体系，靠 role 区分身份）
+-- 1. sys_user  统一用户账号表（五端共用一套账号体系，靠 role 区分身份）
 -- ---------------------------------------------------------------------
 CREATE TABLE sys_user (
   id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -22,7 +22,7 @@ CREATE TABLE sys_user (
   password      VARCHAR(128) NOT NULL                COMMENT '口令摘要 = SHA256(salt + 明文)',
   salt          VARCHAR(32)  NOT NULL                COMMENT '口令盐值',
   real_name     VARCHAR(50)           DEFAULT NULL   COMMENT '姓名',
-  role          VARCHAR(20)  NOT NULL                COMMENT '角色: ENTERPRISE 企业端 / VERIFIER 核查机构端 / REGULATOR 监管端 / ADMIN 系统管理',
+  role          VARCHAR(20)  NOT NULL                COMMENT '角色: ENTERPRISE 企业端 / VERIFIER 核查机构端 / REGULATOR 监管端 / TRADER 交易端（碳配额履约流转） / ADMIN 系统管理',
   org_id        BIGINT                DEFAULT NULL   COMMENT '所属组织ID(企业ID或核查机构ID)',
   org_name      VARCHAR(120)          DEFAULT NULL   COMMENT '所属组织名称快照',
   phone         VARCHAR(20)           DEFAULT NULL   COMMENT '手机号',
@@ -329,13 +329,17 @@ CREATE TABLE chain_tx (
   nonce         BIGINT       NOT NULL DEFAULT 0      COMMENT '交易序号(防重放)',
   gas_fee       DECIMAL(12,4) NOT NULL DEFAULT 0      COMMENT '存证手续费(碳积分)',
   status        VARCHAR(20)  NOT NULL DEFAULT 'CONFIRMED' COMMENT '状态: PENDING 待打包 / CONFIRMED 已确认 / FAILED 失败',
+  anchor_batch_no VARCHAR(40)         DEFAULT NULL   COMMENT '所属批量锚定批次号(NULL 表示尚未被批量锚定)',
+  anchor_status VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '锚定状态: PENDING 待锚定 / BATCHED 已入批 / ANCHORED 已锚定 / SELF 自身即锚点',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发起时间',
   confirmed_at  DATETIME              DEFAULT NULL   COMMENT '确认时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_tx_id (tx_id),
   KEY idx_tx_block (block_index),
   KEY idx_tx_type (tx_type),
-  KEY idx_tx_status (status)
+  KEY idx_tx_status (status),
+  KEY idx_tx_anchor (anchor_status, block_index),
+  KEY idx_tx_batch (anchor_batch_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='链上存证交易表';
 
 -- ---------------------------------------------------------------------
@@ -389,11 +393,14 @@ CREATE TABLE audit_log (
   ip         VARCHAR(60)           DEFAULT NULL   COMMENT '来源IP',
   result     VARCHAR(10)  NOT NULL DEFAULT 'SUCCESS' COMMENT '结果 SUCCESS/FAIL',
   created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+  prev_hash  VARCHAR(80)           DEFAULT NULL   COMMENT '前一条日志的 entry_hash(NULL 表示链首)',
+  entry_hash VARCHAR(80)           DEFAULT NULL   COMMENT '本条日志哈希 SHA256(prev_hash|规范序列化内容)',
   PRIMARY KEY (id),
   KEY idx_log_user (user_id),
   KEY idx_log_module (module),
-  KEY idx_log_time (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统操作日志表';
+  KEY idx_log_time (created_at),
+  KEY idx_log_entry_hash (entry_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统操作日志表（entry_hash 构成哈希链，可验证未被篡改）';
 
 -- ---------------------------------------------------------------------
 -- 16. notice  平台通知公告
@@ -472,8 +479,12 @@ CREATE TABLE cems_reading (
   cum_value    DECIMAL(18,3) NOT NULL DEFAULT 0      COMMENT '当期累计排放(tCO2e)',
   o2_content   DECIMAL(6,2)           DEFAULT NULL   COMMENT '烟气含氧量(%)',
   temperature  DECIMAL(6,2)           DEFAULT NULL   COMMENT '烟气温度(℃)',
-  source       VARCHAR(20)   NOT NULL DEFAULT 'CEMS' COMMENT '数据来源 CEMS 在线监测 / MANUAL 人工补录',
+  source       VARCHAR(20)   NOT NULL DEFAULT 'CEMS' COMMENT '数据来源 CEMS 在线监测 / MANUAL 人工补录 / WATCHDOG 平台看门狗补记的离线占位记录(非设备上报)',
   status       VARCHAR(20)   NOT NULL DEFAULT 'NORMAL' COMMENT '数据状态 NORMAL 正常 / ABNORMAL 异常',
+  quality_flag VARCHAR(20)   NOT NULL DEFAULT 'NORMAL' COMMENT '时序完整性标记 NORMAL 有效 / MISSING 缺数 / DRIFT 漂移 / OFFLINE 停机 / CALIBRATION 校准 / SUBSTITUTED 已按替代规则补齐',
+  device_did   VARCHAR(80)            DEFAULT NULL   COMMENT '上报设备 DID(与 device_registry 关联，NULL 表示由平台自举生成)',
+  crc16        VARCHAR(8)             DEFAULT NULL   COMMENT 'HJ 212 报文 CRC-16 校验值(附录A参数集，同 CRC-16/MODBUS；设备直报时有值)',
+  sm3_digest   VARCHAR(80)            DEFAULT NULL   COMMENT '报文国密 SM3 指纹(设备直报时有值)',
   batch_no     VARCHAR(40)            DEFAULT NULL   COMMENT '采数批次号(同批次整体上链)',
   chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '该批次上链存证交易号',
   created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
@@ -481,7 +492,8 @@ CREATE TABLE cems_reading (
   UNIQUE KEY uk_cems_point (ent_id, monitor_no, reading_time),
   KEY idx_cems_ent_time (ent_id, reading_time),
   KEY idx_cems_time (reading_time),
-  KEY idx_cems_batch (batch_no)
+  KEY idx_cems_batch (batch_no),
+  KEY idx_cems_quality (quality_flag)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CEMS 在线监测读数表（同一排口同一时刻唯一，采数幂等）';
 
 -- ---------------------------------------------------------------------
@@ -502,6 +514,7 @@ CREATE TABLE carbon_dynamic_account (
   emission_rate       DECIMAL(16,4) NOT NULL DEFAULT 0      COMMENT '滚动日均排放速率(tCO2e/天)',
   risk_level          VARCHAR(10)   NOT NULL DEFAULT 'LOW'  COMMENT '履约风险 LOW 低 / MEDIUM 中 / HIGH 高',
   data_points         INT           NOT NULL DEFAULT 0      COMMENT '参与核算的实测点数',
+  excluded_points     INT           NOT NULL DEFAULT 0      COMMENT '被质量门控排除的实测点数(quality_flag<>NORMAL，不参与核算)',
   last_reading_at     DATETIME               DEFAULT NULL   COMMENT '最近一次实测数据时间',
   updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '核算更新时间',
   PRIMARY KEY (id),
@@ -633,5 +646,261 @@ CREATE TABLE reconciliation (
   PRIMARY KEY (id),
   UNIQUE KEY uk_recon_no (recon_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='链上链下对账记录表';
+
+-- ---------------------------------------------------------------------
+-- 27. anchor_batch  批量锚定批次（WP3 链内核规模化）
+--     把时间窗内的 N 笔业务存证组织成一棵 Merkle 树，只把「根」作为
+--     1 笔锚点交易上链。明细挂在本表 + batch_leaf，链上只留 1 个锚点。
+--     ⚠ 中间态语义（必须显式声明，否则会成为新的歧义源）：
+--       PENDING   —— 该笔存证已确认入链（block_index 非空），但尚未被批量锚定
+--       ANCHORED  —— 该笔存证已被某个批次的 Merkle 根覆盖，可由证明路径独立验证
+--       对外查询口径：两种状态的数据均为「已固化」；区别仅在于「锚定强度」。
+-- ---------------------------------------------------------------------
+CREATE TABLE anchor_batch (
+  id                 BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  batch_no           VARCHAR(40)  NOT NULL                COMMENT '批次号',
+  leaf_count         INT          NOT NULL DEFAULT 0      COMMENT '批次内叶节点(存证)数量',
+  merkle_root        VARCHAR(80)  NOT NULL                COMMENT '批次 Merkle 根(SHA-256)',
+  algo               VARCHAR(40)  NOT NULL DEFAULT 'SHA256-MERKLE-1' COMMENT '锚定算法标识',
+  anchor_tx_id       VARCHAR(80)           DEFAULT NULL   COMMENT '锚点交易号(1 笔代表整批)',
+  anchor_block_index BIGINT                DEFAULT NULL   COMMENT '锚点所在区块高度',
+  window_from        DATETIME     NOT NULL                COMMENT '锚定时间窗起(取批次内最早存证时间)',
+  window_to          DATETIME     NOT NULL                COMMENT '锚定时间窗止',
+  created_at         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_ab_batch_no (batch_no),
+  KEY idx_ab_anchor_tx (anchor_tx_id),
+  KEY idx_ab_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='批量锚定批次表（N 笔存证 → 1 个锚点）';
+
+-- ---------------------------------------------------------------------
+-- 28. batch_leaf  批次叶节点（存证 → 批次的归属与叶序）
+--     leaf_index 是 Merkle 证明路径的唯一依据，一经写入不可变更。
+-- ---------------------------------------------------------------------
+CREATE TABLE batch_leaf (
+  id           BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+  batch_no     VARCHAR(40) NOT NULL                COMMENT '所属批次号',
+  leaf_index   INT         NOT NULL                COMMENT '叶序(从 0 起，证明路径据此生成)',
+  tx_id        VARCHAR(80) NOT NULL                COMMENT '存证交易号(作为 Merkle 叶)',
+  payload_hash VARCHAR(80) NOT NULL                COMMENT '该存证的链上锚定摘要(便于独立复核)',
+  block_index  BIGINT               DEFAULT NULL   COMMENT '该存证所在区块高度',
+  created_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_bl_batch_leaf (batch_no, leaf_index),
+  UNIQUE KEY uk_bl_tx (tx_id),
+  KEY idx_bl_batch (batch_no),
+  KEY idx_bl_block (block_index)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='批量锚定叶节点表（一笔存证只归属一个批次）';
+
+-- ---------------------------------------------------------------------
+-- 29. device_registry  工业现场设备注册表（WP1 源端真实化）
+--     设备以 DID 标识，承载「谁在测、用什么协议测、是否在授权期」三件事。
+--     auth_status 与 chain_node.status 同构：被吊销的设备所报数据不得入链。
+-- ---------------------------------------------------------------------
+CREATE TABLE device_registry (
+  id             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  device_did     VARCHAR(80)  NOT NULL                COMMENT '设备 DID，如 did:iot:cems:gw:01',
+  ent_id         BIGINT                DEFAULT NULL   COMMENT '归属企业ID',
+  monitor_no     VARCHAR(40)           DEFAULT NULL   COMMENT '对应排口编号',
+  protocol       VARCHAR(20)  NOT NULL DEFAULT 'HJ212' COMMENT '接入协议 HJ212 / MODBUS_TCP / OPC_UA / SIMULATED',
+  device_type    VARCHAR(40)           DEFAULT NULL   COMMENT '设备类型，如 烟气排放连续监测系统',
+  manufacturer   VARCHAR(80)           DEFAULT NULL   COMMENT '厂商',
+  mn             VARCHAR(40)           DEFAULT NULL   COMMENT 'HJ 212 设备唯一标识(MN)',
+  cert_fingerprint VARCHAR(80)         DEFAULT NULL   COMMENT '设备证书指纹(用于校验上报方身份)',
+  auth_status    VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE' COMMENT '授权状态 ACTIVE 在用 / PENDING 待审批 / REVOKED 已吊销',
+  last_seen_at   DATETIME              DEFAULT NULL   COMMENT '最近一次上报时间',
+  offline        TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否配置为断网续传缓冲节点',
+  remark         VARCHAR(200)          DEFAULT NULL   COMMENT '备注',
+  created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '登记时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_dr_did (device_did),
+  UNIQUE KEY uk_dr_mn (mn),
+  KEY idx_dr_ent (ent_id),
+  KEY idx_dr_status (auth_status),
+  KEY idx_dr_protocol (protocol)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工业现场设备注册表（DID 标识 + 授权状态 + 接入协议）';
+
+-- ---------------------------------------------------------------------
+-- 30. cbam_declaration  欧盟 CBAM 申报数据包（WP5 国际互认）
+--     一张表 = 一次「某企业某申报期某 CN Code 货物」的隐含碳申报。
+--     设计要点：
+--       · 直接/间接排放分列 —— CBAM 对二者的处理不同（间接排放在过渡期需报、
+--         正式期是否计入取决于实施条例），分开存才不会把法规差异吞掉。
+--       · emission_route 记录用的是「实际值法」还是「欧盟缺省值法」，
+--         并同时存 eu_default_intensity 以便**同口径对照出成本差**（本 WP 的核心举证）。
+--       · methodology + regulation_basis 强制落库 —— 法规持续修订，
+--         必须能回答"你这份数据是按哪一版做的"。
+-- ---------------------------------------------------------------------
+CREATE TABLE cbam_declaration (
+  id                   BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  decl_no              VARCHAR(40)  NOT NULL                COMMENT '申报批次号，如 CBAM-2026-STEEL-0001',
+  ent_id               BIGINT       NOT NULL                COMMENT '申报企业ID',
+  period               VARCHAR(20)  NOT NULL                COMMENT '申报期，如 2026Q1 / 2026-03',
+  cn_code              VARCHAR(12)  NOT NULL                COMMENT '欧盟综合税则号(CN Code)，如 7208',
+  goods_name           VARCHAR(120) NOT NULL                COMMENT '货物名称',
+  goods_quantity       DECIMAL(18,3) NOT NULL               COMMENT '货物数量',
+  quantity_unit        VARCHAR(10)  NOT NULL DEFAULT 't'    COMMENT '计量单位',
+  direct_emission      DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '直接排放(tCO2e)',
+  indirect_emission    DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '间接排放(tCO2e)',
+  embedded_intensity   DECIMAL(18,6) NOT NULL DEFAULT 0     COMMENT '单位产品隐含碳(tCO2e/t)',
+  carbon_price_paid    DECIMAL(18,2) NOT NULL DEFAULT 0     COMMENT '在原产国已支付的碳成本(用于扣减)',
+  carbon_price_currency VARCHAR(8)  NOT NULL DEFAULT 'CNY'  COMMENT '已付碳价币种',
+  methodology          VARCHAR(60)  NOT NULL                COMMENT '核算方法学，如 ISO 14067:2018',
+  emission_route       VARCHAR(20)  NOT NULL DEFAULT 'ACTUAL' COMMENT '取值路线 ACTUAL 实际值法 / DEFAULT 欧盟缺省值法',
+  eu_default_intensity DECIMAL(18,6)         DEFAULT NULL   COMMENT '欧盟公布的缺省隐含碳强度(对照用)',
+  evidence_digest      VARCHAR(80)  NOT NULL                COMMENT '溯源附件指纹(SM3)',
+  evidence_refs        JSON                  DEFAULT NULL   COMMENT '关联存证引用列表(区块/交易/批次)',
+  regulation_basis     VARCHAR(160) NOT NULL                COMMENT '所依据法规版本与生效日期(禁止模糊表述)',
+  status               VARCHAR(20)  NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT 草稿 / GENERATED 已生成 / ARCHIVED 归档',
+  chain_tx_id          VARCHAR(80)           DEFAULT NULL   COMMENT '上链存证交易号',
+  block_index          BIGINT                DEFAULT NULL   COMMENT '所在区块高度',
+  created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生成时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_cbam_no (decl_no),
+  KEY idx_cbam_ent (ent_id, period),
+  KEY idx_cbam_cn (cn_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CBAM 产品隐含碳申报数据包（ISO 14067 口径）';
+
+-- ---------------------------------------------------------------------
+-- 31. green_power_match  小时级绿电溯源匹配（WP5）
+--     把「绿电交易/绿证核销」与「用能时序」按**小时**对齐。
+--     为什么必须小时级：出口企业只有证明"该小时用的确实是绿电"，
+--     才能用实际值法而非欧盟缺省值法核算间接排放 —— 这是钱。
+--     match_status 三态如实反映匹配质量，不允许把 UNMATCHED 当 MATCHED 报上去。
+-- ---------------------------------------------------------------------
+CREATE TABLE green_power_match (
+  id               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id           BIGINT       NOT NULL                COMMENT '企业ID',
+  stat_hour        DATETIME     NOT NULL                COMMENT '统计小时(整点)',
+  consumption_mwh  DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '该小时总用电量(MWh)',
+  green_mwh        DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '该小时已匹配绿电电量(MWh)',
+  match_status     VARCHAR(20)  NOT NULL DEFAULT 'UNMATCHED' COMMENT 'MATCHED 全额 / PARTIAL 部分 / UNMATCHED 未匹配',
+  coverage_ratio   DECIMAL(8,6) NOT NULL DEFAULT 0      COMMENT '绿电覆盖率 = green/consumption',
+  cert_no          VARCHAR(60)           DEFAULT NULL   COMMENT '绿证编号(GEC 等)',
+  cert_type        VARCHAR(30)           DEFAULT NULL   COMMENT 'GEC 绿证 / PPA 直购 / 分布式自建 / 跨省绿电',
+  source_name      VARCHAR(120)          DEFAULT NULL   COMMENT '绿电来源名称',
+  grid_factor      DECIMAL(18,6) NOT NULL DEFAULT 0     COMMENT '该小时电网平均排放因子(tCO2/MWh)',
+  residual_factor  DECIMAL(18,6) NOT NULL DEFAULT 0     COMMENT '扣绿后残余电网因子(tCO2/MWh)',
+  provenance       JSON                  DEFAULT NULL   COMMENT '数据来源与推算方法声明(实测/推算分别标注，防止把推算值当实测值)',
+  evidence_digest  VARCHAR(80)           DEFAULT NULL   COMMENT '匹配证据指纹(SM3)',
+  chain_tx_id      VARCHAR(80)           DEFAULT NULL   COMMENT '上链存证交易号',
+  block_index      BIGINT                DEFAULT NULL   COMMENT '所在区块高度',
+  created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_gpm_hour_cert (ent_id, stat_hour, cert_no),
+  KEY idx_gpm_ent_hour (ent_id, stat_hour),
+  KEY idx_gpm_status (match_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='小时级绿电溯源匹配（实际值法核算间接排放的依据）';
+
+-- ---------------------------------------------------------------------
+-- 32. report_export  双轨报告导出台账（WP5）
+--     ISO 14064-1（组织碳）+ ISO 14067（产品碳）两轨，结果可互证。
+--     content_digest 用 SM3：报告一变指纹就变，可证明"交付的就是这份"。
+-- ---------------------------------------------------------------------
+CREATE TABLE report_export (
+  id                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id            BIGINT       NOT NULL                COMMENT '企业ID',
+  std               VARCHAR(20)  NOT NULL                COMMENT '标准 ISO14064-1 / ISO14067',
+  report_scope      VARCHAR(20)  NOT NULL                COMMENT '组织 ORGANIZATION / 产品 PRODUCT',
+  title             VARCHAR(160) NOT NULL                COMMENT '报告标题',
+  period            VARCHAR(20)  NOT NULL                COMMENT '报告期',
+  payload           JSON         NOT NULL                COMMENT '报告正文结构(供前端渲染与下载)',
+  content_digest    VARCHAR(80)  NOT NULL                COMMENT '报告内容指纹(SM3)',
+  file_fingerprint  VARCHAR(80)  NOT NULL                COMMENT '导出文件指纹(SHA-256)',
+  total_emission    DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '报告总量(tCO2e)',
+  cross_check       JSON                  DEFAULT NULL   COMMENT '与另一轨的互证结论',
+  generated_by      VARCHAR(60)           DEFAULT NULL   COMMENT '生成人',
+  chain_tx_id       VARCHAR(80)           DEFAULT NULL   COMMENT '上链存证交易号',
+  block_index       BIGINT                DEFAULT NULL   COMMENT '所在区块高度',
+  created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生成时间',
+  PRIMARY KEY (id),
+  KEY idx_rpt_ent (ent_id, std, period)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='双轨报告导出台账（ISO 14064-1 / ISO 14067）';
+
+-- ---------------------------------------------------------------------
+-- 33. key_rotation_log  密钥轮换与双人复核日志（WP2 密码学生产化）
+--     密钥轮换必须留痕，否则"轮换过"只是一句自述。
+--     状态机：PENDING（已申请，待复核）→ APPROVED（生效）/ REJECTED。
+--     ★ 同一条记录的 requested_by 与 approved_by **不得为同一人** —— 这是双人复核的
+--       实质，服务层强制校验，不是靠流程约定。
+-- ---------------------------------------------------------------------
+CREATE TABLE key_rotation_log (
+  id               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  key_label        VARCHAR(80)  NOT NULL                COMMENT '密钥主体标签，如 ent:12 / gateway:M-0007-01',
+  key_type         VARCHAR(20)  NOT NULL DEFAULT 'SM2'  COMMENT 'SM2 / ECDSA',
+  action           VARCHAR(20)  NOT NULL                COMMENT 'GENERATE 生成 / ROTATE 轮换 / REVOKE 吊销',
+  old_address      VARCHAR(80)           DEFAULT NULL   COMMENT '轮换前地址(SM2 曲线公钥派生)',
+  new_address      VARCHAR(80)           DEFAULT NULL   COMMENT '轮换后地址',
+  old_fingerprint  VARCHAR(80)           DEFAULT NULL   COMMENT '轮换前公钥指纹(SM3)',
+  new_fingerprint  VARCHAR(80)           DEFAULT NULL   COMMENT '轮换后公钥指纹(SM3)',
+  reason           VARCHAR(200)          DEFAULT NULL   COMMENT '轮换事由',
+  requested_by     VARCHAR(60)  NOT NULL                COMMENT '申请人',
+  approved_by      VARCHAR(60)           DEFAULT NULL   COMMENT '复核人(必须与申请人不一致)',
+  approval_status  VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING 待复核 / APPROVED 已生效 / REJECTED 已驳回',
+  approval_note    VARCHAR(200)          DEFAULT NULL   COMMENT '复核意见',
+  approved_at      DATETIME              DEFAULT NULL   COMMENT '复核时间',
+  chain_tx_id      VARCHAR(80)           DEFAULT NULL   COMMENT '轮换事件上链交易号',
+  block_index      BIGINT                DEFAULT NULL   COMMENT '所在区块高度',
+  created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+  PRIMARY KEY (id),
+  KEY idx_krl_label (key_label, created_at),
+  KEY idx_krl_status (approval_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='密钥轮换与双人复核日志（PKCS#11 接口预留）';
+
+-- ---------------------------------------------------------------------
+-- 34. uncertainty_posterior  贝叶斯后验不确定度（WP4 核算升级）
+--     由「蒙特卡洛单值」升级为「后验分布 + 95% 置信区间」。
+--     采用 Normal-Inverse-Gamma 共轭先验 —— 有解析解，无需 MCMC，
+--     且可用蒙特卡洛做**交叉验证**（两条独立路径结论必须一致）。
+-- ---------------------------------------------------------------------
+CREATE TABLE uncertainty_posterior (
+  id               BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id           BIGINT       NOT NULL                COMMENT '企业ID',
+  year             INT          NOT NULL                COMMENT '核算年度',
+  target           VARCHAR(40)  NOT NULL DEFAULT 'ANNUAL_EMISSION' COMMENT 'ANNUAL_EMISSION 年度排放 / INTENSITY 排放强度',
+  prior_type       VARCHAR(60)  NOT NULL                COMMENT '先验类型，如 Normal-Inverse-Gamma',
+  prior_params     JSON                  DEFAULT NULL   COMMENT '先验超参数 mu0/kappa0/alpha0/beta0',
+  posterior_params JSON         NOT NULL                COMMENT '后验超参数 mun/kappan/alphan/betan',
+  n_obs            INT          NOT NULL DEFAULT 0      COMMENT '参与推断的观测点数',
+  obs_summary      JSON                  DEFAULT NULL   COMMENT '观测数据摘要(均值/方差/极值)',
+  mean             DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '后验均值',
+  sd               DECIMAL(18,6) NOT NULL DEFAULT 0     COMMENT '后验标准差',
+  ci_level         DECIMAL(6,4)  NOT NULL DEFAULT 0.95  COMMENT '置信水平',
+  ci_low           DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '置信区间下界',
+  ci_high          DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '置信区间上界',
+  mc_cross_check   JSON                  DEFAULT NULL   COMMENT '蒙特卡洛交叉验证结果(与解析解对比)',
+  method           VARCHAR(80)  NOT NULL                COMMENT '推断方法说明',
+  created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '计算时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_uq (ent_id, year, target)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='贝叶斯后验不确定度（含 95% 置信区间与蒙特卡洛交叉验证）';
+
+-- ---------------------------------------------------------------------
+-- 35. model_eval  预测模型评估（WP4）
+--     验收要求 MAPE ≤ 5%(L4) / ≤ 10%(L3)，并**必须给出消融实验**。
+--     ablation 里逐项记录"去掉某组件后精度变化多少" —— 没有消融，
+--     精度数字就只是运气，说不清是哪一部分在起作用。
+-- ---------------------------------------------------------------------
+CREATE TABLE model_eval (
+  id             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id         BIGINT                DEFAULT NULL   COMMENT '企业ID(NULL 表示行业汇总评估)',
+  model          VARCHAR(60)  NOT NULL                COMMENT '模型名，如 STL+ARIMA / Holt-Winters / Linear',
+  horizon_days   INT          NOT NULL DEFAULT 30     COMMENT '预测步长(天)',
+  n_train        INT          NOT NULL DEFAULT 0      COMMENT '训练集样本数',
+  n_test         INT          NOT NULL DEFAULT 0      COMMENT '测试集样本数',
+  split          VARCHAR(30)  NOT NULL                COMMENT '切分方式，如 HOLDOUT-30D / ROLLING-7',
+  mape           DECIMAL(10,4) NOT NULL DEFAULT 0     COMMENT '平均绝对百分比误差(%)',
+  rmse           DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '均方根误差',
+  mae            DECIMAL(18,4) NOT NULL DEFAULT 0     COMMENT '平均绝对误差',
+  r2             DECIMAL(10,6) NOT NULL DEFAULT 0     COMMENT '决定系数 R²',
+  params         JSON                  DEFAULT NULL   COMMENT '模型参数',
+  ablation       JSON                  DEFAULT NULL   COMMENT '消融实验：逐项去掉组件后的精度变化',
+  dataset_slice  VARCHAR(120)          DEFAULT NULL   COMMENT '数据集切片说明',
+  verdict        VARCHAR(200)          DEFAULT NULL   COMMENT '结论(含"复杂模型未取胜"这类如实结论)',
+  evaluated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '评估时间',
+  PRIMARY KEY (id),
+  KEY idx_me_model (model),
+  KEY idx_me_ent (ent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='预测模型评估与消融实验（MAPE/R²/消融）';
 
 SET FOREIGN_KEY_CHECKS = 1;

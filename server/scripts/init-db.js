@@ -250,7 +250,7 @@ async function main() {
     org_name: '省级生态环境厅应对气候变化处', phone: '1380000000' + (i + 2),
     email: `reg00${i + 1}@carbonchain.gov.cn`, created_at: new Date(2024, 1, 10 + i),
   }));
-  /* 交易端用户（专业碳资产交易参与方，代表控排企业执行二级市场交易） */
+  /* 交易端用户（专业碳资产交易参与方，代表控排企业执行配额履约流转） */
   addUser({
     username: 'trader01', password: '123456', real_name: '韩雪梅', role: 'TRADER',
     org_id: 1, org_name: '碳链通碳资产交易中心', phone: '13900000001',

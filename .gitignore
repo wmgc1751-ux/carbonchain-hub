@@ -6,6 +6,8 @@ yarn-error.log*
 # ---- 敏感凭据（绝不入库） ----
 # 链上钱包私钥库：只应存在于运行节点本地
 server/keystore.json
+# 国密 SM2 密钥库（含私钥，第 2 轮 WP2 新增，同样绝不入库）
+server/sm2-keystore.json
 .env
 .env.*
 !.env.example
@@ -56,3 +58,6 @@ _stage_zip/
 /_ui-check/
 /stage4-demo/
 /public/stage4-demo/
+
+# ---- 可核验性工具（WP7）的导出快照与报告：每次导出都会变，不入库 ----
+tools/out/

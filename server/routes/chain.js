@@ -12,7 +12,8 @@ const express = require('express');
 const db = require('../db');
 const cu = require('../blockchain/crypto-utils');
 const anchorSvc = require('../services/anchor');
-const { authRequired, writeLog, ok, fail, wrap } = require('../middleware/auth');
+const anchorBatch = require('../services/anchorBatch');
+const { authRequired, requireRole, writeLog, ok, fail, wrap } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -21,6 +22,13 @@ const TX_TYPE_CN = {
   VERIFY_REPORT: '核查报告存证',
   QUOTA_ALLOC: '配额分配存证',
   ENTERPRISE_REG: '企业备案存证',
+  TRADE_DEAL: '履约流转成交存证',
+  CREDIT_ASSET: '碳信用资产存证',
+  FACTOR_VERSION: '因子版本发布存证',
+  CEMS_BATCH: 'CEMS 实测批次存证',
+  FILE_ANCHOR: '文件存证',
+  ORACLE_FEED: '预言机数据存证',
+  ANCHOR_BATCH: '批量锚点存证',
 };
 
 /**
@@ -296,5 +304,54 @@ router.get('/address/:address', wrap(async (req, res) => {
 function safeParse(s) {
   try { return JSON.parse(s); } catch (e) { return null; }
 }
+
+/* ==================================================================
+ * 批量锚定（WP3 链内核规模化）
+ * ------------------------------------------------------------------
+ * 设计要点：把时间窗内 N 笔业务存证组织为 1 棵 Merkle 树，链上只留 1 个锚点。
+ * 读接口开放（可审计性），触发接口需监管/管理角色（属运营动作，非演示破坏性操作）。
+ * ================================================================== */
+
+/* 锚定统计（含状态语义说明，防止把 PENDING 误读为"未上链"） */
+router.get('/anchor/stats', wrap(async (req, res) => {
+  ok(res, await anchorBatch.stats());
+}));
+
+/* 批次列表 */
+router.get('/anchor/batches', wrap(async (req, res) => {
+  const r = await anchorBatch.listBatches({ page: req.query.page, size: req.query.size });
+  ok(res, r);
+}));
+
+/* 批次详情（含全部叶） */
+router.get('/anchor/batch/:batchNo', wrap(async (req, res) => {
+  const b = await anchorBatch.getBatch(req.params.batchNo);
+  if (!b) return fail(res, `批次 ${req.params.batchNo} 不存在`, 404);
+  ok(res, b);
+}));
+
+/* 单笔存证的 Merkle 存在性证明（O(log N) 独立验证） */
+router.get('/anchor/proof', wrap(async (req, res) => {
+  const { batchNo, txId } = req.query;
+  if (!batchNo || !txId) return fail(res, '缺少 batchNo 或 txId 参数', 400);
+  const p = await anchorBatch.getProof(batchNo, txId);
+  if (!p.found) return fail(res, '该存证不属于指定批次', 404);
+  ok(res, p);
+}));
+
+/* 触发一次批量锚定（监管 / 管理角色） */
+router.post('/anchor/run', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
+  const r = await anchorBatch.createBatch({
+    limit: (req.body || {}).limit,
+    actor: req.user && req.user.role === 'REGULATOR' ? 'regulator:system' : 'regulator:system',
+  });
+  if (!r.created) return ok(res, r, r.hint || '当前无可锚定的存证');
+  await writeLog(req, '链上存证', '批量锚定',
+    r.batchNo, `${r.leafCount} 笔存证 → 1 个锚点，根 ${r.merkleRoot.slice(0, 16)}…`);
+  ok(res,
+    r,
+    `批量锚定完成：${r.leafCount} 笔存证聚合为 1 个锚点（压缩比 ${r.compressionRatio}），`
+    + `锚点交易 ${r.anchorTxId.slice(0, 16)}… 落于区块 #${r.anchorBlockIndex}`);
+}));
 
 module.exports = router;

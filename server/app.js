@@ -92,6 +92,13 @@ app.use('/api/intelligence', require('./routes/intelligence'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/public', require('./routes/public'));
 app.use('/api/ops', require('./routes/ops'));
+app.use('/api/iot', require('./routes/iot'));
+/* WP2 密码学生产化：国密 SM2 密钥治理（/api/keys/*） */
+app.use('/api/keys', require('./routes/keymgmt'));
+/* WP4 核算升级：不确定度/模型评估/口径方法学（/api/uncertainty/*） */
+app.use('/api/uncertainty', require('./routes/uncertainty'));
+/* WP5 国际互认：挂载在 /api 根上，端点为 /api/cbam/* /api/greenpower/* /api/report/* /api/cost/* */
+app.use('/api', require('./routes/international'));
 
 app.get('/api/health', async (req, res) => {
   try {
@@ -224,6 +231,41 @@ async function warmup() {
         ov.readings.total, ov.summary.enterprises, ov.summary.highRisk, ov.summary.mediumRisk);
     } catch (e) {
       console.error('⚠ 动态核算初始化跳过：', e.message);
+    }
+
+    /* 源端真实化（WP1）：设备台账自举 + HJ 212 设备接入服务端。
+       两者都幂等；TCP 端口被占用等异常只告警，不影响 HTTP 服务可用性。 */
+    try {
+      const registry = require('./services/deviceRegistry');
+      const seeded = await registry.ensureSeeded();
+      const regStats = await registry.stats();
+      console.log('🏭 工业设备台账已就绪：设备 %d 台（在用 %d / 待审批 %d / 已吊销 %d），'
+        + 'HJ 212 链路 %d 台%s',
+      regStats.total, regStats.active, regStats.pending, regStats.revoked, regStats.hj212,
+      seeded.created ? `（本次自举新增 ${seeded.created} 台）` : '');
+    } catch (e) {
+      console.error('⚠ 设备台账自举跳过：', e.message);
+    }
+    if (String(process.env.HJ212_AUTOSTART || '1') !== '0') {
+      try {
+        const hj = require('./services/hj212Server');
+        const r = await hj.start();
+        console.log('📡 HJ 212-2017 设备接入服务已监听 0.0.0.0:%d（协议子集见 /api/iot/factors）', r.port);
+      } catch (e) {
+        console.error('⚠ HJ 212 接入服务启动失败（HTTP 服务不受影响）：', e.message);
+      }
+    }
+
+    /* WP6 审计日志哈希链：启动时幂等封印历史未封印条目。
+       老库里的历史日志（entry_hash 为空）在此一次性链接成链；已封印则 sealed=0。 */
+    try {
+      const auditChain = require('./services/auditChain');
+      const r = await auditChain.seal({ limit: 20000 });
+      const s = await auditChain.stats();
+      console.log('🧾 审计日志哈希链已就绪：共 %d 条（已封印 %d / 未封印 %d）%s',
+        s.total, s.sealed, s.unsealed, r.sealed ? `（本次封印 ${r.sealed} 条）` : '');
+    } catch (e) {
+      console.error('⚠ 审计日志哈希链封印跳过（HTTP 服务不受影响）：', e.message);
     }
   } catch (e) {
     console.error('⚠ 区块链初始化失败（数据库未初始化？请先执行 npm run initdb）：', e.message);

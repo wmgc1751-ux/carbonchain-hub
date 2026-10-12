@@ -727,7 +727,7 @@
               h('x-card', { title: '减排建议', sub: 'ADVISOR 智能体生成' }, {
                 default: () => h('div', { class: 'col gap-10' }, r.advisor.suggestions.map((s) => h('div', { class: 'alertbar info', style: 'flex-direction:column;align-items:flex-start;gap:6px' }, [
                   h('div', { class: 'flex gap-8', style: 'align-items:center' }, [
-                    h('x-tag', { text: { TRADE: '市场交易', OFFSET: 'CCER 抵销', PRODUCTION: '生产优化', DATA: '数据核查', OK: '状态良好' }[s.type] || s.type, tone: s.priority === 'HIGH' ? 't-danger' : (s.priority === 'MEDIUM' ? 't-warn' : 't-ok') }),
+                    h('x-tag', { text: { TRADE: '配额履约', OFFSET: 'CCER 抵销', PRODUCTION: '生产优化', DATA: '数据核查', OK: '状态良好' }[s.type] || s.type, tone: s.priority === 'HIGH' ? 't-danger' : (s.priority === 'MEDIUM' ? 't-warn' : 't-ok') }),
                     h('b', { style: 'font-size:14px' }, s.title),
                   ]),
                   h('span', { style: 'font-size:13px;line-height:1.6;color:var(--tx-2)' }, s.detail),

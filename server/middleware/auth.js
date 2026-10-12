@@ -67,21 +67,46 @@ function requireRole(...roles) {
 }
 
 /** 记录操作日志（业务审计留痕） */
+/**
+ * 写审计日志（WP6：写入即入哈希链）。
+ *
+ * 改造前是裸 INSERT，任何能连库的人都能 UPDATE 抹掉"谁改了配额"而看不出来。
+ * 现在每条写入都会链上前一条的 entry_hash，改动任意一条都会导致其后全部失配。
+ * 实现见 services/auditChain.js（含时区口径与并发说明）。
+ *
+ * 日志失败不影响主流程 —— 但**不静默**：控制台会留下痕迹，
+ * 否则"审计失败"本身就成了一条不被审计的事件。
+ */
 async function writeLog(req, module, action, target, detail, result = 'SUCCESS') {
+  const u = req.user || {};
+  const payload = {
+    userId: u.id || null,
+    username: u.username || 'anonymous',
+    role: u.role || '-',
+    module, action,
+    target: target || null,
+    detail: detail || null,
+    ip: (req.headers['x-forwarded-for'] || req.ip || '').toString().slice(0, 60),
+    result,
+  };
   try {
-    const u = req.user || {};
-    await db.query(
-      `INSERT INTO audit_log (user_id, username, role, module, action, target, detail, ip, result)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [
-        u.id || null, u.username || 'anonymous', u.role || '-', module, action,
-        target || null, detail || null,
-        (req.headers['x-forwarded-for'] || req.ip || '').toString().slice(0, 60),
-        result,
-      ]
-    );
+    // 延迟 require：避免 auth.js（被几乎所有路由依赖）与审计链产生加载期循环
+    const auditChain = require('../services/auditChain');
+    return await auditChain.append(payload);
   } catch (e) {
-    /* 日志失败不影响主流程 */
+    console.error('[audit] 审计日志入链失败（主流程不受影响）：', e.message);
+    // 兜底：至少把内容落库，宁可暂时未封印，也不丢事件
+    try {
+      await db.query(
+        `INSERT INTO audit_log (user_id, username, role, module, action, target, detail, ip, result)
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [payload.userId, payload.username, payload.role, module, action,
+          payload.target, payload.detail, payload.ip, result]
+      );
+    } catch (e2) {
+      console.error('[audit] 兜底写入同样失败：', e2.message);
+    }
+    return null;
   }
 }
 

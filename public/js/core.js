@@ -353,6 +353,24 @@
   /* ==================================================================
    * 九、其它工具
    * ================================================================== */
+  /**
+   * 静态演示模式提示条。
+   * ------------------------------------------------------------------
+   * 静态站点用快照应答 /api/*，读数据是快照时点值、写操作响应真实但不落库。
+   * 这不是缺陷，但**必须显式告知**，否则用户会把快照数值当成实时值。
+   * 需要真实后端的能力（密码学运算、时序库关联、真落库）也在这里提示。
+   * @param {string} [text] 覆盖默认文案
+   * @returns {object|null} 静态模式返回提示条 vnode，在线模式返回 null
+   */
+  function staticNote(text) {
+    const S = global.App && global.App.StaticApi;
+    if (!S || !S.isStatic || !S.isStatic()) return null;
+    return h('div', { class: 'alertbar warn', style: 'margin-bottom:14px' }, [
+      h('x-icon', { name: 'info', size: 15 }),
+      text || '当前为静态演示模式：读数据来自快照时点（非实时），写操作响应真实但不落库。',
+    ]);
+  }
+
   async function copyText(text) {
     try {
       await navigator.clipboard.writeText(String(text));
@@ -446,7 +464,7 @@
 
   global.App = {
     Store, API, Router, define, resolve, go, h,
-    fmt, DICT, dict, notify, toast, copyText, debounce, usePager, cache,
+    fmt, DICT, dict, notify, toast, copyText, debounce, usePager, cache, staticNote,
     chartBase, catAxis, valAxis, areaGrad, useChart, PALETTE,
     vue: { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick },
   };

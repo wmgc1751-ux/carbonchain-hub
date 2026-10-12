@@ -6,12 +6,13 @@
   const { defineComponent, ref, onMounted, onUnmounted, computed } = Vue;
   const h = App.h;
 
-  const ROLE_HOME = {
-    ENTERPRISE: '/ent/overview',
-    VERIFIER: '/ver/overview',
-    REGULATOR: '/reg/overview',
-    ADMIN: '/reg/overview',
-  };
+  /* 登录后落地页 —— 唯一来源是 app.js 暴露的 App.routeAccess.ROLE_HOME。
+     历史上本文件曾自行维护一份副本，漏掉 TRADER 导致交易端登录后被送到公开的
+     公示大屏（/screen）；两份定义必然漂移，故改为引用单一来源，本文件不再重复定义。 */
+  function roleHome(role) {
+    const map = (App.routeAccess && App.routeAccess.ROLE_HOME) || {};
+    return map[role] || '/screen';
+  }
 
   /* Hero 背景视频：绿色能源主题（光伏阵列主视觉 + 绿色山谷兜底），均已验证 206 video/mp4 可直连，画面经无头浏览器截图逐一确认 */
   const HERO_VIDEO = 'https://assets.mixkit.co/videos/27222/27222-720.mp4';
@@ -23,39 +24,39 @@
     {
       span: 'lg',
       img: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1200&q=80',
-      tag: 'Scope 1 / 2 / 3 实时接入',
-      title: '碳排因子与多源数据采集',
-      desc: '对接 IoT 智能电表、CEMS 在线监测与 ERP 物料台账，按权威排放因子库自动折算，多源数据统一入湖、分钟级同步。',
+      tag: '范围一 / 二 实时接入',
+      title: '工业源端采集与排放因子折算',
+      desc: '对接 CEMS 烟气在线监测、车间智能电表与物料台账，按权威排放因子台账（逐条附文号）自动折算，多源数据统一入湖、分钟级同步。',
     },
     {
       span: 'md',
       img: 'https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?auto=format&fit=crop&w=1200&q=80',
-      tag: 'ISO-14067 合规认证',
-      title: '智能核算与低碳供应链',
-      desc: '生命周期 LCA 核算引擎覆盖范围一 / 二 / 三，自动生成核算底稿与减排建议。',
+      tag: 'ISO 14064 / 14067 双轨',
+      title: '动态核算与双轨对账',
+      desc: 'CEMS 实测滚动核算引擎，按组织碳（ISO 14064）与产品碳足迹（ISO 14067，范围一 + 二）双轨口径出数，并做一致性对账。',
     },
     {
       span: 'md',
       img: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=1200&q=80',
-      tag: '哈希验证通过',
-      title: '链上可信存证与防篡改',
-      desc: 'SHA-256 哈希链 + Merkle 树 + secp256k1 签名，任何改动都会导致全链校验失败。',
+      tag: '五道校验',
+      title: '联盟链可信存证与防篡改',
+      desc: 'PoA 授权出块 + SHA-256 哈希链 + Merkle 树 + ECDSA 签名，叠加链下重算绑定，任何改动都会导致全链校验失败。',
     },
     {
       span: 'wide',
       img: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80',
-      tag: 'CBAM 就绪',
-      title: '国际合规与 CBAM 报告生成',
-      desc: '一键导出欧盟碳边境调节机制申报数据包与第三方可核验的存证证书。',
+      tag: '多方共治',
+      title: '联盟链成员治理与链副本',
+      desc: '监管、核查、企业、管理四方许可准入，各自持有全量链副本；任一节点被篡改，其余节点即可凭副本比对发现异常。',
     },
   ];
 
   /* Carbon Flow：端到端碳链溯源流程轴 */
   const FLOW = [
-    { icon: 'db', t: 'IoT / ERP 数据采集' },
-    { icon: 'chart', t: '生命周期 LCA 智能核算' },
-    { icon: 'block', t: '节点共识哈希上链' },
-    { icon: 'shield', t: 'CBAM 报告 / 存证证书' },
+    { icon: 'db', t: '工业排口 / 计量表采集' },
+    { icon: 'chart', t: '动态核算与双轨对账' },
+    { icon: 'block', t: '联盟链 PoA 共识上链' },
+    { icon: 'shield', t: '存证核验与监管出证' },
   ];
 
   const PageLogin = defineComponent({
@@ -155,7 +156,7 @@
           pact.value = await App.API.get('/chain/stats');
         } catch (e) { /* ignore */ }
         if (App.Store.user && App.Store.token) {
-          App.go(ROLE_HOME[App.Store.user.role] || '/screen');
+          App.go(roleHome(App.Store.user.role));
         }
       });
       onUnmounted(teardownHeroCrossFade);
@@ -173,7 +174,7 @@
           const d = await App.API.request('POST', '/auth/login', { username: username.value, password: password.value }, { noRedirect: true });
           setSession(d.token, d.user);
           App.notify.ok(`欢迎回来，${d.user.realName || d.user.username}（${d.user.roleCn}）`);
-          App.go(ROLE_HOME[d.user.role] || '/screen');
+          App.go(roleHome(d.user.role));
         } catch (e) {
           err.value = e.message;
         } finally {
@@ -214,7 +215,7 @@
                 '工业碳资产动态核算，', h('br'), h('em', {}, '链上可信存证'),
               ]),
               h('p', { class: 'hero-sub' },
-                '面向工业场景的联盟链碳资产动态核算与可信存证平台 —— 国密硬件源头防伪、GB/T 32150 链上动态核算、智能合约自动核验，排放数据与核查结论全部上链，形成不可篡改、可公开核验的碳资产账本。'),
+                '面向工业场景的联盟链碳资产动态核算可信存证平台 —— 边缘可信签名（国密 SM2/SM3）源头防伪、CEMS 实测数据滚动动态核算、联盟链 PoA 共识与五道校验存证，排放数据与核查结论全部上链，形成不可篡改、可公开核验的碳资产账本。'),
               h('div', { class: 'hero-cta' }, [
                 h('button', { class: 'cta cta-primary', onClick: () => App.go('/screen') }, [
                   h('x-icon', { name: 'globe', size: 16 }), '进入数据公示大屏',
@@ -236,7 +237,7 @@
           h('section', { class: 'sec' }, [
             h('div', { class: 'sec-head' }, [
               h('h2', {}, '核心能力'),
-              h('p', {}, '从物理计量到跨境合规申报，端到端打通的碳数据要素基础设施。'),
+              h('p', {}, '从工业排口计量到链上可信存证，端到端打通的碳资产动态核算体系。'),
             ]),
             h('div', { class: 'bento-grid' }, BENTO.map((b) => h('article', { class: ['bento-item', b.span] }, [
               h('div', { class: 'bento-bg', style: `background-image:url("${b.img}")` }),
@@ -253,7 +254,7 @@
           h('section', { class: 'sec' }, [
             h('div', { class: 'sec-head' }, [
               h('h2', {}, '端到端碳链溯源'),
-              h('p', {}, '一次采集、全程留痕：从物理计量到跨境合规申报的完整证据链。'),
+              h('p', {}, '一次采集、全程留痕：从工业排口计量到多角色核验的完整证据链。'),
             ]),
             h('div', { class: 'flow-track' }, FLOW.flatMap((f, i) => {
               const node = h('div', { class: 'flow-node' }, [

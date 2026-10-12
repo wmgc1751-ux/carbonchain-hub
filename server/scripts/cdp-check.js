@@ -82,9 +82,9 @@ async function main() {
   // 登录拿 token
   const accounts = [
     { role: '交易端', user: 'trader01', pass: '123456', routes: [['/trade/market', 'T1市场行情'], ['/trade/orders', 'T2交易下单'], ['/trade/account', 'T3我的账户'], ['/trade/deals', 'T4交易记录'], ['/trade/offset', 'T5抵销清缴']] },
-    { role: '管理端', user: 'admin', pass: 'admin123', routes: [['/admin/overview', 'A1管理总览'], ['/admin/factors', 'A2因子库'], ['/admin/users', 'A3用户权限'], ['/admin/reconcile', 'A4对账中心']] },
+    { role: '管理端', user: 'admin', pass: 'admin123', routes: [['/admin/overview', 'A1管理总览'], ['/admin/factors', 'A2因子库'], ['/admin/users', 'A3用户权限'], ['/admin/reconcile', 'A4对账中心'], ['/gov/audit-chain', 'G3审计链(ADMIN)']] },
     { role: '企业端', user: 'ent001', pass: '123456', routes: [['/ent/predict', 'E6预警中心']] },
-    { role: '监管端', user: 'reg001', pass: '123456', routes: [['/reg/trades', '交易监管']] },
+    { role: '监管端', user: 'reg001', pass: '123456', routes: [['/reg/trades', '交易监管'], ['/gov/iot', 'G1设备接入'], ['/gov/quality', 'G2数据质量'], ['/gov/audit-chain', 'G3审计链']] },
   ];
   const sessions = {};
   for (const a of accounts) { const s = await login(a.user, a.pass); sessions[a.role] = s; console.log(`登录 ${a.user}(${a.role}) => ${s ? 'OK' : 'FAIL'}`); }
