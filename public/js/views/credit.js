@@ -121,7 +121,7 @@
 
         return h('x-page', {
           title: isEnt.value ? '碳信用与抵销' : '碳资产总览（碳信用）',
-          desc: '本平台的"碳资产"包含两类：① 碳配额（年度分配，可市场交易）；② 碳信用（国家核证自愿减排量 CCER / 林业碳汇 / 绿证）。企业可用碳信用抵销履约缺口，抵销比例不得超过配额的 5%，抵销流水上链存证。',
+          desc: '本平台的"碳资产"包含两类：① 碳配额（年度分配，动态核算其履约余缺）；② 碳信用（国家核证自愿减排量 CCER / 林业碳汇 / 绿证）。企业可用碳信用抵销履约缺口，抵销比例不得超过配额的 5%，抵销流水上链存证。',
         }, {
           actions: () => [h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新'])],
           default: () => [
@@ -141,7 +141,7 @@
             isEnt.value && st.gap > 0
               ? h('div', { class: ['alertbar', 'warn', 'mb-16'] }, [
                 h('x-icon', { name: 'alert', size: 16 }),
-                `按当前滚动核算，你企业本年度预计履约缺口约 ${App.fmt.num(Math.round(st.gap))} tCO₂e。可使用碳信用抵销（上限 ${App.fmt.num(Math.round(st.limit))} tCO₂e），或通过碳配额市场购碳履约。`,
+                `按当前滚动核算，你企业本年度预计履约缺口约 ${App.fmt.num(Math.round(st.gap))} tCO₂e。可使用碳信用抵销（上限 ${App.fmt.num(Math.round(st.limit))} tCO₂e），或调整生产计划以降低动态核算缺口。`,
               ])
               : null,
 

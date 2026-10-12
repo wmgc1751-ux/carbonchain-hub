@@ -557,4 +557,81 @@ CREATE TABLE credit_offset (
   KEY idx_offset_ent (ent_id, year)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='碳信用抵销流水表';
 
+-- ---------------------------------------------------------------------
+-- 23. emission_factor  排放因子库（对齐 GB/T 32150 等国家标准）
+--     核算公式「活动数据 × 因子 × 氧化率」中的系数；按能源品种与行业维护。
+-- ---------------------------------------------------------------------
+CREATE TABLE emission_factor (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  energy_type  VARCHAR(30)   NOT NULL                COMMENT '能源品种: COAL 原煤 / COKE 焦炭 / GAS 天然气 / DIESEL 柴油 / FUEL_OIL 燃料油 / POWER 电力 / HEAT 热力',
+  factor       DECIMAL(14,6) NOT NULL                COMMENT '排放因子(tCO2e/单位)',
+  unit         VARCHAR(30)   NOT NULL DEFAULT 'tCO2e/单位' COMMENT '计量单位',
+  scope        TINYINT       NOT NULL DEFAULT 1      COMMENT '核算范围 1 直接 / 2 间接',
+  source       VARCHAR(120)           DEFAULT NULL   COMMENT '因子出处(标准/指南)',
+  industry     VARCHAR(30)            DEFAULT NULL   COMMENT '适用行业(空为通用)',
+  version      VARCHAR(20)            DEFAULT NULL   COMMENT '当前生效版本号',
+  effective_from DATETIME             DEFAULT NULL   COMMENT '生效时间',
+  effective_to DATETIME               DEFAULT NULL   COMMENT '失效时间(旧版本封口)',
+  status       VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT '状态 ACTIVE / ARCHIVED',
+  remark       VARCHAR(200)           DEFAULT NULL   COMMENT '备注',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
+  updated_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+  PRIMARY KEY (id),
+  KEY idx_factor_energy (energy_type),
+  KEY idx_factor_industry (industry)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='排放因子库表';
+
+-- ---------------------------------------------------------------------
+-- 24. factor_version  因子版本（核算规则合约的链上固化）
+--     每次发布把当前因子库快照固化为一个版本，旧版本只读，保证历史核算可复现。
+-- ---------------------------------------------------------------------
+CREATE TABLE factor_version (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  version      VARCHAR(20)   NOT NULL                COMMENT '版本号(如 v2026.1)',
+  effective_from DATETIME    NOT NULL                COMMENT '生效时间',
+  effective_to DATETIME               DEFAULT NULL   COMMENT '失效时间',
+  operator     VARCHAR(40)            DEFAULT NULL   COMMENT '发布人',
+  snapshot     JSON                   DEFAULT NULL   COMMENT '因子库快照(JSON)',
+  chain_block_index INT              DEFAULT NULL    COMMENT '存证区块高度',
+  chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '存证交易号',
+  status       VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT '状态 ACTIVE / ARCHIVED',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_factor_version (version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='排放因子版本表';
+
+-- ---------------------------------------------------------------------
+-- 25. prediction_record  多智能体预测结果存档
+--     用量预测 / 超限预警 / 异常检测 / 减排建议 的结果留档，供趋势回溯与答辩演示。
+-- ---------------------------------------------------------------------
+CREATE TABLE prediction_record (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ent_id       BIGINT        NOT NULL                COMMENT '企业ID',
+  year         INT           NOT NULL                COMMENT '预测年度',
+  agent        VARCHAR(20)   NOT NULL                COMMENT '智能体: FORECAST 用量预测 / OVER_QUOTA 超限预警 / ANOMALY 异常检测 / ADVISOR 减排建议',
+  predicted_eoy DECIMAL(16,3)         DEFAULT NULL   COMMENT '预测期末排放(tCO2e)',
+  gap          DECIMAL(16,3)          DEFAULT NULL   COMMENT '预测缺口(tCO2e)',
+  risk_level   VARCHAR(10)            DEFAULT NULL   COMMENT '风险等级 HIGH/MEDIUM/LOW',
+  detail       JSON                   DEFAULT NULL   COMMENT '预测明细(JSON)',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '生成时间',
+  PRIMARY KEY (id),
+  KEY idx_pred_ent_year (ent_id, year),
+  KEY idx_pred_agent (agent)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='多智能体预测结果表';
+
+-- ---------------------------------------------------------------------
+-- 26. reconciliation  链上链下对账记录
+--     定时核对 MySQL 业务记录 ↔ 链上 txid 映射，记录不一致情况与修复轨迹。
+-- ---------------------------------------------------------------------
+CREATE TABLE reconciliation (
+  id           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+  recon_no     VARCHAR(40)   NOT NULL                COMMENT '对账单号',
+  total_records INT          NOT NULL DEFAULT 0      COMMENT '核对记录总数',
+  inconsistent INT           NOT NULL DEFAULT 0      COMMENT '不一致记录数',
+  detail       JSON                   DEFAULT NULL   COMMENT '分表核对明细(JSON)',
+  created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '对账时间',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_recon_no (recon_no)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='链上链下对账记录表';
+
 SET FOREIGN_KEY_CHECKS = 1;

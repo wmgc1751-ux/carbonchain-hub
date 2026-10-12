@@ -1,6 +1,6 @@
 /**
  * routes/public.js —— 公众端 / 数据公示大屏 API（无需登录）
- * 体现"碳数据的公共监督属性"：任何公民都可以查询排放总量、链上存证与配额交易行情。
+ * 体现"碳数据的公共监督属性"：任何公民都可以查询排放总量与链上存证。
  */
 'use strict';
 
@@ -24,20 +24,6 @@ router.get('/dashboard', wrap(async (req, res) => {
     `SELECT IFNULL(SUM(total_emission),0) AS total, IFNULL(AVG(intensity),0) AS intensity, COUNT(*) AS cnt
      FROM emission_report WHERE year = ? AND status <> 'DRAFT'`, [YEAR]
   );
-
-  const trade = await db.one(
-    `SELECT COUNT(*) AS deals, IFNULL(SUM(amount),0) AS volume, IFNULL(SUM(total_amount),0) AS turnover,
-            IFNULL(AVG(price),0) AS avgPrice
-     FROM trade_deal`
-  );
-
-  const priceTrend = await db.query(
-    `SELECT DATE_FORMAT(deal_time,'%Y-%m') AS month, IFNULL(AVG(price),0) AS price,
-            IFNULL(SUM(amount),0) AS volume
-     FROM trade_deal GROUP BY month ORDER BY month`
-  );
-
-  const lastPrice = await db.one('SELECT price, deal_time FROM trade_deal ORDER BY deal_time DESC LIMIT 1');
 
   const byIndustry = await db.query(
     `SELECT e.industry AS name, IFNULL(SUM(r.total_emission),0) AS value
@@ -92,16 +78,7 @@ router.get('/dashboard', wrap(async (req, res) => {
       reportCount: Number(emission.cnt),
       verifiedRate: Number(verified.total) > 0
         ? Number(((Number(verified.done) / Number(verified.total)) * 100).toFixed(1)) : 0,
-      dealCount: Number(trade.deals),
-      tradeVolume: Number(Number(trade.volume).toFixed(0)),
-      turnover: Number(Number(trade.turnover).toFixed(0)),
-      avgPrice: Number(Number(trade.avgPrice).toFixed(2)),
-      lastPrice: lastPrice ? Number(lastPrice.price) : null,
-      lastDealTime: lastPrice ? lastPrice.deal_time : null,
     },
-    priceTrend: priceTrend.map((p) => ({
-      month: p.month, price: Number(Number(p.price).toFixed(2)), volume: Number(p.volume),
-    })),
     byIndustry: byIndustry.map((i) => ({ ...i, value: Number(i.value) })),
     byRegion: byRegion.map((i) => ({ ...i, value: Number(i.value) })),
     trend: trend.map((t) => ({ period: t.period, total: Number(t.total), intensity: Number(t.intensity) })),
@@ -152,30 +129,6 @@ router.get('/notices/:id', wrap(async (req, res) => {
   if (!n) return fail(res, '公告不存在', 404);
   await db.query('UPDATE notice SET views = views + 1 WHERE id = ?', [n.id]);
   ok(res, n);
-}));
-
-/* 碳价行情 ---------------------------------------------------------- */
-router.get('/carbon-price', wrap(async (req, res) => {
-  const days = Math.min(Number(req.query.days) || 60, 365);
-  const rows = await db.query(
-    `SELECT DATE_FORMAT(deal_time,'%Y-%m-%d %H:00') AS t, AVG(price) AS price, SUM(amount) AS volume
-     FROM trade_deal WHERE deal_time >= DATE_SUB(NOW(), INTERVAL ? DAY)
-     GROUP BY t ORDER BY t`, [days]
-  );
-  const stat = await db.one(
-    `SELECT IFNULL(AVG(price),0) AS avgPrice, IFNULL(MAX(price),0) AS high, IFNULL(MIN(price),0) AS low,
-            IFNULL(SUM(amount),0) AS volume, COUNT(*) AS cnt FROM trade_deal`
-  );
-  ok(res, {
-    quote: {
-      last: rows.length ? Number(Number(rows[rows.length - 1].price).toFixed(2)) : null,
-      avg: Number(Number(stat.avgPrice).toFixed(2)),
-      high: Number(stat.high), low: Number(stat.low),
-      volume: Number(stat.volume), deals: Number(stat.cnt),
-      unit: '元/吨CO₂e',
-    },
-    series: rows.map((r) => ({ t: r.t, price: Number(Number(r.price).toFixed(2)), volume: Number(r.volume) })),
-  });
 }));
 
 module.exports = router;

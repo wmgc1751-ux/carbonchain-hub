@@ -24,7 +24,7 @@
   /** 额外角色授权：路径不落在角色前缀下、但确属该角色职能的路由。
    *  /ops 生产运维监控挂在监管端菜单的「系统治理」分组，而 REGULATOR 的
    *  前缀是 /reg，不加这条会被守卫误判为越权。 */
-  const EXTRA_ALLOW = { REGULATOR: ['/ops'], ADMIN: ['/ops'] };
+  const EXTRA_ALLOW = { REGULATOR: ['/ops'], TRADER: ['/ent/credit'], ADMIN: ['/ops', '/reg/consortium', '/reg/system'] };
 
   /** 路径是否命中前缀列表（支持 `/a` 与 `/a/xxx`；`/` 只做精确匹配，避免通配全站） */
   function matchPrefix(list, p) {
@@ -49,10 +49,10 @@
     ['/ent/overview', 'page-ent-overview'],
     ['/ent/reports', 'page-ent-reports'],
     ['/ent/quota', 'page-ent-quota'],
-    ['/ent/trade', 'page-ent-trade'],
     ['/ent/analytics', 'page-ent-analytics'],
     ['/ent/wallet', 'page-ent-wallet'],
     ['/ent/notices', 'page-ent-notices'],
+    ['/ent/predict', 'page-ent-predict'],
     ['/ver/overview', 'page-ver-overview'],
     ['/ver/tasks', 'page-ver-tasks'],
     ['/ver/reports', 'page-ver-reports'],
@@ -61,7 +61,6 @@
     ['/reg/overview', 'page-reg-overview'],
     ['/reg/enterprises', 'page-reg-enterprises'],
     ['/reg/allocations', 'page-reg-allocations'],
-    ['/reg/trades', 'page-reg-trades'],
     ['/reg/alerts', 'page-reg-alerts'],
     ['/reg/stats', 'page-reg-stats'],
     ['/reg/logs', 'page-reg-logs'],
@@ -69,14 +68,24 @@
     ['/reg/consortium', 'page-consortium'],
     ['/reg/dynamic', 'page-dynamic'],
     ['/reg/credit', 'page-credit'],
+    ['/reg/trades', 'page-reg-trades'],
     ['/reg/notices', 'page-reg-notices'],
     ['/ent/dynamic', 'page-dynamic'],
     ['/ent/credit', 'page-credit'],
+    ['/trade/market', 'page-trade-market'],
+    ['/trade/orders', 'page-trade-orders'],
+    ['/trade/account', 'page-trade-account'],
+    ['/trade/deals', 'page-trade-deals'],
+    ['/trade/offset', 'page-trade-offset'],
+    ['/admin/overview', 'page-admin-overview'],
+    ['/admin/factors', 'page-admin-factors'],
+    ['/admin/users', 'page-admin-users'],
+    ['/admin/reconcile', 'page-admin-reconcile'],
   ];
   ROUTES.forEach(([p, v]) => App.define(p, v));
 
-  const ROLE_HOME = { ENTERPRISE: '/ent/overview', VERIFIER: '/ver/overview', REGULATOR: '/reg/overview', ADMIN: '/reg/overview' };
-  const ROLE_PREFIX = { ENTERPRISE: '/ent', VERIFIER: '/ver', REGULATOR: '/reg', ADMIN: '/reg' };
+  const ROLE_HOME = { ENTERPRISE: '/ent/overview', VERIFIER: '/ver/overview', REGULATOR: '/reg/overview', TRADER: '/trade/market', ADMIN: '/admin/overview' };
+  const ROLE_PREFIX = { ENTERPRISE: '/ent', VERIFIER: '/ver', REGULATOR: '/reg', TRADER: '/trade', ADMIN: '/admin' };
 
   /** 该角色能否进入该路径 —— 守卫与巡检脚本共用的唯一判据（纯函数） */
   function canEnter(role, p) {
@@ -100,8 +109,8 @@
         { path: '/ent/quota', icon: 'coin', label: '碳配额账户' },
       ] },
       { group: '碳资产运营', items: [
-        { path: '/ent/trade', icon: 'trade', label: '碳配额交易' },
         { path: '/ent/credit', icon: 'leaf', label: '碳信用与抵销' },
+        { path: '/ent/predict', icon: 'alert', label: '预警中心' },
         { path: '/ent/analytics', icon: 'chart', label: '数据分析' },
         { path: '/ent/wallet', icon: 'wallet', label: '链上身份' },
       ] },
@@ -135,10 +144,10 @@
       { group: '业务监管', items: [
         { path: '/reg/enterprises', icon: 'factory', label: '控排企业名录' },
         { path: '/reg/allocations', icon: 'coin', label: '配额分配管理' },
-        { path: '/reg/trades', icon: 'trade', label: '碳市场交易监管' },
         { path: '/reg/dynamic', icon: 'leaf', label: '动态核算监管' },
         { path: '/cems', icon: 'factory', label: 'CEMS 实测监管' },
         { path: '/reg/credit', icon: 'coin', label: '碳资产总览' },
+        { path: '/reg/trades', icon: 'chart', label: '交易监管' },
         { path: '/reg/alerts', icon: 'alert', label: '预警与风险处置' },
       ] },
       { group: '系统治理', items: [
@@ -151,8 +160,38 @@
         { path: '/verify', icon: 'shield', label: '科研验证中心' },
       ] },
     ],
+    TRADER: [
+      { group: '市场交易', items: [
+        { path: '/trade/market', icon: 'chart', label: '市场行情' },
+        { path: '/trade/orders', icon: 'coin', label: '交易下单' },
+        { path: '/trade/deals', icon: 'report', label: '交易记录' },
+      ] },
+      { group: '我的资产', items: [
+        { path: '/trade/account', icon: 'wallet', label: '我的账户' },
+        { path: '/trade/offset', icon: 'leaf', label: '抵销清缴' },
+      ] },
+      { group: '信息服务', items: [
+        { path: '/explorer', icon: 'block', label: '区块链浏览器' },
+        { path: '/screen', icon: 'globe', label: '公示大屏' },
+      ] },
+    ],
+    ADMIN: [
+      { group: '平台治理', items: [
+        { path: '/admin/overview', icon: 'dash', label: '管理总览' },
+        { path: '/reg/consortium', icon: 'chain', label: '联盟链治理' },
+        { path: '/admin/users', icon: 'shield', label: '用户与权限' },
+      ] },
+      { group: '标准与一致性', items: [
+        { path: '/admin/factors', icon: 'coin', label: '因子库维护' },
+        { path: '/admin/reconcile', icon: 'db', label: '对账中心' },
+      ] },
+      { group: '运维监控', items: [
+        { path: '/reg/system', icon: 'db', label: '系统与链自检' },
+        { path: '/ops', icon: 'chart', label: '生产运维监控' },
+        { path: '/explorer', icon: 'block', label: '区块链浏览器' },
+      ] },
+    ],
   };
-  MENUS.ADMIN = MENUS.REGULATOR;
 
   /* 路由访问模型对外只读暴露 —— 供 scripts/browser-check.js 用同一套判据穷举断言
      「侧边栏里的每一项、每个角色都进得去」。历史上 /matrix 与 /ops 都是因为
@@ -161,23 +200,30 @@
 
   const CRUMB = {
     '/ent/overview': ['企业端', '企业总览'], '/ent/reports': ['企业端', '碳排放上报'],
-    '/ent/quota': ['企业端', '碳配额账户'], '/ent/trade': ['企业端', '碳配额交易'],
+    '/ent/quota': ['企业端', '碳配额账户'],
     '/ent/analytics': ['企业端', '数据分析'], '/ent/wallet': ['企业端', '链上身份'],
     '/ent/dynamic': ['企业端', '动态核算'],
     '/ent/credit': ['企业端', '碳信用与抵销'],
+    '/ent/predict': ['企业端', '预警中心'],
     '/ent/notices': ['企业端', '通知公告'],
     '/ver/overview': ['核查机构端', '机构总览'], '/ver/tasks': ['核查机构端', '核查任务'],
     '/ver/reports': ['核查机构端', '核查报告台账'], '/ver/wallet': ['核查机构端', '机构链上身份'],
     '/ver/notices': ['核查机构端', '通知公告'],
     '/reg/overview': ['监管端', '监管驾驶舱'], '/reg/enterprises': ['监管端', '控排企业名录'],
-    '/reg/allocations': ['监管端', '配额分配管理'], '/reg/trades': ['监管端', '碳市场交易监管'],
+    '/reg/allocations': ['监管端', '配额分配管理'],
     '/reg/alerts': ['监管端', '预警与风险处置'], '/reg/stats': ['监管端', '统计分析'],
     '/reg/logs': ['监管端', '操作审计日志'], '/reg/system': ['监管端', '系统与链自检'],
+    '/reg/trades': ['监管端', '交易监管'],
     '/ops': ['运维', '生产监控中心'],
     '/matrix': ['碳矩阵', '工业碳资产动态核算可信存证平台'],
     '/reg/consortium': ['监管端', '联盟链治理'], '/reg/dynamic': ['监管端', '动态核算监管'],
     '/reg/credit': ['监管端', '碳资产总览'],
     '/reg/notices': ['监管端', '通知公告管理'],
+    '/trade/market': ['交易端', '市场行情'], '/trade/orders': ['交易端', '交易下单'],
+    '/trade/account': ['交易端', '我的账户'], '/trade/deals': ['交易端', '交易记录'],
+    '/trade/offset': ['交易端', '抵销清缴'],
+    '/admin/overview': ['管理端', '管理总览'], '/admin/factors': ['管理端', '因子库维护'],
+    '/admin/users': ['管理端', '用户与权限'], '/admin/reconcile': ['管理端', '对账中心'],
     '/explorer': ['公开', '区块链浏览器'], '/screen': ['公开', '数据公示大屏'],
     '/verify': ['公开', '科研验证中心'],
     '/cems': ['公开', 'CEMS 实测流监控'],

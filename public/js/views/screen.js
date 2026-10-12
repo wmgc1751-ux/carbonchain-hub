@@ -96,24 +96,6 @@
         });
       });
 
-      const priceOption = computed(() => {
-        if (!d.value) return null;
-        const t = d.value.priceTrend || [];
-        return App.chartBase({
-          grid: { left: 10, right: 16, top: 22, bottom: 6, containLabel: true },
-          tooltip: Object.assign(App.chartBase().tooltip, {
-            formatter: (ps) => `${ps[0].axisValue}<br/>均价 <b style="color:#fbbf24">${ps[0].value}</b> 元/吨<br/>成交 ${App.fmt.num(t[ps[0].dataIndex].volume)} 吨`,
-          }),
-          xAxis: App.catAxis(t.map((x) => x.month), { boundaryGap: false }),
-          yAxis: App.valAxis({ scale: true, name: '元/吨', nameTextStyle: { color: '#5f6d85', fontSize: 10.5 } }),
-          series: [{
-            type: 'line', smooth: true, data: t.map((x) => x.price), symbol: 'circle', symbolSize: 6,
-            lineStyle: { width: 2.6, color: '#f5a524' }, itemStyle: { color: '#fbbf24' },
-            areaStyle: { color: App.areaGrad('rgba(245,165,36,.4)', 'rgba(245,165,36,.02)') },
-          }],
-        });
-      });
-
       /* ---------------- 渲染 ---------------- */
       return () => {
         if (err.value) {
@@ -148,12 +130,10 @@
 
           /* 行情条 */
           h('div', { class: 'ticker mb-16' }, [
-            h('div', { class: 'tick' }, ['碳配额最新价 ', h('b', {}, k.lastPrice ? k.lastPrice.toFixed(2) : '-'), h('span', { class: 'tiny dim' }, '元/吨')]),
-            h('div', { class: 'tick' }, ['加权均价 ', h('b', {}, k.avgPrice ? k.avgPrice.toFixed(2) : '-')]),
-            h('div', { class: 'tick' }, ['累计成交 ', h('b', {}, App.fmt.big(k.tradeVolume)), h('span', { class: 'tiny dim' }, '吨')]),
-            h('div', { class: 'tick' }, ['成交金额 ', h('b', {}, App.fmt.big(k.turnover)), h('span', { class: 'tiny dim' }, '元')]),
             h('div', { class: 'tick' }, ['控排企业 ', h('b', {}, k.entCount), h('span', { class: 'tiny dim' }, '家')]),
             h('div', { class: 'tick' }, ['覆盖省份 ', h('b', {}, k.regionCount)]),
+            h('div', { class: 'tick' }, ['年度排放 ', h('b', {}, App.fmt.big(k.emissionYtd)), h('span', { class: 'tiny dim' }, 'tCO₂e')]),
+            h('div', { class: 'tick' }, ['平均强度 ', h('b', {}, k.avgIntensity), h('span', { class: 'tiny dim' }, 'tCO₂e/万元')]),
             h('div', { class: 'tick', style: 'margin-left:auto' }, ['链上存证 ', h('b', {}, App.fmt.num(c.totalTxs)), h('span', { class: 'tiny dim' }, '笔 · ' + (c.difficulty ? 'PoW 难度 ' + c.difficulty : 'PoA 共识'))]),
           ]),
 
@@ -162,7 +142,7 @@
             h('x-kpi', { label: '本年度排放总量', value: App.fmt.num(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: `已纳入 ${k.reportCount} 份上报单` }),
             h('x-kpi', { label: '核查通过率', value: k.verifiedRate, unit: '%', icon: 'shield', tone: 'sky', foot: '第三方机构核证结论' }),
             h('x-kpi', { label: '区块高度', value: App.fmt.num(c.height), icon: 'block', tone: 'chain', foot: `${c.totalBlocks} 个区块 · 平均出块 ${c.avgMineTime ? c.avgMineTime + 'ms' : '—'}` }),
-            h('x-kpi', { label: '累计交易额', value: App.fmt.big(k.turnover), unit: '元', icon: 'trade', tone: 'violet', foot: `${App.fmt.num(k.dealCount)} 笔成交` }),
+            h('x-kpi', { label: '链上存证总数', value: App.fmt.num(c.totalTxs), unit: '笔', icon: 'chain', tone: 'violet', foot: '核算结果可信存证' }),
           ]),
 
           /* 主图区 */
@@ -175,12 +155,25 @@
             }),
           ]),
 
-          h('div', { class: 'grid g-1-2 mb-16' }, [
+          h('div', { class: 'grid g-3-2 mb-16' }, [
             h('x-card', { title: '区域排放 TOP10', sub: '按省级行政区' }, {
               default: () => h('x-chart', { option: regionOption.value, height: 'h340' }),
             }),
-            h('x-card', { title: '碳配额成交价格走势', sub: '月度加权均价' }, {
-              default: () => h('x-chart', { option: priceOption.value, height: 'h340' }),
+            h('x-card', { title: '链上存证构成', sub: '按业务类型统计上链存证笔数' }, {
+              default: () => h('div', { class: 'card-body' }, [
+                h('x-bars', {
+                  items: c.byBizType.map((x) => ({
+                    name: ({ EMISSION_REPORT: '排放上报', VERIFY_REPORT: '核查报告', QUOTA_ALLOC: '配额分配', ENTERPRISE_REG: '企业备案' })[x.tx_type] || x.tx_type,
+                    value: x.cnt,
+                  })),
+                  format: (v) => App.fmt.num(v) + ' 笔',
+                }),
+                h('div', { class: 'flex gap-12 wrap mt-16' }, [
+                  h('span', { class: 'tag t-ok' }, 'SHA-256'),
+                  h('span', { class: 'tag t-info' }, 'secp256k1 ECDSA'),
+                  h('span', { class: 'tag t-chain' }, 'Merkle Tree'),
+                ]),
+              ]),
             }),
           ]),
 
@@ -206,24 +199,7 @@
               ]),
             }),
             h('div', { class: 'col gap-16' }, [
-              h('x-card', { title: '链上存证构成' }, {
-                default: () => h('div', {}, [
-                  h('x-bars', {
-                    items: c.byBizType.map((x) => ({
-                      name: ({ EMISSION_REPORT: '排放上报', VERIFY_REPORT: '核查报告', QUOTA_ALLOC: '配额分配', TRADE_DEAL: '交易成交', ENTERPRISE_REG: '企业备案' })[x.tx_type] || x.tx_type,
-                      value: x.cnt,
-                    })),
-                    format: (v) => App.fmt.num(v) + ' 笔',
-                  }),
-                  h('div', { class: 'flex gap-12 wrap mt-16' }, [
-                    h('span', { class: 'tag t-ok' }, 'SHA-256'),
-                    h('span', { class: 'tag t-info' }, 'secp256k1 ECDSA'),
-                    h('span', { class: 'tag t-chain' }, 'Merkle Tree'),
-                    h('span', { class: 'tag t-violet' }, 'PoW 难度 ' + c.difficulty),
-                  ]),
-                ]),
-              }),
-              h('x-card', { title: '政策与市场公告' }, {
+              h('x-card', { title: '政策公告' }, {
                 default: () => h('div', { class: 'col gap-12' }, d.value.notices.map((n) => h('div', {
                   class: 'flex gap-8', style: 'cursor:pointer;align-items:flex-start',
                   onClick: () => App.go('/notice/' + n.id),

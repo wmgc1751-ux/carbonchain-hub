@@ -69,6 +69,43 @@
         return list.find((b) => b.batchNo === batchNo.value) || list[0];
       });
 
+      /* ── 链上合约核算预览（CarbonAccounting.sol 定点镜像） ──
+         因子一律取自 App.Sources 台账（SSOT），本视图不写死任何因子数值。
+         预览值与链上 previewEmission 同算法、同标度，可逐位比对。 */
+      const caForm = reactive({
+        fuelCode: 'NATURAL_GAS',  // 天然气（GB/T 32150-2015 附录取值）
+        fuelAmount: 10,           // 万Nm³
+        powerMwh: 250,            // MWh
+        output: 500,              // t
+      });
+      const CA = App.ContractAccounting;
+      const caSelfTest = CA.selfTest();                       // 口径回归固化自检，加载即跑
+      const caFuelOptions = (App.Sources.fuelFactors || []).filter((f) => f.traceLevel !== 'C' && f.cc > 0);
+      const caActiveFuel = computed(() => App.Sources.fuelFactor(caForm.fuelCode) || caFuelOptions[0]);
+      const caGridFactor = computed(() => CA.defaultGridFactor());
+
+      const caPreview = computed(() => {
+        try {
+          const p = CA.paramsFromLedger({
+            fuelCode: caForm.fuelCode,
+            fuelAmount: Number(caForm.fuelAmount) || 0,
+            powerMwh: Number(caForm.powerMwh) || 0,
+            output: Number(caForm.output) || 0,
+            gridFactor: caGridFactor.value,
+          });
+          return { ok: true, p, r: CA.previewEmission(p) };
+        } catch (e) { return { ok: false, err: e.message }; }
+      });
+
+      /** 当前批次的 bytes32 batchId（与《网关上报协议》第 4 节同一预映像规范） */
+      const caBatchId = computed(() => {
+        const b = curBatch.value;
+        if (!b) return null;
+        const dev = devices.value[0];
+        try { return CA.batchIdOf(dev ? dev.did : 'did:iot:gateway:00', b.batchNo); }
+        catch (e) { return null; }
+      });
+
       /** 工况读数（叠加 tick 抖动） */
       function liveOf(d) {
         const t = tick.value + (d.did.length % 7);
@@ -324,6 +361,123 @@
               },
             }),
 
+            /* ==================================================================
+               模块 2b · 链上合约核算预览（CarbonAccounting.sol · previewEmission）
+               ================================================================== */
+            h('x-card', {
+              title: '链上合约核算预览 · previewEmission',
+              sub: '与链上 CarbonAccounting.sol 同算法、同定点口径（统一 1e6 标度；燃烧项除数 12×FACTOR_BASE³）。'
+                + '本卡数字可与合约 view 函数返回值逐位比对，杜绝「界面数」与「链上存证数」的口径漂移。',
+              class: 'mb-16',
+            }, {
+              actions: () => [
+                h('span', { class: ['tag', caSelfTest.ok ? 'ok' : 'err'] },
+                  caSelfTest.ok ? '定点内核自检通过' : '自检失败'),
+                h('button', {
+                  class: 'btn sm',
+                  onClick: () => { const b = curBatch.value; if (b) caForm.output = Math.round(b.qty); },
+                }, '载入当前批次产量'),
+              ],
+              default: () => {
+                const pv = caPreview.value;
+                if (!pv.ok) {
+                  return h('div', { class: 'alertbar stop' }, [
+                    h('x-icon', { name: 'alert', size: 15 }),
+                    '核算入参非法（' + pv.err + '）：产量须大于 0，且燃料与电量不可同时为 0 —— 与链上 InvalidInput 回滚条件一致。',
+                  ]);
+                }
+                const r = pv.r, p = pv.p, m = p.meta;
+                const outUnit = (curBatch.value ? curBatch.value.unit : 't');
+                const rows = [
+                  ['E_燃烧（范围一 · 燃料燃烧）', r.fuelEmission, 'tCO₂e'],
+                  ['E_电力（范围二 · 净购入电力）', r.powerEmission, 'tCO₂e'],
+                  ['E_total（批次总排放）', r.totalEmission, 'tCO₂e'],
+                  ['碳强度（LCA · 单位产品）', r.intensity, 'tCO₂e/' + outUnit],
+                ];
+                const payload = JSON.stringify({
+                  batchId: caBatchId.value,
+                  fuelUsage: p.fuelUsage.toString(),
+                  powerUsage: p.powerUsage.toString(),
+                  outputVolume: p.outputVolume.toString(),
+                }, null, 2);
+
+                return h('div', { class: 'grid g-2-1' }, [
+                  h('div', { class: 'col gap-12' }, [
+                    /* 活动数据输入（物理量） */
+                    h('div', { class: 'grid g4' }, [
+                      h('div', { class: 'field', style: 'margin:0' }, [
+                        h('label', {}, '燃料品种'),
+                        h('select', {
+                          class: 'select', value: caForm.fuelCode,
+                          onChange: (e) => { caForm.fuelCode = e.target.value; },
+                        }, caFuelOptions.map((f) => h('option', { value: f.code }, f.cn + '（' + f.unit + '）'))),
+                      ]),
+                      h('div', { class: 'field', style: 'margin:0' }, [
+                        h('label', {}, '燃料活动数据（' + (caActiveFuel.value ? caActiveFuel.value.unit : '') + '）'),
+                        h('input', {
+                          class: 'input', type: 'number', value: caForm.fuelAmount,
+                          onInput: (e) => { caForm.fuelAmount = e.target.value; },
+                        }),
+                      ]),
+                      h('div', { class: 'field', style: 'margin:0' }, [
+                        h('label', {}, '净购入电量（MWh）'),
+                        h('input', {
+                          class: 'input', type: 'number', value: caForm.powerMwh,
+                          onInput: (e) => { caForm.powerMwh = e.target.value; },
+                        }),
+                      ]),
+                      h('div', { class: 'field', style: 'margin:0' }, [
+                        h('label', {}, '批次产出量（' + outUnit + '）'),
+                        h('input', {
+                          class: 'input', type: 'number', value: caForm.output,
+                          onInput: (e) => { caForm.output = e.target.value; },
+                        }),
+                      ]),
+                    ]),
+                    /* 核算结果：物理量 + 链上定点原值 */
+                    h('div', { class: 'tbl-wrap' }, [
+                      h('table', { class: 'tbl' }, [
+                        h('thead', {}, h('tr', {}, ['核算指标', '物理量', '1e6 定点原值（即链上返回值）'].map((t) => h('th', {}, t)))),
+                        h('tbody', {}, rows.map(([nm, v, unit]) => h('tr', { class: nm.indexOf('E_total') >= 0 ? 'row-hot' : '' }, [
+                          h('td', {}, nm),
+                          h('td', { class: 'mono' }, CA.f6(v, 4) + ' ' + unit),
+                          h('td', { class: 'mono', style: 'font-size:12px;color:var(--tx-2)' }, CA.group(v)),
+                        ]))),
+                      ]),
+                    ]),
+                    h('div', { class: 'tiny dim' }, '整数语义与 EVM 一致：除法一律向下截断（非四舍五入），故「物理量」列的尾数即为链上截断位。'),
+                    h('div', { class: 'alertbar info' }, [
+                      h('x-icon', { name: 'info', size: 14 }),
+                      '口径纪律：活动数据与排放因子统一按 1e6 定点上报；燃烧项三个因子各自独立标度，故除数为 12×FACTOR_BASE³。'
+                        + '若误用「三因子乘积仅归一一次」的旧口径，E_燃烧 将放大 1e12 倍——该偏差已由本卡自检固化，不可回退。',
+                    ]),
+                  ]),
+
+                  h('div', { class: 'col gap-12' }, [
+                    h('pre', { class: 'mono-pre contract' },
+                      'E_燃烧 = (fuelUsage × ncv × cc × OF × 44)\n'
+                      + '         ÷ (12 × FACTOR_BASE³)\n\n'
+                      + 'E_电力 = (powerUsage × gridEF)\n'
+                      + '         ÷ FACTOR_BASE\n\n'
+                      + 'E_total = E_燃烧 + E_电力\n'
+                      + '强度    = (E_total × FACTOR_BASE) / output\n\n'
+                      + 'FACTOR_BASE = 1e6（统一标度）\n'
+                      + '除数 = 12 × 1e6³ = ' + CA.group(CA.COMBUSTION_DIVISOR)),
+                    h('dl', { class: 'kv', style: 'grid-template-columns:72px 1fr' }, [
+                      h('dt', {}, '因子溯源'), h('dd', { class: 'tiny' }, m.fuelCn + ' · ' + (m.traceLevel || 'B') + ' 级'),
+                      h('dt', {}, 'NCV'), h('dd', { class: 'mono tiny' }, CA.f6(p.ncv, 4) + ' GJ/' + m.fuelUnit),
+                      h('dt', {}, 'CC'), h('dd', { class: 'mono tiny' }, CA.f6(p.cc, 6) + ' tC/GJ'),
+                      h('dt', {}, 'OF'), h('dd', { class: 'mono tiny' }, CA.f6(p.oxidationRate, 4)),
+                      h('dt', {}, '电网因子'), h('dd', { class: 'mono tiny' }, CA.f6(p.gridEmissionFactor, 4) + ' tCO₂/MWh'),
+                      h('dt', {}, '批次 ID'), h('dd', { class: 'mono tiny', style: 'word-break:break-all' }, caBatchId.value || '—'),
+                    ]),
+                    h('div', { class: 'tiny dim' }, '网关上报载荷（1e6 定点 · 见《网关上报协议》第 4/7 节）'),
+                    h('pre', { class: 'mono-pre', style: 'font-size:11.6px' }, payload),
+                  ]),
+                ]);
+              },
+            }),
+
             /* 排放因子预言机 */
             h('div', { class: 'grid g2 mb-16' }, [
               h('div', { style: 'grid-column:1/-1' }, [
@@ -526,7 +680,7 @@
               h('x-card', { title: '说明' }, {
                 default: () => h('div', { class: 'col gap-8' }, [
                   h('div', { class: 'tiny' }, '· 与「碳排放上报」的季度静态数据互为印证，同一口径折算 tCO₂e。'),
-                  h('div', { class: 'tiny' }, '· 缺口为正表示按当前滚动速率外推，预计期末排放将超出已分配配额，需提前通过市场购碳或调整生产履约。'),
+                  h('div', { class: 'tiny' }, '· 缺口为正表示按当前滚动速率外推，预计期末排放将超出已分配配额，需提前调整生产计划或补足配额缺口。'),
                   h('div', { class: 'tiny' }, '· 风险达到中/高时，系统自动产生监管预警（见预警中心）。'),
                   h('div', { class: 'tiny' }, '· 物料平衡低于 95% 阈值的批次，边缘侧直接阻断上链，链上不会出现该批次的存证记录。'),
                 ]),

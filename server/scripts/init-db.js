@@ -250,6 +250,17 @@ async function main() {
     org_name: '省级生态环境厅应对气候变化处', phone: '1380000000' + (i + 2),
     email: `reg00${i + 1}@carbonchain.gov.cn`, created_at: new Date(2024, 1, 10 + i),
   }));
+  /* 交易端用户（专业碳资产交易参与方，代表控排企业执行二级市场交易） */
+  addUser({
+    username: 'trader01', password: '123456', real_name: '韩雪梅', role: 'TRADER',
+    org_id: 1, org_name: '碳链通碳资产交易中心', phone: '13900000001',
+    email: 'trader01@carbonchain.trade', created_at: new Date(2024, 2, 8),
+  });
+  addUser({
+    username: 'trader02', password: '123456', real_name: '林志远', role: 'TRADER',
+    org_id: 2, org_name: '碳链通碳资产交易中心', phone: '13900000002',
+    email: 'trader02@carbonchain.trade', created_at: new Date(2024, 2, 8),
+  });
   enterprises.forEach((e, i) => addUser({
     username: 'ent' + pad(i + 1, 3), password: '123456',
     real_name: e.legal_person, role: 'ENTERPRISE', org_id: e.id, org_name: e.ent_name,
@@ -434,86 +445,8 @@ async function main() {
       'chain_block_index', 'chain_tx_id', 'issue_time', 'created_at'], vReportRows);
   console.log(`✔ verify_report         核查报告       ${vReportRows.length} 行`);
 
-  /* ============ 7. 交易挂单 + 成交 ============ */
-  const orders = [];
-  const orderRows = [];
-  const deals = [];
-  const dealRows = [];
-  let orderId = 0, dealId = 0;
-  const year2026Start = new Date('2026-01-05T09:30:00').getTime();
-  const span = NOW.getTime() - year2026Start;
-
-  // 7.1 先造成交，每笔成交配套一条买入委托 + 一条卖出委托
-  for (let i = 0; i < 90; i++) {
-    dealId++;
-    const seller = rng.pick(enterprises);
-    let buyer = rng.pick(enterprises);
-    let guard = 0;
-    while (buyer.id === seller.id && guard++ < 20) buyer = rng.pick(enterprises);
-    const price = round(Math.min(Math.max(rng.gauss(config.biz.quotaPrice, 6.2), 48), 96), 1);
-    const amount = rng.i(200, 16000);
-    const total = round(price * amount, 2);
-    const t = year2026Start + Math.floor((i / 90) * span) + rng.i(0, span / 120) - rng.i(0, span / 120);
-    const dealTime = new Date(t);
-
-    orderId++; const sellOrderId = orderId;
-    orderId++; const buyOrderId = orderId;
-    const oT = new Date(dealTime.getTime() - rng.i(1, 240) * 60000);
-
-    orders.push({
-      id: sellOrderId, order_no: `OD${pad(sellOrderId, 6)}`, ent_id: seller.id, side: 'SELL',
-      price: round(price + rng.d(-0.6, 0.8, 2), 2), amount, filled: amount, status: 'FILLED',
-      created_at: oT,
-    });
-    orders.push({
-      id: buyOrderId, order_no: `OD${pad(buyOrderId, 6)}`, ent_id: buyer.id, side: 'BUY',
-      price: round(price + rng.d(-0.8, 0.6, 2), 2), amount, filled: amount, status: 'FILLED',
-      created_at: oT,
-    });
-    deals.push({
-      id: dealId, deal_no: `DL${pad(dealId, 6)}`, buy_order_id: buyOrderId, sell_order_id: sellOrderId,
-      buyer_ent_id: buyer.id, seller_ent_id: seller.id, price, amount, total,
-      fee: round(total * 0.0006, 2), deal_time: dealTime, status: 'SETTLED',
-      buyer, seller,
-    });
-  }
-
-  // 7.2 再补一批未成交/部分成交委托，形成真实的订单簿形态
-  for (let i = 0; i < 90; i++) {
-    orderId++;
-    const e = rng.pick(enterprises);
-    const side = rng.pickW(['SELL', 'BUY'], [0.55, 0.45]);
-    const amount = rng.i(200, 18000);
-    const st = rng.pickW(['OPEN', 'PARTIAL', 'CANCELLED'], [0.58, 0.26, 0.16]);
-    orders.push({
-      id: orderId, order_no: `OD${pad(orderId, 6)}`, ent_id: e.id, side,
-      price: round(Math.min(Math.max(rng.gauss(config.biz.quotaPrice, 7), 45), 98), 1),
-      amount,
-      filled: st === 'PARTIAL' ? rng.i(1, amount - 1) : 0,
-      status: st,
-      created_at: new Date(NOW.getTime() - rng.i(1, 260) * 86400000 + rng.i(0, 8) * 3600000),
-    });
-  }
-
-  for (const o of orders) {
-    orderRows.push([o.id, o.order_no, o.ent_id, o.side, o.price, o.amount, o.filled, o.status, fmtDate(o.created_at), fmtDate(o.created_at)]);
-  }
-  for (const d of deals) {
-    dealRows.push([d.id, d.deal_no, d.buy_order_id, d.sell_order_id, d.buyer_ent_id, d.seller_ent_id,
-      d.price, d.amount, d.total, d.fee, fmtDate(d.deal_time), null, null, d.status]);
-  }
-
-  await insertBatch(conn, 'trade_order',
-    ['id', 'order_no', 'ent_id', 'side', 'price', 'amount', 'filled_amount', 'status', 'created_at', 'updated_at'], orderRows);
-  console.log(`✔ trade_order           交易挂单       ${orderRows.length} 行`);
-
-  await insertBatch(conn, 'trade_deal',
-    ['id', 'deal_no', 'buy_order_id', 'sell_order_id', 'buyer_ent_id', 'seller_ent_id', 'price',
-      'amount', 'total_amount', 'fee', 'deal_time', 'chain_block_index', 'chain_tx_id', 'status'], dealRows);
-  console.log(`✔ trade_deal            成交记录       ${dealRows.length} 行`);
-
   /* ============ 8. 配额账户 + 配额分配 ============ */
-  // 先按企业×年度汇总排放量、买入、卖出
+  // 先按企业×年度汇总排放量
   const agg = new Map(); // `${entId}-${year}` -> {...}
   const key = (e, y) => `${e}-${y}`;
   for (const r of reports) {
@@ -522,21 +455,6 @@ async function main() {
     const a = agg.get(k);
     a.emission += r.total;
     a.output += r.output;
-  }
-  for (const d of deals) {
-    const y = d.deal_time.getFullYear();
-    for (const [id, role] of [[d.buyer_ent_id, 'bought'], [d.seller_ent_id, 'sold']]) {
-      const k = key(id, y);
-      if (!agg.has(k)) agg.set(k, { ent: id, year: y, emission: 0, output: 0 });
-      const a = agg.get(k);
-      a[role] = (a[role] || 0) + d.amount;
-    }
-  }
-  const frozenMap = new Map();
-  for (const o of orders) {
-    if (o.status === 'OPEN' && o.side === 'SELL') {
-      frozenMap.set(o.ent_id, (frozenMap.get(o.ent_id) || 0) + o.amount);
-    }
   }
 
   const quotaRows = [];
@@ -553,12 +471,9 @@ async function main() {
       const emission = a.emission || 1;
       // 配额总量 = 实际排放 × (0.9 ~ 1.04)，制造部分企业配额缺口
       const allocated = round(emission * rng.d(0.9, 1.04, 4));
-      const bought = round(a.bought || 0);
-      const sold = round(a.sold || 0);
-      const frozen = y === 2026 ? round(frozenMap.get(e.id) || 0) : 0;
       const used = round(emission);
-      const available = round(allocated + bought - sold - used - frozen);
-      quotaRows.push([quotaId, e.id, y, allocated, available, frozen, used, bought, sold, NOW]);
+      const available = round(allocated - used);
+      quotaRows.push([quotaId, e.id, y, allocated, available, 0, used, 0, 0, NOW]);
       quotaMap.set(`${e.id}-${y}`, allocated);
 
       allocId++;
@@ -599,6 +514,102 @@ async function main() {
     ['id', 'alloc_no', 'ent_id', 'year', 'quota_amount', 'alloc_type', 'alloc_method',
       'baseline_intensity', 'operator', 'chain_block_index', 'chain_tx_id', 'created_at'], allocRows);
   console.log(`✔ quota_allocation      配额分配       ${allocRows.length} 行`);
+
+  /* ============ 8.4 碳配额交易（二级市场撮合） ============ */
+  // 在配额账户之间撮合买卖：部分配额缺口企业买入、富余企业卖出，
+  // 形成真实的成交记录，供交易端 T1~T4 展示与监管端交易监管统计。
+  const tradeOrders = [];
+  const tradeDeals = [];
+  let orderId = 0, dealId = 0;
+  const orderNoOf = (i) => `OD26${pad(i, 4)}`;
+  const dealNoOf = (i) => `DL26${pad(i, 4)}`;
+
+  // 参与交易的企业：取有配额账户的企业，构造 30 笔成交
+  const tradeEnts = enterprises.filter((e) => quotaMap.has(`${e.id}-2026`)).slice(0, 40);
+  const basePrice = 62 + rng.d(0, 12, 2); // 基准碳价
+  let lastPrice = basePrice;
+  let lastTime = new Date(2026, 0, 6, 9, 0, 0); // 从 2026-01-06 开始
+
+  for (let i = 0; i < 30; i++) {
+    const seller = tradeEnts[rng.i(0, tradeEnts.length - 1)];
+    let buyer = tradeEnts[rng.i(0, tradeEnts.length - 1)];
+    while (buyer.id === seller.id) buyer = tradeEnts[rng.i(0, tradeEnts.length - 1)];
+
+    // 碳价随机游走（±2%）
+    lastPrice = round(lastPrice * (1 + rng.d(-0.02, 0.02, 4)));
+    if (lastPrice < 45) lastPrice = 45;
+    const amount = round(rng.d(500, 8000, 2));
+    const fee = round(lastPrice * amount * 0.0006, 2);
+    const total = round(lastPrice * amount, 2);
+    const dealTime = new Date(lastTime.getTime() + rng.i(6, 72) * 3600000);
+    lastTime = dealTime;
+
+    // 委托单（买卖各一）
+    orderId++;
+    const sellOrder = {
+      id: orderId, order_no: orderNoOf(orderId), ent_id: seller.id, side: 'SELL',
+      price: lastPrice, amount, filled: amount, status: 'FILLED', at: dealTime,
+    };
+    orderId++;
+    const buyOrder = {
+      id: orderId, order_no: orderNoOf(orderId), ent_id: buyer.id, side: 'BUY',
+      price: lastPrice, amount, filled: amount, status: 'FILLED', at: dealTime,
+    };
+    tradeOrders.push(sellOrder, buyOrder);
+
+    dealId++;
+    tradeDeals.push({
+      id: dealId, deal_no: dealNoOf(dealId), buy_order_id: buyOrder.id, sell_order_id: sellOrder.id,
+      buyer: buyer.id, seller: seller.id, price: lastPrice, amount, total, fee, at: dealTime,
+    });
+
+    // 更新配额账户：卖方 sold 累计，买方 bought 累计（available 变动在成交时已发生，这里回填累计）
+    quotaMap.set(`${seller.id}-2026`, quotaMap.get(`${seller.id}-2026`));
+  }
+
+  await insertBatch(conn, 'trade_order',
+    ['id', 'order_no', 'ent_id', 'side', 'price', 'amount', 'filled_amount', 'status', 'created_at', 'updated_at'],
+    tradeOrders.map((o) => [o.id, o.order_no, o.ent_id, o.side, o.price, o.amount, o.filled, o.status, fmtDate(o.at), fmtDate(o.at)]));
+  console.log(`✔ trade_order           交易委托单     ${tradeOrders.length} 行`);
+
+  await insertBatch(conn, 'trade_deal',
+    ['id', 'deal_no', 'buy_order_id', 'sell_order_id', 'buyer_ent_id', 'seller_ent_id',
+      'price', 'amount', 'total_amount', 'fee', 'deal_time', 'chain_block_index', 'chain_tx_id', 'status'],
+    tradeDeals.map((d) => [d.id, d.deal_no, d.buy_order_id, d.sell_order_id, d.buyer, d.seller,
+      d.price, d.amount, d.total, d.fee, fmtDate(d.at), null, null, 'SETTLED']));
+  console.log(`✔ trade_deal            交易成交       ${tradeDeals.length} 行`);
+
+  // 回填配额账户的 bought/sold 累计（成交导致）
+  const boughtAgg = new Map(), soldAgg = new Map();
+  tradeDeals.forEach((d) => {
+    boughtAgg.set(d.buyer, (boughtAgg.get(d.buyer) || 0) + d.amount);
+    soldAgg.set(d.seller, (soldAgg.get(d.seller) || 0) + d.amount);
+  });
+  for (const [entId, amt] of boughtAgg) {
+    await conn.query('UPDATE carbon_quota SET bought = bought + ? WHERE ent_id = ? AND year = 2026', [amt, entId]);
+  }
+  for (const [entId, amt] of soldAgg) {
+    await conn.query('UPDATE carbon_quota SET sold = sold + ? WHERE ent_id = ? AND year = 2026', [amt, entId]);
+  }
+  console.log('   ↺ 已回填配额账户 bought/sold 交易累计');
+
+  // 追加未成交挂单（4 档卖盘 + 4 档买盘），让交易端盘口与「挂单中」状态有真实展示
+  const openSells = [70.5, 69.8, 69.2, 68.9];
+  const openBuys = [68.2, 67.8, 67.2, 66.5];
+  const openRows = [];
+  openSells.forEach((pr, k) => {
+    const e = tradeEnts[k * 2 % tradeEnts.length];
+    orderId++;
+    openRows.push([orderId, orderNoOf(orderId), e.id, 'SELL', pr, round(rng.d(800, 4000, 0)), 0, 'OPEN', fmtDate(lastTime), fmtDate(lastTime)]);
+  });
+  openBuys.forEach((pr, k) => {
+    const e = tradeEnts[(k * 2 + 1) % tradeEnts.length];
+    orderId++;
+    openRows.push([orderId, orderNoOf(orderId), e.id, 'BUY', pr, round(rng.d(800, 4000, 0)), 0, 'OPEN', fmtDate(lastTime), fmtDate(lastTime)]);
+  });
+  await insertBatch(conn, 'trade_order',
+    ['id', 'order_no', 'ent_id', 'side', 'price', 'amount', 'filled_amount', 'status', 'created_at', 'updated_at'], openRows);
+  console.log(`   ↺ 已追加 ${openRows.length} 笔未成交挂单（形成买卖盘口）`);
 
   /* ============ 8.5 碳信用资产（配额之外的第二类碳资产）+ 抵销 ============ */
   const CREDIT_TYPES = ['CCER', 'FOREST', 'GREEN_CERT'];
@@ -659,23 +670,42 @@ async function main() {
     ]));
   console.log(`✔ credit_offset         碳信用抵销     ${creditOffsets.length} 行`);
 
+  /* ============ 8.6 排放因子库 + 版本 ============ */
+  // 对齐 GB/T 32150 等标准的能源排放因子（含电力间接排放因子 0.5703 tCO2/MWh）
+  const factorRows = P.ENERGY_TYPES.map((t, i) => [
+    i + 1, t.name, t.factor, t.unit, t.scope,
+    t.scope === 1 ? '国家温室气体排放核算指南' : '省级电网平均二氧化碳排放因子', null,
+    'v2026.1', new Date(2026, 0, 5), null, 'ACTIVE', null,
+  ]);
+  await insertBatch(conn, 'emission_factor',
+    ['id', 'energy_type', 'factor', 'unit', 'scope', 'source', 'industry', 'version',
+      'effective_from', 'effective_to', 'status', 'remark'], factorRows);
+  console.log(`✔ emission_factor       排放因子库     ${factorRows.length} 行`);
+
+  await insertBatch(conn, 'factor_version',
+    ['id', 'version', 'effective_from', 'effective_to', 'operator', 'snapshot', 'status', 'created_at'],
+    [[1, 'v2026.1', new Date(2026, 0, 5), null, '系统初始化',
+      JSON.stringify(P.ENERGY_TYPES.map((t) => ({ energyType: t.name, factor: t.factor, unit: t.unit, scope: t.scope }))),
+      'ACTIVE', new Date(2026, 0, 5)]]);
+  console.log(`✔ factor_version        因子版本       ${1} 行`);
+
   /* ============ 9. 预警记录 ============ */
   const alertRows = [];
   let alertId = 0;
   const alertTypes = Object.keys(P.ALERT_TEMPLATES);
   for (let i = 0; i < 72; i++) {
     alertId++;
-    const type = rng.pickW(alertTypes, [0.26, 0.3, 0.16, 0.16, 0.12]);
+    const type = rng.pickW(alertTypes, [0.28, 0.3, 0.16, 0.16, 0.1]);
     const tpl = P.ALERT_TEMPLATES[type];
     const e = rng.pick(enterprises);
     const st = rng.pickW(['OPEN', 'HANDLING', 'CLOSED'], [0.32, 0.24, 0.44]);
     const created = new Date(NOW.getTime() - rng.i(1, 300) * 86400000 - rng.i(0, 20) * 3600000);
     const contentMap = {
-      OVER_QUOTA: `${e.ent_name}在配额年度内的排放量已接近或超出免费分配额度，建议提前通过市场购买配额以完成履约。`,
+      OVER_QUOTA: `${e.ent_name}在配额年度内的排放量已接近或超出免费分配额度，建议提前调整生产计划或补足配额缺口以完成履约。`,
       DATA_ABNORMAL: `${e.ent_name}上报的综合能耗与折算排放量匹配度偏低，环比波动超出阈值，需补充说明能源计量台账。`,
       MISSING_REPORT: `${e.ent_name}未在规定期限内提交季度碳排放数据，请督促其限期补报。`,
-      PRICE_ANOMALY: `市场出现偏离近30日均价 15% 以上的报价，涉及${e.ent_name}，已触发价格异动监控。`,
       CHAIN_RISK: `${e.ent_name}的链上存证交易在节点校验中出现异常，建议人工复核存证内容。`,
+      PRICE_ANOMALY: `市场出现偏离近30日均价 15% 以上的报价，涉及 ${e.ent_name}，已触发价格异动监控，请核查挂单真实性。`,
     };
     alertRows.push([
       alertId, `AL26${pad(alertId, 5)}`, e.id, type,
@@ -694,8 +724,8 @@ async function main() {
 
   /* ============ 10. 操作日志 ============ */
   const logRows = [];
-  const modules = ['碳排上报', '核查作业', '配额管理', '交易撮合', '链上存证', '用户管理', '预警处置'];
-  const actions = ['提交数据', '撤回上报', '受理任务', '出具核查报告', '分配配额', '创建挂单', '撤销挂单', '查询链上存证', '导出报表', '处理预警'];
+  const modules = ['碳排上报', '核查作业', '配额管理', '链上存证', '用户管理', '预警处置'];
+  const actions = ['提交数据', '撤回上报', '受理任务', '出具核查报告', '分配配额', '查询链上存证', '导出报表', '处理预警'];
   for (let i = 0; i < 220; i++) {
     const u = rng.pick(users);
     logRows.push([
@@ -804,22 +834,6 @@ async function main() {
     });
   });
 
-  // 12.5 交易成交
-  deals.forEach((d) => {
-    const w = keystore.walletFor(`ent:${d.seller_ent_id}`);
-    txPlan.push({
-      txType: 'TRADE_DEAL', bizNo: d.deal_no,
-      from: w.address, to: keystore.walletFor(`ent:${d.buyer_ent_id}`).address,
-      payload: {
-        dealNo: d.deal_no, buyerEntId: d.buyer_ent_id, sellerEntId: d.seller_ent_id,
-        price: d.price, amount: d.amount, totalAmount: d.total, fee: d.fee,
-      },
-      privateKey: w.privateKey, publicKey: w.publicKey,
-      at: d.deal_time,
-      link: { table: 'trade_deal', id: d.id },
-    });
-  });
-
   // 12.6 碳信用资产签发（第二类碳资产入链）
   creditAssets.forEach((a) => {
     txPlan.push({
@@ -849,6 +863,34 @@ async function main() {
       at: new Date(2026, 7, rng.i(1, 28)),
       link: { table: 'credit_offset', id: o.id },
     });
+  });
+
+  // 12.8 碳配额交易成交（二级市场成交上链存证）
+  tradeDeals.forEach((d) => {
+    const sellerW = keystore.walletFor(`ent:${d.seller}`);
+    txPlan.push({
+      txType: 'TRADE_DEAL', bizNo: d.deal_no,
+      from: sellerW.address, to: keystore.walletFor(`ent:${d.buyer}`).address,
+      payload: {
+        dealNo: d.deal_no, buyerEntId: d.buyer, sellerEntId: d.seller,
+        price: d.price, amount: d.amount, totalAmount: d.total, fee: d.fee,
+      },
+      privateKey: sellerW.privateKey, publicKey: sellerW.publicKey,
+      at: d.at,
+      link: { table: 'trade_deal', id: d.id },
+    });
+  });
+
+  // 12.9 因子版本发布（核算规则合约上链固化）
+  txPlan.push({
+    txType: 'FACTOR_VERSION', bizNo: 'FV-v2026.1',
+    from: systemWallet.address, to: systemWallet.address,
+    payload: {
+      version: 'v2026.1', factorCount: P.ENERGY_TYPES.length,
+      snapshotHash: cu.sha256(JSON.stringify(P.ENERGY_TYPES.map((x) => ({ name: x.name, factor: x.factor })))),
+    },
+    privateKey: systemWallet.privateKey, publicKey: systemWallet.publicKey,
+    at: new Date(2026, 0, 5),
   });
 
   // 按时间升序出块
@@ -942,7 +984,7 @@ async function main() {
   try { await require('../db').pool.end(); } catch (e) { /* ignore */ }
   console.log('─'.repeat(64));
   console.log(`✅ 初始化完成，用时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
-  console.log('   演示账号: admin/admin123(管理员) · ent001/123456(企业端) · ver001/123456(核查机构端) · reg001/123456(监管端)');
+  console.log('   演示账号: admin/admin123(管理端) · ent001/123456(企业端) · ver001/123456(核查机构端) · reg001/123456(监管端) · trader01/123456(交易端)');
 }
 
 main().then(() => process.exit(0)).catch((e) => {

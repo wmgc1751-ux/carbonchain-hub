@@ -2,7 +2,7 @@
   "name": "carbonchain-hub",
   "version": "1.0.0",
   "private": true,
-  "description": "碳链通 CarbonChain Hub —— 企业碳足迹存证与碳配额交易平台（区块链 + 前后端分离 + 多角色）",
+  "description": "碳链通 CarbonChainHub —— 面向工业场景的联盟链碳资产动态核算与可信存证平台（国产联盟链 + 国密硬件防伪 + 链上动态核算 + 零知识证明隐私出证 + 多角色协同）",
   "main": "server/app.js",
   "scripts": {
     "initdb": "node server/scripts/init-db.js",

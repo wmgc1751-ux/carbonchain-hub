@@ -88,7 +88,7 @@
           }, {
             actions: () => [
               h('button', { class: 'btn sm', onClick: () => App.go('/ent/reports') }, [h('x-icon', { name: 'report', size: 14 }), '碳排上报']),
-              h('button', { class: 'btn sm primary', onClick: () => App.go('/ent/trade') }, [h('x-icon', { name: 'trade', size: 14 }), '碳配额交易']),
+              h('button', { class: 'btn sm primary', onClick: () => App.go('/ent/dynamic') }, [h('x-icon', { name: 'leaf', size: 14 }), '动态核算']),
             ],
             default: () => [
               /* 链上身份 */
@@ -109,11 +109,10 @@
               ]),
 
               /* KPI */
-              h('div', { class: 'grid g5 mb-16' }, [
+              h('div', { class: 'grid g4 mb-16' }, [
                 h('x-kpi', { label: `${YEAR} 年度累计排放`, value: App.fmt.num(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: `已核查 ${k.reportVerified} 份 / 待核查 ${k.reportPending} 份` }),
                 h('x-kpi', { label: '免费分配配额', value: App.fmt.num(k.quotaAllocated), unit: 'tCO₂e', icon: 'coin', tone: 'sky', foot: `可用余额 ${App.fmt.num(q.available)}` }),
-                h('x-kpi', { label: '履约缺口 / 盈余', value: App.fmt.num(k.quotaGap), unit: 'tCO₂e', icon: 'target', tone: Number(k.quotaGap) >= 0 ? 'carbon' : 'rose', foot: Number(k.quotaGap) >= 0 ? '配额充足，可对外出售' : '存在缺口，需尽快购买' }),
-                h('x-kpi', { label: '本年度成交', value: k.dealCount, unit: '笔', icon: 'trade', tone: 'violet', foot: `成交金额 ${App.fmt.big(k.dealAmount)} 元` }),
+                h('x-kpi', { label: '履约缺口 / 盈余', value: App.fmt.num(k.quotaGap), unit: 'tCO₂e', icon: 'target', tone: Number(k.quotaGap) >= 0 ? 'carbon' : 'rose', foot: Number(k.quotaGap) >= 0 ? '动态核算配额盈余' : '动态核算存在缺口' }),
                 h('x-kpi', { label: `行业排放排名`, value: `${k.industryRank} / ${k.industryTotal}`, icon: 'chart', tone: 'chain', foot: `按 ${e.industry} 行业 ${YEAR} 年累计排放` }),
               ]),
 
@@ -455,7 +454,7 @@
               unit: 'tCO₂e',
               icon: 'coin',
               tone: Number(q.available) >= 0 ? 'carbon' : 'rose',
-              foot: `可用 ${App.fmt.num(q.available)} · 冻结 ${App.fmt.num(q.frozen)} · 已用 ${App.fmt.num(q.used)}`,
+              foot: `可用 ${App.fmt.num(q.available)} · 已用 ${App.fmt.num(q.used)}`,
             }))),
 
             h('x-card', { title: '账户明细', flush: true, class: 'mb-16' }, {
@@ -463,20 +462,14 @@
                 columns: [
                   { key: 'year', title: '年度', width: '90px' },
                   { key: 'total_allocated', title: '免费分配', align: 'right' },
-                  { key: 'bought', title: '累计买入', align: 'right' },
-                  { key: 'sold', title: '累计卖出', align: 'right' },
                   { key: 'used', title: '已履约使用', align: 'right' },
-                  { key: 'frozen', title: '挂单冻结', align: 'right' },
                   { key: 'available', title: '当前可用', align: 'right' },
                   { key: '_gap', title: '履约状态', width: '120px' },
                 ],
                 rows: d.value.list,
               }, {
                 'col-total_allocated': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                'col-bought': ({ value }) => h('span', { class: 'mono', style: 'color:#6ee7b7' }, '+' + App.fmt.num(value, 2)),
-                'col-sold': ({ value }) => h('span', { class: 'mono', style: 'color:#fda4af' }, '-' + App.fmt.num(value, 2)),
                 'col-used': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                'col-frozen': ({ value }) => h('span', { class: 'mono muted' }, App.fmt.num(value, 2)),
                 'col-available': ({ value }) => h('b', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, App.fmt.num(value, 2)),
                 'col-_gap': ({ row }) => Number(row.available) >= 0
                   ? h('span', { class: 'tag t-ok' }, '配额充足')
@@ -514,189 +507,7 @@
   });
 
   /* ==================================================================
-   * 四、碳配额交易
-   * ================================================================== */
-  const PageEntTrade = defineComponent({
-    name: 'page-ent-trade',
-    setup() {
-      const book = ref(null);
-      const quota = ref([]);
-      const orders = App.usePager((p) => App.API.get('/enterprise/orders', p), { page: 1, size: 8 });
-      const deals = App.usePager((p) => App.API.get('/enterprise/deals', p), { page: 1, size: 8 });
-      const form = reactive({ side: 'SELL', price: 68.5, amount: 1000 });
-      const busy = ref(false);
-
-      async function loadAll() {
-        try {
-          book.value = await App.API.get('/enterprise/orderbook');
-          const q = await App.API.get('/enterprise/quota');
-          quota.value = q.list || [];
-          orders.load(); deals.load();
-        } catch (e) { App.notify.err(e.message); }
-      }
-      onMounted(loadAll);
-
-      const curQuota = computed(() => quota.value.find((q) => Number(q.year) === YEAR) || quota.value[0] || {});
-
-      const depthOption = computed(() => {
-        if (!book.value) return null;
-        const asks = (book.value.asks || []).slice().reverse();
-        const bids = book.value.bids || [];
-        return App.chartBase({
-          legend: { data: ['买盘', '卖盘'], top: 0, right: 6 },
-          grid: { left: 10, right: 20, top: 34, bottom: 6, containLabel: true },
-          tooltip: Object.assign(App.chartBase().tooltip, {
-            formatter: (ps) => `价格 ${ps[0].axisValue} 元/吨<br/>挂单量 <b>${App.fmt.num(ps[0].value)}</b> 吨`,
-          }),
-          xAxis: App.catAxis(asks.map((a) => a.price).concat(bids.map((b) => b.price)).filter((v, i, s) => s.indexOf(v) === i).sort((a, b) => a - b), { axisLabel: { color: '#8d9cb5', fontSize: 10.5, rotate: 30 } }),
-          yAxis: App.valAxis({ name: '吨', nameTextStyle: { color: '#5f6d85', fontSize: 10.5 } }),
-          series: [
-            {
-              name: '买盘', type: 'bar', barWidth: '34%',
-              data: bids.map((b) => [String(b.price), Number(b.remain)]),
-              itemStyle: { borderRadius: [4, 4, 0, 0], color: App.areaGrad('#fb7185', 'rgba(251,113,133,.25)') },
-            },
-            {
-              name: '卖盘', type: 'bar', barWidth: '34%',
-              data: asks.map((a) => [String(a.price), Number(a.remain)]),
-              itemStyle: { borderRadius: [4, 4, 0, 0], color: App.areaGrad('#34d399', 'rgba(52,211,153,.25)') },
-            },
-          ],
-        });
-      });
-
-      async function place() {
-        busy.value = true;
-        try {
-          const r = await App.API.post('/enterprise/orders', { side: form.side, price: Number(form.price), amount: Number(form.amount), year: YEAR });
-          App.notify.ok(r.deals && r.deals.length ? `挂单成功，即时成交 ${r.deals.length} 笔并已上链存证` : '挂单成功，已进入撮合队列');
-          await loadAll();
-        } catch (e) { App.notify.err(e.message); } finally { busy.value = false; }
-      }
-
-      async function cancel(row) {
-        try { await App.API.post(`/enterprise/orders/${row.id}/cancel`); App.notify.ok('撤单成功，冻结配额已解冻'); loadAll(); }
-        catch (e) { App.notify.err(e.message); }
-      }
-
-      return () => h('div', {}, [
-        h('x-page', {
-          title: '碳配额交易',
-          desc: '采用价格优先、时间优先的连续撮合规则。卖出方向冻结可用配额，成交后自动划转并生成链上存证交易，链上时间戳即为清算时点。',
-        }, {
-          actions: () => h('button', { class: 'btn sm', onClick: loadAll }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新盘口']),
-          default: () => [
-            h('div', { class: 'grid g-1-2 mb-16' }, [
-              h('div', { class: 'col gap-16' }, [
-                h('x-card', { title: '下单' }, {
-                  default: () => h('div', {}, [
-                    h('div', { class: 'flex gap-8 mb-16' }, [
-                      h('button', { class: ['btn', form.side === 'BUY' && 'primary'], style: 'flex:1', onClick: () => { form.side = 'BUY'; } }, '买入'),
-                      h('button', { class: ['btn', form.side === 'SELL' && 'primary'], style: 'flex:1', onClick: () => { form.side = 'SELL'; } }, '卖出'),
-                    ]),
-                    h('div', { class: 'field' }, [h('label', {}, '委托价格（元/吨）'), h('input', { class: 'input', type: 'number', step: '0.1', value: form.price, onInput: (e) => { form.price = e.target.value; } })]),
-                    h('div', { class: 'field' }, [h('label', {}, '委托数量（tCO₂e）'), h('input', { class: 'input', type: 'number', value: form.amount, onInput: (e) => { form.amount = e.target.value; } })]),
-                    h('div', { class: 'readout mb-16' }, [
-                      h('span', { class: 'k' }, '预计金额'),
-                      h('span', { class: 'mono', style: 'margin-left:auto;color:var(--tx-0)' }, App.fmt.usd((Number(form.price) || 0) * (Number(form.amount) || 0))),
-                    ]),
-                    h('div', { class: 'readout mb-16' }, [
-                      h('span', { class: 'k' }, '可用配额'),
-                      h('span', { class: 'mono', style: 'margin-left:auto;color:var(--carbon-l)' }, App.fmt.num(curQuota.value.available, 2) + ' t'),
-                    ]),
-                    h('button', { class: 'btn primary block lg', disabled: busy.value, onClick: place }, [
-                      h('x-icon', { name: 'trade', size: 16 }), busy.value ? '提交中…' : (form.side === 'BUY' ? '提交买入委托' : '提交卖出委托'),
-                    ]),
-                    h('div', { class: 'alertbar info mt-16' }, [
-                      h('x-icon', { name: 'info', size: 14 }),
-                      '成交后自动生成 TRADE_DEAL 存证交易，卖方解冻扣减、买方入账，全过程可在区块链浏览器中核验。',
-                    ]),
-                  ]),
-                }),
-                h('x-card', { title: '最新成交价' }, {
-                  default: () => h('div', { class: 'center', style: 'padding:6px 0' }, [
-                    h('div', { style: 'font-size:32px;font-weight:700;font-family:var(--mono);color:var(--chain-l)' }, book.value && book.value.lastPrice ? book.value.lastPrice.toFixed(2) : '-'),
-                    h('div', { class: 'tiny dim' }, '元/吨 · 最近一笔成交 ' + (book.value && book.value.lastTime ? App.fmt.ago(book.value.lastTime) : '-')),
-                  ]),
-                }),
-              ]),
-              h('x-card', { title: '市场买卖盘', sub: '价格优先、时间优先的连续撮合，公开显示未成交委托' }, {
-                default: () => h('x-chart', { option: depthOption.value, height: 'h340' }),
-              }),
-            ]),
-
-            h('x-card', { title: '我的委托单', flush: true, class: 'mb-16' }, {
-              actions: () => h('div', { class: 'seg' }, [
-                h('button', { class: 'on' }, '全部'),
-              ]),
-              default: () => [
-                h('x-table', {
-                  columns: [
-                    { key: 'order_no', title: '委托单号', width: '170px' },
-                    { key: 'side', title: '方向', width: '80px' },
-                    { key: 'price', title: '委托价', align: 'right' },
-                    { key: 'amount', title: '委托量(t)', align: 'right' },
-                    { key: 'filled_amount', title: '已成交(t)', align: 'right' },
-                    { key: 'status', title: '状态', width: '105px' },
-                    { key: 'created_at', title: '挂单时间', width: '160px' },
-                    { key: '_act', title: '操作', width: '90px' },
-                  ],
-                  rows: orders.state.rows, loading: orders.state.loading,
-                }, {
-                  'col-order_no': ({ value }) => h('span', { class: 'mono' }, value),
-                  'col-side': ({ row }) => h('span', { class: ['tag', row.side === 'BUY' ? 't-danger' : 't-ok'] }, row.side === 'BUY' ? '买入' : '卖出'),
-                  'col-price': ({ value }) => h('span', { class: 'mono' }, Number(value).toFixed(2)),
-                  'col-amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                  'col-filled_amount': ({ value }) => h('span', { class: 'mono', style: 'color:var(--carbon-l)' }, App.fmt.num(value, 2)),
-                  'col-status': ({ row }) => h('x-tag', { dict: App.DICT.orderStatus, dictKey: row.status }),
-                  'col-created_at': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
-                  'col-_act': ({ row }) => ['OPEN', 'PARTIAL'].includes(row.status)
-                    ? h('button', { class: 'btn sm danger ghost', onClick: () => cancel(row) }, '撤单')
-                    : h('span', { class: 'dim tiny' }, '-'),
-                }),
-                h('x-pager', { page: orders.state.page, pages: orders.state.pages, total: orders.state.total, size: orders.state.size, onChange: orders.goto }),
-              ],
-            }),
-
-            h('x-card', { title: '我的成交记录', sub: '成交即上链存证，链上时间戳即清算时点', flush: true }, {
-              default: () => [
-                h('x-table', {
-                  columns: [
-                    { key: 'deal_no', title: '成交编号', width: '170px' },
-                    { key: 'my_side', title: '方向', width: '80px' },
-                    { key: 'price', title: '成交价', align: 'right' },
-                    { key: 'amount', title: '成交量(t)', align: 'right' },
-                    { key: 'total_amount', title: '成交金额(元)', align: 'right' },
-                    { key: 'fee', title: '手续费(元)', align: 'right' },
-                    { key: 'buyer_name', title: '买方' },
-                    { key: 'seller_name', title: '卖方' },
-                    { key: 'chain_block_index', title: '链上存证', width: '110px' },
-                    { key: 'deal_time', title: '成交时间', width: '160px' },
-                  ],
-                  rows: deals.state.rows, loading: deals.state.loading,
-                }, {
-                  'col-deal_no': ({ value }) => h('span', { class: 'mono' }, value),
-                  'col-my_side': ({ row }) => h('span', { class: ['tag', row.my_side === 'BUY' ? 't-danger' : 't-ok'] }, row.my_side === 'BUY' ? '买入' : '卖出'),
-                  'col-price': ({ value }) => h('b', { class: 'mono', style: 'color:var(--chain-l)' }, Number(value).toFixed(2)),
-                  'col-amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                  'col-total_amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                  'col-fee': ({ value }) => h('span', { class: 'mono muted' }, App.fmt.num(value, 2)),
-                  'col-buyer_name': ({ value }) => h('span', { class: 'tiny' }, value),
-                  'col-seller_name': ({ value }) => h('span', { class: 'tiny' }, value),
-                  'col-chain_block_index': ({ row }) => h('x-chainbadge', { block: row.chain_block_index, hash: row.chain_tx_id }),
-                  'col-deal_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
-                }),
-                h('x-pager', { page: deals.state.page, pages: deals.state.pages, total: deals.state.total, size: deals.state.size, onChange: deals.goto }),
-              ],
-            }),
-          ],
-        }),
-      ]);
-    },
-  });
-
-  /* ==================================================================
-   * 五、数据分析
+   * 四、数据分析
    * ================================================================== */
   const PageEntAnalytics = defineComponent({
     name: 'page-ent-analytics',
@@ -739,14 +550,19 @@
       const tradeOption = computed(() => {
         if (!d.value) return null;
         const m = d.value.monthly || [];
+        const q = d.value.quota || {};
+        const quotaTotal = Number(q.total_allocated) || 0;
+        // 累计排放 vs 配额：缺口为正表示预计超排，需履约补足
+        let acc = 0;
+        const accData = m.map((x) => { acc += Number(x.amount); return Number(acc.toFixed(1)); });
         return App.chartBase({
-          legend: { data: ['成交量', '成交均价'], top: 0, right: 6 },
+          legend: { data: ['累计核算排放', '年度配额'], top: 0, right: 6 },
           grid: { left: 10, right: 26, top: 34, bottom: 6, containLabel: true },
           xAxis: App.catAxis(m.map((x) => x.month)),
-          yAxis: [App.valAxis({ name: '吨' }), App.valAxis({ name: '元/吨', splitLine: { show: false } })],
+          yAxis: App.valAxis({ name: 'tCO₂e' }),
           series: [
-            { name: '成交量', type: 'bar', barWidth: '42%', data: m.map((x) => x.amount), itemStyle: { borderRadius: [5, 5, 0, 0], color: App.areaGrad('#10b981', 'rgba(16,185,129,.3)') } },
-            { name: '成交均价', type: 'line', yAxisIndex: 1, smooth: true, data: m.map((x) => x.price), lineStyle: { color: '#f5a524', width: 2 }, itemStyle: { color: '#fbbf24' } },
+            { name: '累计核算排放', type: 'line', smooth: true, data: accData, lineStyle: { color: '#10b981', width: 2 }, itemStyle: { color: '#34d399' }, areaStyle: { color: App.areaGrad('rgba(16,185,129,.3)', 'rgba(16,185,129,.01)') } },
+            { name: '年度配额', type: 'line', smooth: true, data: m.map(() => quotaTotal), lineStyle: { color: '#f5a524', width: 2, type: 'dashed' }, itemStyle: { color: '#fbbf24' } },
           ],
         });
       });
@@ -772,7 +588,7 @@
       });
 
       return () => h('div', {}, [
-        h('x-page', { title: '碳排放数据分析', desc: '从时间趋势、能源结构、同行对标与交易行为四个维度对本企业碳资产状况进行诊断。' }, {
+        h('x-page', { title: '碳排放数据分析', desc: '从时间趋势、能源结构、履约缺口与同行对标四个维度对本企业碳资产核算状况进行诊断。' }, {
           default: () => {
             if (!d.value) return h('div', { class: 'grid g2' }, Array.from({ length: 2 }).map(() => h('div', { class: 'skel', style: 'height:300px' })));
             const q = d.value.quota || {};
@@ -780,7 +596,7 @@
               h('div', { class: 'grid g4 mb-16' }, [
                 h('x-kpi', { label: '免费分配配额', value: App.fmt.num(q.total_allocated), unit: 'tCO₂e', icon: 'coin', tone: 'sky' }),
                 h('x-kpi', { label: '已履约使用', value: App.fmt.num(q.used), unit: 'tCO₂e', icon: 'fire', tone: 'carbon' }),
-                h('x-kpi', { label: '累计买入 / 卖出', value: `${App.fmt.num(q.bought)} / ${App.fmt.num(q.sold)}`, unit: 'tCO₂e', icon: 'trade', tone: 'violet' }),
+                h('x-kpi', { label: '已履约 / 待履约', value: `${App.fmt.num(q.used)} / ${App.fmt.num(Math.max(0, (q.total_allocated || 0) - (q.used || 0)))}`, unit: 'tCO₂e', icon: 'target', tone: 'violet' }),
                 h('x-kpi', { label: '账户可用余额', value: App.fmt.num(q.available), unit: 'tCO₂e', icon: 'wallet', tone: Number(q.available) >= 0 ? 'carbon' : 'rose' }),
               ]),
               h('div', { class: 'grid g-2-1 mb-16' }, [
@@ -788,7 +604,7 @@
                 h('x-card', { title: '能源结构排放占比', sub: `${YEAR} 年度` }, { default: () => h('x-chart', { option: mixOption.value, height: 'h300' }) }),
               ]),
               h('div', { class: 'grid g2' }, [
-                h('x-card', { title: '碳交易行为', sub: '月度成交量与成交均价' }, { default: () => h('x-chart', { option: tradeOption.value, height: 'h300' }) }),
+                h('x-card', { title: '动态核算履约缺口', sub: '累计核算排放 vs 年度配额' }, { default: () => h('x-chart', { option: tradeOption.value, height: 'h300' }) }),
                 h('x-card', { title: '同行业排放对标 TOP10', sub: '橙色为本企业' }, { default: () => h('x-chart', { option: peerOption.value, height: 'h300' }) }),
               ]),
             ];
@@ -799,7 +615,7 @@
   });
 
   /* ==================================================================
-   * 六、链上身份
+   * 五、链上身份
    * ================================================================== */
   const PageEntWallet = defineComponent({
     name: 'page-ent-wallet',
@@ -839,6 +655,124 @@
           ]),
         }),
       ]);
+    },
+  });
+
+  /* ==================================================================
+   * 六、预警中心（多智能体预测预警）
+   * ================================================================== */
+  const PageEntPredict = defineComponent({
+    name: 'page-ent-predict',
+    setup() {
+      const report = ref(null);
+      const twin = ref(null);
+      const busy = ref(false);
+
+      async function load() {
+        try { report.value = await App.API.request('GET', '/intelligence/report'); }
+        catch (e) { App.notify.err(e.message); }
+      }
+      onMounted(load);
+
+      // 预测曲线：实际累计 vs 预测外推 vs 配额线
+      const predictOption = computed(() => {
+        if (!report.value) return null;
+        const f = report.value.forecast;
+        const fc = f.forecast || [];
+        return App.chartBase({
+          legend: { data: ['预测累计排放', '年度配额'], top: 0, right: 6 },
+          grid: { left: 10, right: 24, top: 34, bottom: 6, containLabel: true },
+          xAxis: App.catAxis(fc.map((x) => x.date), { boundaryGap: false }),
+          yAxis: App.valAxis({ name: 'tCO₂e', nameTextStyle: { color: '#5f6d85', fontSize: 10.5 } }),
+          series: [
+            { name: '预测累计排放', type: 'line', smooth: true, symbolSize: 6, data: fc.map((x) => Number(x.cumulative)), lineStyle: { color: '#f43f5e', width: 2.4 }, itemStyle: { color: '#fb7185' }, areaStyle: { color: App.areaGrad('rgba(244,63,94,.3)', 'rgba(244,63,94,.01)') } },
+            { name: '年度配额', type: 'line', smooth: true, data: fc.map(() => f.allocated), lineStyle: { color: '#10b981', width: 2, type: 'dashed' }, itemStyle: { color: '#34d399' } },
+          ],
+        });
+      });
+
+      async function runTwin() {
+        busy.value = true;
+        try {
+          twin.value = await App.API.request('POST', '/intelligence/simulate', {
+            scenarios: [
+              { name: '减产 10%', key: 'output', deltaPct: -10 },
+              { name: '节能改造提升能效 15%', key: 'efficiency', deltaPct: 15 },
+              { name: '燃料替代降碳强度 10%', key: 'fuel', deltaPct: -10 },
+            ],
+          });
+        } catch (e) { App.notify.err(e.message); }
+        finally { busy.value = false; }
+      }
+
+      return () => {
+        const r = report.value;
+        return h('x-page', { title: '预警中心', desc: '多智能体预测预警：用量预测 / 超限预警 / 异常检测 / 减排建议 协同研判，提前干预履约风险' }, {
+          actions: () => h('div', { class: 'flex gap-8' }, [
+            h('button', { class: 'btn sm', onClick: runTwin, disabled: busy }, [h('x-icon', { name: 'target', size: 14 }), busy ? '推演中…' : '数字孪生推演']),
+            h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
+          ]),
+          default: () => !r ? h('div', { class: 'skel', style: 'height:260px' }) : [
+            h('div', { class: 'grid g4 mb-16' }, [
+              h('x-kpi', { label: '预测期末排放', value: App.fmt.num(r.overQuota.predictedEoy, 0), unit: 'tCO₂e', icon: 'fire', tone: r.overQuota.gap > 0 ? 'rose' : 'carbon', foot: `滚动速率 ${r.forecast.stats.avgDaily} tCO₂e/天` }),
+              h('x-kpi', { label: '预计缺口', value: App.fmt.num(r.overQuota.gap, 0), unit: 'tCO₂e', icon: 'target', tone: r.overQuota.gap > 0 ? 'rose' : 'carbon', foot: `占配额 ${r.overQuota.gapRatio}%` }),
+              h('x-kpi', { label: '超限概率', value: r.overQuota.exceedProbability * 100 + '%', icon: 'alert', tone: r.overQuota.riskLevel === 'HIGH' ? 'rose' : (r.overQuota.riskLevel === 'MEDIUM' ? 'violet' : 'carbon') }),
+              h('x-kpi', { label: '异常读数', value: r.anomaly.anomalyCount, unit: '处', icon: 'shield', tone: r.anomaly.anomalyCount > 3 ? 'rose' : 'carbon' }),
+            ]),
+
+            h('div', { class: 'grid g2 mb-16' }, [
+              h('x-card', { title: '预测累计排放 vs 年度配额', sub: `${r.forecast.horizonDays} 天外推 · ${r.forecast.method}` }, {
+                default: () => h('x-chart', { option: predictOption.value, height: 'h300' }),
+              }),
+              h('x-card', { title: '减排建议', sub: 'ADVISOR 智能体生成' }, {
+                default: () => h('div', { class: 'col gap-10' }, r.advisor.suggestions.map((s) => h('div', { class: 'alertbar info', style: 'flex-direction:column;align-items:flex-start;gap:6px' }, [
+                  h('div', { class: 'flex gap-8', style: 'align-items:center' }, [
+                    h('x-tag', { text: { TRADE: '市场交易', OFFSET: 'CCER 抵销', PRODUCTION: '生产优化', DATA: '数据核查', OK: '状态良好' }[s.type] || s.type, tone: s.priority === 'HIGH' ? 't-danger' : (s.priority === 'MEDIUM' ? 't-warn' : 't-ok') }),
+                    h('b', { style: 'font-size:14px' }, s.title),
+                  ]),
+                  h('span', { style: 'font-size:13px;line-height:1.6;color:var(--tx-2)' }, s.detail),
+                ]))),
+              }),
+            ]),
+
+            r.anomaly.anomalyCount > 0 && h('x-card', { title: '异常检测明细（3σ 判据）', flush: true }, {
+              default: () => h('x-table', {
+                columns: [
+                  { key: 'time', title: '时间', width: '170px' },
+                  { key: 'flow', title: '读数(tCO₂e)', align: 'right' },
+                  { key: 'zScore', title: 'Z 分数', align: 'right' },
+                  { key: 'type', title: '类型', width: '100px' },
+                  { key: 'severity', title: '严重度', width: '100px' },
+                ],
+                rows: r.anomaly.anomalies.slice().reverse(),
+              }, {
+                'col-flow': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 3)),
+                'col-zScore': ({ value }) => h('span', { class: 'mono', style: `color:${Math.abs(value) > 3.5 ? '#fda4af' : '#fbbf24'}` }, value),
+                'col-type': ({ value }) => h('span', {}, value === 'SPIKE' ? '突增' : '突降'),
+                'col-severity': ({ value }) => h('x-tag', { text: value === 'HIGH' ? '高' : '中', tone: value === 'HIGH' ? 't-danger' : 't-warn' }),
+              }),
+            }),
+
+            twin.value && h('x-card', { title: '数字孪生情景推演', sub: 'what-if 分析：调整生产/能效/燃料参数，对比预测期末配额结余' }, {
+              default: () => h('x-table', {
+                columns: [
+                  { key: 'name', title: '情景' },
+                  { key: 'deltaPct', title: '调整幅度', align: 'right', width: '120px' },
+                  { key: 'predictedEoy', title: '预测期末排放', align: 'right' },
+                  { key: 'gap', title: '期末缺口', align: 'right' },
+                  { key: 'quotaSurplus', title: '配额结余', width: '100px' },
+                ],
+                rows: twin.value.scenarios,
+              }, {
+                'col-deltaPct': ({ value }) => h('span', { class: 'mono' }, (value > 0 ? '+' : '') + value + '%'),
+                'col-predictedEoy': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
+                'col-gap': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) > 0 ? '#fda4af' : '#34d399'}` }, App.fmt.num(value, 0)),
+                'col-quotaSurplus': ({ row }) => h('span', { class: row.quotaSurplus ? 'tag t-ok' : 'tag t-danger' }, row.quotaSurplus ? '有结余' : '有缺口'),
+              }),
+            }),
+          ],
+        });
+      };
     },
   });
 
@@ -884,9 +818,9 @@
     'page-ent-overview': PageEntOverview,
     'page-ent-reports': PageEntReports,
     'page-ent-quota': PageEntQuota,
-    'page-ent-trade': PageEntTrade,
     'page-ent-analytics': PageEntAnalytics,
     'page-ent-wallet': PageEntWallet,
+    'page-ent-predict': PageEntPredict,
     'page-ent-notices': PageEntNotices,
   });
 })();

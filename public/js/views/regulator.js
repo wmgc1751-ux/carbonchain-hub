@@ -1,5 +1,5 @@
 /* =====================================================================
-   监管端：驾驶舱 / 企业名录 / 配额分配 / 交易监管 / 预警处置 / 统计分析 / 审计
+   监管端：驾驶舱 / 企业名录 / 配额分配 / 预警处置 / 统计分析 / 审计
    ===================================================================== */
 (function () {
   'use strict';
@@ -29,21 +29,6 @@
           series: [
             { name: '排放总量', type: 'line', smooth: true, symbolSize: 6, data: t.map((x) => x.total), lineStyle: { width: 2.6, color: '#10b981' }, itemStyle: { color: '#34d399' }, areaStyle: { color: App.areaGrad('rgba(16,185,129,.4)', 'rgba(16,185,129,.01)') } },
             { name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 5, data: t.map((x) => x.intensity), lineStyle: { color: '#38bdf8', width: 2, type: 'dashed' }, itemStyle: { color: '#38bdf8' } },
-          ],
-        });
-      });
-
-      const priceOption = computed(() => {
-        if (!d.value) return null;
-        const p = d.value.priceTrend || [];
-        return App.chartBase({
-          legend: { data: ['成交均价', '成交量'], top: 0, right: 6 },
-          grid: { left: 10, right: 26, top: 34, bottom: 6, containLabel: true },
-          xAxis: App.catAxis(p.map((x) => x.month)),
-          yAxis: [App.valAxis({ name: '元/吨' }), App.valAxis({ name: '吨', splitLine: { show: false } })],
-          series: [
-            { name: '成交量', type: 'bar', yAxisIndex: 1, barWidth: '40%', data: p.map((x) => x.volume), itemStyle: { borderRadius: [4, 4, 0, 0], color: 'rgba(56,189,248,.35)' } },
-            { name: '成交均价', type: 'line', smooth: true, data: p.map((x) => x.avgPrice), lineStyle: { color: '#f5a524', width: 2.4 }, itemStyle: { color: '#fbbf24' } },
           ],
         });
       });
@@ -108,7 +93,7 @@
         return h('div', {}, [
           h('x-page', {
             title: '监管驾驶舱',
-            desc: `全国碳排放权交易市场运行总览 · 统计口径：${YEAR} 年度（含历史存续数据）· 数据每 60 秒自动刷新`,
+            desc: `碳资产动态核算与可信存证监管总览 · 统计口径：${YEAR} 年度 · 数据每 60 秒自动刷新`,
           }, {
             actions: () => [
               h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
@@ -120,10 +105,8 @@
                 h('x-kpi', { label: '纳入控排企业', value: App.fmt.num(k.entCount), unit: '家', icon: 'factory', tone: 'carbon', foot: `正常经营 ${k.activeEnt} 家` }),
                 h('x-kpi', { label: `${YEAR} 年度排放总量`, value: App.fmt.big(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'sky', foot: `${App.fmt.num(k.reports)} 份上报单 · 平均强度 ${k.avgIntensity}` }),
                 h('x-kpi', { label: '已核证配额总量', value: App.fmt.big(k.quotaAllocated), unit: 'tCO₂e', icon: 'coin', tone: 'violet', foot: `已用完 ${App.fmt.big(k.quotaUsed)} · 剩余 ${App.fmt.big(k.quotaAvailable)}` }),
-                h('x-kpi', { label: '存在履约缺口企业', value: k.gapCount, unit: '家', icon: 'alert', tone: 'rose', foot: '可用配额为负，需通过市场购买' }),
-                h('x-kpi', { label: '市场成交笔数', value: App.fmt.num(k.dealCount), unit: '笔', icon: 'trade', tone: 'chain', foot: `累计成交 ${App.fmt.big(k.tradeVolume)} 吨` }),
-                h('x-kpi', { label: '成交金额', value: App.fmt.big(k.turnover), unit: '元', icon: 'bank', tone: 'carbon', foot: `区间 ${k.minPrice} ~ ${k.maxPrice} 元/吨` }),
-                h('x-kpi', { label: '碳配额均价', value: k.avgPrice, unit: '元/吨', icon: 'chart', tone: 'sky', foot: '全市场加权平均' }),
+                h('x-kpi', { label: '存在履约缺口企业', value: k.gapCount, unit: '家', icon: 'alert', tone: 'rose', foot: '动态核算可用配额为负' }),
+                h('x-kpi', { label: '链上存证总数', value: App.fmt.num(k.chainAnchors ?? 0), unit: '笔', icon: 'chain', tone: 'chain', foot: '核算结果上链存证' }),
                 h('x-kpi', { label: '未关闭预警', value: k.alertOpen, unit: '条', icon: 'alert', tone: 'rose', foot: `其中高风险 ${k.alertHigh} 条 · 累计 ${k.alertTotal} 条` }),
               ]),
 
@@ -133,13 +116,12 @@
               ]),
 
               h('div', { class: 'grid g-3-2 mb-16' }, [
-                h('x-card', { title: '碳配额价格与成交量', sub: '月度加权均价与成交规模' }, { default: () => h('x-chart', { option: priceOption.value, height: 'h300' }) }),
                 h('x-card', { title: '行业排放结构' }, { default: () => h('x-chart', { option: industryOption.value, height: 'h300' }) }),
+                h('x-card', { title: '区域排放分布', sub: '按省级行政区（单位 tCO₂e）' }, { default: () => h('x-chart', { option: regionOption.value, height: 'h300' }) }),
               ]),
 
               h('div', { class: 'grid g2 mb-16' }, [
-                h('x-card', { title: '区域排放分布', sub: '按省级行政区（单位 tCO₂e）' }, { default: () => h('x-chart', { option: regionOption.value, height: 'h340' }) }),
-                h('x-card', { title: '履约风险企业 TOP10', sub: '可用配额最少的十家企业', flush: true }, {
+                h('x-card', { title: '履约风险企业 TOP10', sub: '动态核算可用配额最少的十家企业', flush: true }, {
                   actions: () => h('button', { class: 'btn sm ghost', onClick: () => App.go('/reg/alerts') }, '预警中心'),
                   default: () => h('x-table', {
                     columns: [
@@ -238,7 +220,7 @@
       return () => h('div', {}, [
         h('x-page', {
           title: '控排企业名录',
-          desc: '覆盖全国 28 个省级行政区的重点排放单位。点击任意企业可查看其上报表、配额账户、成交记录、预警事项与链上存证明细。',
+          desc: '覆盖全国 28 个省级行政区的重点排放单位。点击任意企业可查看其上报表、配额账户、预警事项与链上存证明细。',
         }, {
           default: () => h('x-card', { flush: true }, {
             head: () => h('div', { class: 'flex gap-8 wrap', style: 'flex:1;align-items:center' }, [
@@ -323,7 +305,7 @@
                   h('div', { class: 'grid g4 mt-12' }, [
                     h('div', { class: 'readout' }, [h('span', { class: 'k' }, '分配配额'), h('span', { class: 'mono', style: 'margin-left:auto' }, App.fmt.num(quotaBar.value.q.total_allocated, 0))]),
                     h('div', { class: 'readout' }, [h('span', { class: 'k' }, '实际排放'), h('span', { class: 'mono', style: 'margin-left:auto' }, App.fmt.num(quotaBar.value.q.used, 0))]),
-                    h('div', { class: 'readout' }, [h('span', { class: 'k' }, '买入/卖出'), h('span', { class: 'mono', style: 'margin-left:auto' }, `${App.fmt.num(quotaBar.value.q.bought, 0)} / ${App.fmt.num(quotaBar.value.q.sold, 0)}`)]),
+                    h('div', { class: 'readout' }, [h('span', { class: 'k' }, '履约状态'), h('span', { class: 'mono', style: `margin-left:auto;color:${Number(quotaBar.value.q.available) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, Number(quotaBar.value.q.available) >= 0 ? '盈余' : '缺口')]),
                     h('div', { class: 'readout' }, [h('span', { class: 'k' }, '可用余额'), h('span', { class: 'mono', style: `margin-left:auto;color:${Number(quotaBar.value.q.available) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, App.fmt.num(quotaBar.value.q.available, 0))]),
                   ]),
                 ]),
@@ -346,18 +328,17 @@
                     'col-chain_block_index': ({ value }) => h('x-chainbadge', { block: value }),
                   }),
                 }),
-                h('x-card', { title: '近期成交', flush: true }, {
+                h('x-card', { title: '链上存证记录', flush: true }, {
                   default: () => h('x-table', {
                     columns: [
-                      { key: 'deal_no', title: '成交编号' }, { key: 'price', title: '价格', align: 'right', width: '85px' },
-                      { key: 'amount', title: '数量(t)', align: 'right' }, { key: 'deal_time', title: '时间', width: '120px' },
+                      { key: 'tx_id', title: '存证编号' }, { key: 'tx_type', title: '类型', width: '120px' },
+                      { key: 'block_index', title: '区块', align: 'right', width: '85px' },
                     ],
-                    rows: e.deals,
+                    rows: e.chainTxs,
                   }, {
-                    'col-deal_no': ({ value }) => h('span', { class: 'mono tiny' }, value),
-                    'col-price': ({ value }) => h('span', { class: 'mono', style: 'color:var(--chain-l)' }, Number(value).toFixed(2)),
-                    'col-amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
-                    'col-deal_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
+                    'col-tx_id': ({ value }) => h('span', { class: 'mono tiny' }, value),
+                    'col-tx_type': ({ value }) => h('x-tag', { dict: App.DICT.txType, dictKey: value }),
+                    'col-block_index': ({ value }) => h('x-chainbadge', { block: value }),
                   }),
                 }),
               ]),
@@ -526,127 +507,6 @@
           footer: () => [
             h('button', { class: 'btn', onClick: () => { showForm.value = false; } }, '取消'),
             h('button', { class: 'btn primary', disabled: busy.value || !form.entId, onClick: submit }, [h('x-icon', { name: 'chain', size: 15 }), busy.value ? '提交中…' : '确认分配并上链']),
-          ],
-        }),
-      ]);
-    },
-  });
-
-  /* ==================================================================
-   * 四、交易监管
-   * ================================================================== */
-  const PageRegTrades = defineComponent({
-    name: 'page-reg-trades',
-    setup() {
-      const pager = App.usePager((p) => App.API.get('/regulator/trades', p), { page: 1, size: 12 });
-      const stat = ref(null);
-      const anomalies = ref([]);
-      const filter = reactive({ minPrice: '', maxPrice: '', keyword: '' });
-
-      function load() { pager.load({ ...filter }); }
-      onMounted(async () => {
-        try {
-          const first = await App.API.get('/regulator/trades', { page: 1, size: 12 });
-          pager.state.rows = first.rows; pager.state.total = first.total;
-          pager.state.pages = first.pages; pager.state.page = first.page; pager.state.size = first.size;
-          stat.value = first.priceStat; anomalies.value = first.anomalies;
-        } catch (e) { App.notify.err(e.message); }
-      });
-
-      async function reload() {
-        try {
-          const d = await App.API.get('/regulator/trades', { ...filter, page: pager.state.page, size: pager.state.size });
-          pager.state.rows = d.rows; pager.state.total = d.total; pager.state.pages = d.pages;
-          stat.value = d.priceStat; anomalies.value = d.anomalies;
-        } catch (e) { App.notify.err(e.message); }
-      }
-
-      const priceOption = computed(() => {
-        if (!stat.value) return null;
-        // 用成交流水还原价格区间分布
-        return null;
-      });
-
-      return () => h('div', {}, [
-        h('x-page', {
-          title: '碳市场交易监管',
-          desc: '对全市场成交明细进行穿透式监管，自动检测偏离均值 2 倍标准差的异常报价，并支持按价格区间筛选核查。',
-        }, {
-          actions: () => h('button', { class: 'btn sm', onClick: reload }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
-          default: () => [
-            stat.value && h('div', { class: 'grid g5 mb-16' }, [
-              h('x-kpi', { label: '成交均价', value: stat.value.avgPrice, unit: '元/吨', icon: 'chart', tone: 'carbon' }),
-              h('x-kpi', { label: '价格标准差', value: stat.value.stdPrice, unit: '元/吨', icon: 'target', tone: 'sky', foot: '超过 ±2σ 判定为异常' }),
-              h('x-kpi', { label: '最高成交价', value: stat.value.maxPrice, unit: '元/吨', icon: 'arrowUp', tone: 'rose' }),
-              h('x-kpi', { label: '最低成交价', value: stat.value.minPrice, unit: '元/吨', icon: 'arrowDown', tone: 'violet' }),
-              h('x-kpi', { label: '累计成交笔数', value: App.fmt.num(stat.value.count), unit: '笔', icon: 'trade', tone: 'chain' }),
-            ]),
-
-            anomalies.value && anomalies.value.length > 0 && h('x-card', { title: '价格异动监测', sub: '成交价偏离全市场均值 2 倍标准差，建议核查是否存在异常交易', class: 'mb-16', flush: true }, {
-              default: () => h('x-table', {
-                columns: [
-                  { key: 'deal_no', title: '成交编号', width: '170px' },
-                  { key: 'price', title: '成交价', align: 'right' },
-                  { key: 'amount', title: '成交量(t)', align: 'right' },
-                  { key: 'buyer_name', title: '买方' },
-                  { key: 'seller_name', title: '卖方' },
-                  { key: 'deal_time', title: '成交时间', width: '160px' },
-                ],
-                rows: anomalies.value,
-              }, {
-                'col-deal_no': ({ value }) => h('span', { class: 'mono' }, value),
-                'col-price': ({ value, row }) => {
-                  const dev = stat.value && stat.value.avgPrice ? ((Number(value) - stat.value.avgPrice) / stat.value.avgPrice * 100) : 0;
-                  return h('b', { class: 'mono', style: `color:${Math.abs(dev) > 8 ? '#fda4af' : 'var(--chain-l)'}` }, Number(value).toFixed(2) + ` (${dev >= 0 ? '+' : ''}${dev.toFixed(1)}%)`);
-                },
-                'col-amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
-                'col-buyer_name': ({ value }) => h('span', { class: 'tiny ellipsis', style: 'max-width:160px;display:inline-block' }, value),
-                'col-seller_name': ({ value }) => h('span', { class: 'tiny ellipsis', style: 'max-width:160px;display:inline-block' }, value),
-                'col-deal_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
-              }),
-            }),
-
-            h('x-card', { flush: true }, {
-              head: () => h('div', { class: 'flex gap-8 wrap', style: 'flex:1;align-items:center' }, [
-                h('div', { class: 'input-group', style: 'width:250px' }, [
-                  h('input', { class: 'input', placeholder: '成交编号 / 企业名', value: filter.keyword, onInput: (e) => { filter.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') { pager.state.page = 1; reload(); } } }),
-                  h('button', { class: 'btn', onClick: () => { pager.state.page = 1; reload(); } }, [h('x-icon', { name: 'search', size: 14 })]),
-                ]),
-                h('input', { class: 'input', style: 'width:150px', type: 'number', placeholder: '最低价', value: filter.minPrice, onInput: (e) => { filter.minPrice = e.target.value; } }),
-                h('input', { class: 'input', style: 'width:150px', type: 'number', placeholder: '最高价', value: filter.maxPrice, onInput: (e) => { filter.maxPrice = e.target.value; } }),
-                h('button', { class: 'btn', onClick: () => { pager.state.page = 1; reload(); } }, '筛选'),
-              ]),
-              default: () => [
-                h('x-table', {
-                  columns: [
-                    { key: 'deal_no', title: '成交编号', width: '170px' },
-                    { key: 'buyer_name', title: '买方' },
-                    { key: 'seller_name', title: '卖方' },
-                    { key: 'price', title: '成交价(元/吨)', align: 'right' },
-                    { key: 'amount', title: '成交量(t)', align: 'right' },
-                    { key: 'total_amount', title: '成交金额(元)', align: 'right' },
-                    { key: 'fee', title: '手续费(元)', align: 'right' },
-                    { key: 'chain_block_index', title: '链上存证', width: '110px' },
-                    { key: 'deal_time', title: '成交时间', width: '160px' },
-                  ],
-                  rows: pager.state.rows, loading: pager.state.loading,
-                }, {
-                  'col-deal_no': ({ value }) => h('span', { class: 'mono' }, value),
-                  'col-buyer_name': ({ value }) => h('span', { class: 'tiny ellipsis', style: 'max-width:170px;display:inline-block' }, value),
-                  'col-seller_name': ({ value }) => h('span', { class: 'tiny ellipsis', style: 'max-width:170px;display:inline-block' }, value),
-                  'col-price': ({ value }) => h('b', { class: 'mono', style: 'color:var(--chain-l)' }, Number(value).toFixed(2)),
-                  'col-amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                  'col-total_amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
-                  'col-fee': ({ value }) => h('span', { class: 'mono muted' }, App.fmt.num(value, 2)),
-                  'col-chain_block_index': ({ row }) => h('x-chainbadge', { block: row.chain_block_index, hash: row.chain_tx_id }),
-                  'col-deal_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
-                }),
-                h('x-pager', {
-                  page: pager.state.page, pages: pager.state.pages, total: pager.state.total, size: pager.state.size,
-                  onChange: (p) => { pager.state.page = p; reload(); },
-                }),
-              ],
-            }),
           ],
         }),
       ]);
@@ -888,13 +748,13 @@
               ]),
 
               h('div', { class: 'grid g-3-2 mb-16' }, [
-                h('x-card', { title: '行业排放总量与强度', sub: `${year.value} 年度` }, { default: () => h('x-chart', { option: industryOption.value, height: 'h320' }) }),
-                h('x-card', { title: '能源品种排放结构', sub: '所有上报明细行的汇总' }, { default: () => h('x-chart', { option: energyOption.value, height: 'h320' }) }),
+                h('x-card', { title: '行业排放总量与强度', sub: `${year.value} 年度` }, { default: () => h('x-chart', { option: industryOption.value, height: 'h340' }) }),
+                h('x-card', { title: '能源品种排放结构', sub: '所有上报明细行的汇总' }, { default: () => h('x-chart', { option: energyOption.value, height: 'h340' }) }),
               ]),
 
               h('div', { class: 'grid g2 mb-16' }, [
-                h('x-card', { title: '区域排放分布', sub: `${year.value} 年度 · 按省级行政区` }, { default: () => h('x-chart', { option: regionOption.value, height: 'h320' }) }),
-                h('x-card', { title: '减排成效趋势', sub: '排放总量与平均同比变化率' }, { default: () => h('x-chart', { option: reductionOption.value, height: 'h320' }) }),
+                h('x-card', { title: '区域排放分布', sub: `${year.value} 年度 · 按省级行政区` }, { default: () => h('x-chart', { option: regionOption.value, height: 'h340' }) }),
+                h('x-card', { title: '减排成效趋势', sub: '排放总量与平均同比变化率' }, { default: () => h('x-chart', { option: reductionOption.value, height: 'h340' }) }),
               ]),
 
               h('div', { class: 'grid g2' }, [
@@ -945,7 +805,7 @@
     setup() {
       const pager = App.usePager((p) => App.API.get('/regulator/logs', p), { page: 1, size: 15 });
       const filters = reactive({ module: '', role: '', keyword: '' });
-      const MODULES = ['碳排上报', '核查作业', '配额管理', '交易撮合', '链上存证', '用户管理', '预警处置'];
+      const MODULES = ['碳排上报', '核查作业', '配额管理', '链上存证', '用户管理', '预警处置'];
       function load() { pager.load({ ...filters }); }
       onMounted(load);
       return () => h('div', {}, [
@@ -1107,7 +967,101 @@
   });
 
   /* ==================================================================
-   * 九、公告管理
+   * 九、交易监管
+   * ================================================================== */
+  const PageRegTrades = defineComponent({
+    name: 'page-reg-trades',
+    setup() {
+      const stat = ref(null);
+      const deals = ref([]);
+      const scan = ref([]);
+
+      async function load() {
+        try {
+          stat.value = await App.API.request('GET', '/trade/market', null, { noAuth: true });
+          deals.value = await App.API.request('GET', '/trade/deals');
+          scan.value = await App.API.request('GET', '/intelligence/market-scan');
+        } catch (e) { App.notify.err(e.message); }
+      }
+      onMounted(load);
+
+      const priceOption = computed(() => {
+        if (!stat.value) return null;
+        const p = stat.value.kline || [];
+        return App.chartBase({
+          grid: { left: 10, right: 24, top: 24, bottom: 6, containLabel: true },
+          xAxis: App.catAxis(p.map((x) => x.date)),
+          yAxis: App.valAxis({ name: '元/吨', nameTextStyle: { color: '#5f6d85', fontSize: 10.5 } }),
+          series: [{ name: '碳价', type: 'line', smooth: true, data: p.map((x) => Number(x.high)), lineStyle: { color: '#f43f5e', width: 2 }, itemStyle: { color: '#fb7185' }, areaStyle: { color: App.areaGrad('rgba(244,63,94,.25)', 'rgba(244,63,94,.01)') } }],
+        });
+      });
+
+      return () => {
+        const s = stat.value;
+        return h('x-page', { title: '交易监管', desc: '碳配额二级市场全貌：价格发现 · 成交量 · 价格异动 · 多智能体异常扫描' }, {
+          actions: () => h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
+          default: () => !s ? h('div', { class: 'skel', style: 'height:240px' }) : [
+            h('div', { class: 'grid g4 mb-16' }, [
+              h('x-kpi', { label: '最新碳价', value: App.fmt.usd(s.lastPrice, 2), unit: '元/吨', icon: 'coin', tone: s.change >= 0 ? 'rose' : 'carbon', delta: s.change, deltaTone: s.change >= 0 ? 'bad' : 'good' }),
+              h('x-kpi', { label: '累计成交量', value: App.fmt.num(s.kpi.volume, 0), unit: 'tCO₂e', icon: 'trade', tone: 'sky', foot: `${s.kpi.deals} 笔成交` }),
+              h('x-kpi', { label: '累计成交额', value: App.fmt.big(s.kpi.turnover), unit: '元', icon: 'bank', tone: 'violet' }),
+              h('x-kpi', { label: '异常企业', value: scan.value.length, unit: '家', icon: 'alert', tone: scan.value.length > 0 ? 'rose' : 'carbon' }),
+            ]),
+
+            h('div', { class: 'grid g2 mb-16' }, [
+              h('x-card', { title: '碳价走势', sub: '近 60 个交易日' }, {
+                default: () => h('x-chart', { option: priceOption.value, height: 'h300' }),
+              }),
+              h('x-card', { title: '异常扫描（多智能体）', sub: '高风险企业缺口预测与异常读数', flush: true }, {
+                default: () => h('x-table', {
+                  columns: [
+                    { key: 'entName', title: '企业' },
+                    { key: 'industry', title: '行业', width: '90px' },
+                    { key: 'dynRisk', title: '风险', width: '80px' },
+                    { key: 'predictedGap', title: '预测缺口', align: 'right' },
+                    { key: 'exceedProbability', title: '超限概率', align: 'right' },
+                    { key: 'anomalyCount', title: '异常读数', align: 'right' },
+                  ],
+                  rows: scan.value, empty: '暂无高风险企业',
+                }, {
+                  'col-dynRisk': ({ row }) => h('x-tag', { dict: App.DICT.riskLevel, dictKey: row.dynRisk }),
+                  'col-predictedGap': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) > 0 ? '#fda4af' : '#34d399'}` }, App.fmt.num(value, 0)),
+                  'col-exceedProbability': ({ value }) => h('span', { class: 'mono' }, (Number(value) * 100).toFixed(0) + '%'),
+                  'col-anomalyCount': ({ value }) => h('span', { style: `color:${value > 3 ? '#fda4af' : '#6ee7b7'}` }, value),
+                }),
+              }),
+            ]),
+
+            h('x-card', { title: '最近成交', flush: true }, {
+              default: () => h('x-table', {
+                columns: [
+                  { key: 'dealNo', title: '成交编号', width: '150px' },
+                  { key: 'price', title: '成交价', align: 'right' },
+                  { key: 'amount', title: '数量', align: 'right' },
+                  { key: 'totalAmount', title: '金额', align: 'right' },
+                  { key: 'buyerName', title: '买方' },
+                  { key: 'sellerName', title: '卖方' },
+                  { key: 'chain_block_index', title: '链上存证', width: '110px' },
+                  { key: 'dealTime', title: '成交时间', width: '150px' },
+                ],
+                rows: deals.value.slice(0, 20),
+              }, {
+                'col-dealNo': ({ value }) => h('span', { class: 'mono' }, value),
+                'col-price': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 2)),
+                'col-amount': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
+                'col-totalAmount': ({ value }) => h('span', { class: 'mono' }, App.fmt.usd(value, 2)),
+                'col-chain_block_index': ({ row }) => h('x-chainbadge', { block: row.chainBlockIndex, hash: row.chainTxId }),
+                'col-dealTime': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
+              }),
+            }),
+          ],
+        });
+      };
+    },
+  });
+
+  /* ==================================================================
+   * 十、公告管理
    * ================================================================== */
   const PageRegNotices = defineComponent({
     name: 'page-reg-notices',
@@ -1184,11 +1138,11 @@
     'page-reg-overview': PageRegOverview,
     'page-reg-enterprises': PageRegEnterprises,
     'page-reg-allocations': PageRegAllocations,
-    'page-reg-trades': PageRegTrades,
     'page-reg-alerts': PageRegAlerts,
     'page-reg-stats': PageRegStats,
     'page-reg-logs': PageRegLogs,
     'page-reg-system': PageRegSystem,
+    'page-reg-trades': PageRegTrades,
     'page-reg-notices': PageRegNotices,
   });
 })();

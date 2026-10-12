@@ -13,7 +13,7 @@ const { rateLimit } = require('../middleware/rate-limit');
 const router = express.Router();
 
 /** 角色中文名 */
-const ROLE_CN = { ENTERPRISE: '企业端', VERIFIER: '核查机构端', REGULATOR: '监管端', ADMIN: '系统管理' };
+const ROLE_CN = { ENTERPRISE: '企业端', VERIFIER: '核查机构端', REGULATOR: '监管端', TRADER: '交易端', ADMIN: '管理端' };
 
 /** 演示账号接口开关（安全默认：线上关闭）
  *   · 显式 DEMO_ACCOUNTS=true   → 开放（确有演示需要时主动开启）；
@@ -85,6 +85,9 @@ router.post('/login', loginLimiter, wrap(async (req, res) => {
   let wallet = null;
   if (user.role === 'ENTERPRISE' && user.org_id) {
     wallet = await db.value('SELECT wallet_address FROM enterprise WHERE id = ?', [user.org_id]);
+  } else if (user.role === 'TRADER' && user.org_id) {
+    // 交易端代表控排企业交易，同样返回其代理企业的钱包地址
+    wallet = await db.value('SELECT wallet_address FROM enterprise WHERE id = ?', [user.org_id]);
   } else if (user.role === 'VERIFIER' && user.org_id) {
     wallet = await db.value('SELECT wallet_address FROM verifier_org WHERE id = ?', [user.org_id]);
   }
@@ -134,7 +137,7 @@ router.get('/demo-accounts', demoLimiter, wrap(async (req, res) => {
   res.setHeader('X-Demo-Mode', 'true');
   const rows = await db.query(
     `SELECT id, username, real_name, role, org_name FROM sys_user
-     WHERE username IN ('admin','reg001','ent001','ent002','ent003','ver001','ver002') ORDER BY id`
+     WHERE username IN ('admin','reg001','ent001','ent002','ent003','ver001','ver002','trader01') ORDER BY id`
   );
   ok(res, rows.map((r) => ({
     username: r.username,

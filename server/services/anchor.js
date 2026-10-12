@@ -27,7 +27,7 @@ async function getChain() {
 /**
  * 上链存证
  * @param {object} p
- *   p.txType     EMISSION_REPORT / VERIFY_REPORT / QUOTA_ALLOC / TRADE_DEAL / ENTERPRISE_REG
+ *   p.txType     EMISSION_REPORT / VERIFY_REPORT / QUOTA_ALLOC / ENTERPRISE_REG
  *   p.bizNo      业务单号
  *   p.fromLabel  发起方 keystore 标签，如 'ent:12' / 'verifier:3' / 'regulator:system'
  *   p.toLabel    接收方标签（可省略，默认监管节点）
