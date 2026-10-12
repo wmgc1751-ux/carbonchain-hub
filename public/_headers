@@ -1,0 +1,29 @@
+# Cloudflare Pages 自定义缓存头
+# 目的：本项目前端「无构建 + 无文件名指纹」，Cloudflare 默认对 JS/CSS 下发 max-age=14400（4h）
+# 导致部署后老访客命中旧 JS，出现「HTML 新、JS 旧」混合态，新页面 404。
+# 策略：全局短缓存兜底；vendor/img 内容稳定可长缓存；HTML 最短缓存。
+
+# 第三方运行时：内容稳定，长缓存 + immutable
+/vendor/*
+  Cache-Control: public, max-age=604800, immutable
+
+# 图片：内容稳定，长缓存 + immutable
+/img/*
+  Cache-Control: public, max-age=604800, immutable
+
+# HTML 入口：最短缓存，保证新部署尽快生效
+/
+  Cache-Control: public, max-age=60, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=60, must-revalidate
+
+# JS / CSS / 快照数据：全局兜底短缓存 + 回源校验
+/js/*
+  Cache-Control: public, max-age=300, must-revalidate
+
+/css/*
+  Cache-Control: public, max-age=300, must-revalidate
+
+/data/*
+  Cache-Control: public, max-age=300, must-revalidate
