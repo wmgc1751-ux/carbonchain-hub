@@ -137,7 +137,7 @@ router.get('/demo-accounts', demoLimiter, wrap(async (req, res) => {
   res.setHeader('X-Demo-Mode', 'true');
   const rows = await db.query(
     `SELECT id, username, real_name, role, org_name FROM sys_user
-     WHERE username IN ('admin','reg001','ent001','ent002','ent003','ver001','ver002','trader01') ORDER BY id`
+     WHERE username IN ('admin','reg001','ent001','ent002','ent003','ver001','ver002','trader01','trader02') ORDER BY id`
   );
   ok(res, rows.map((r) => ({
     username: r.username,
