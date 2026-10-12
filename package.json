@@ -31,7 +31,8 @@
     "uncertainty:selftest": "node tools/uncertainty-selftest.mjs",
     "keymgmt:selftest": "node tools/keymgmt-selftest.mjs",
     "api:iter2": "node tools/api-iter2-check.mjs",
-    "verify:all": "node tools/uncertainty-selftest.mjs && node tools/keymgmt-selftest.mjs && node tools/audit-chain-selftest.mjs && node tools/iot-selftest.mjs && node tools/protocol-check.cjs && node tools/api-iter2-check.mjs"
+    "verify:all": "node tools/uncertainty-selftest.mjs && node tools/keymgmt-selftest.mjs && node tools/audit-chain-selftest.mjs && node tools/iot-selftest.mjs && node tools/protocol-check.cjs && node tools/api-iter2-check.mjs",
+    "verify:report": "node tools/verify-report.mjs"
   },
   "engines": {
     "node": ">=18"
