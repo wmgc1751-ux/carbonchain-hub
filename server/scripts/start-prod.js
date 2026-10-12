@@ -24,7 +24,11 @@ const mysql = require('mysql2/promise');
 const config = require('../config');
 
 /* 新版结构标志：PoA 区块头签名字段 + 若干新版才有的业务表。
- * 任一项缺失即判定"结构不是最新版" → 需要初始化。 */
+ * 任一项缺失即判定"结构不是最新版" → 需要初始化。
+ * ⚠ 2026-10-12 修复：此前 REQUIRED_TABLES 只列了 6 张旧表，遗漏了本次重构
+ *   新增的 emission_factor / factor_version / reconciliation / prediction_record /
+ *   trade_order / trade_deal 等表，导致线上冷启动误判"已最新"而跳过建表，
+ *   依赖新表的接口（因子库/对账中心）SQL 报错 → 500。现补全关键新表。 */
 const REQUIRED_COLUMN = { table: 'chain_block', column: 'consensus' };
 const REQUIRED_TABLES = [
   'chain_node',
@@ -33,6 +37,12 @@ const REQUIRED_TABLES = [
   'carbon_dynamic_account',
   'credit_asset',
   'credit_offset',
+  'emission_factor',
+  'factor_version',
+  'reconciliation',
+  'prediction_record',
+  'trade_order',
+  'trade_deal',
 ];
 
 /** 探测数据库结构是否为最新版（不抛异常，任何异常都视为"需要初始化"） */
@@ -91,6 +101,26 @@ function runInitDb() {
   return r.status === 0;
 }
 
+/**
+ * 以子进程方式执行「增量迁移」（幂等建表 + 补空表种子，不清库、不覆盖存量数据）。
+ * 用于：代码重构新增表后，线上库缺表但已有存量数据（如链上存证、业务记录）的场景。
+ * 全量 initdb 会 DROP 重建所有表导致存量数据丢失，故此处改走增量迁移。
+ */
+function runMigrate() {
+  const script = path.join(__dirname, 'migrate-db.js');
+  console.log('⏳ 正在增量迁移数据库（幂等建表 + 补空表种子，不清库）…');
+  const r = spawnSync(process.execPath, [script], {
+    stdio: 'inherit',
+    env: process.env,
+    cwd: path.resolve(__dirname, '..', '..'),
+  });
+  if (r.error) {
+    console.error('⚠ 增量迁移子进程启动失败：', r.error.message);
+    return false;
+  }
+  return r.status === 0;
+}
+
 async function main() {
   console.log('─'.repeat(64));
   console.log('  碳链通 CarbonChain Hub —— 启动自检');
@@ -112,11 +142,11 @@ async function main() {
         console.log('✔ 数据库结构已是最新版，跳过初始化（端口已就绪，初始化不阻塞访问）');
         return;
       }
-      console.log('▶ 检测到数据库结构落后，开始初始化（后台执行，不阻塞端口）…');
-      const okInit = runInitDb();
-      if (okInit) console.log('✔ 数据库初始化完成');
+      console.log('▶ 检测到数据库结构落后，执行增量迁移（后台执行，不阻塞端口、不清库）…');
+      const okMigrate = runMigrate();
+      if (okMigrate) console.log('✔ 增量迁移完成（已补齐缺失表与种子）');
       else {
-        console.error('⚠ 数据库初始化未成功完成。服务仍将运行，但部分功能可能不可用；');
+        console.error('⚠ 增量迁移未成功完成。服务仍将运行，但部分功能可能不可用；');
         console.error('   请检查上方日志中的具体报错（常见原因：数据库连接失败 / 建表权限不足）。');
       }
     } catch (e) {
@@ -136,4 +166,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { schemaIsLatest, runInitDb, main };
+module.exports = { schemaIsLatest, runInitDb, runMigrate, main };
