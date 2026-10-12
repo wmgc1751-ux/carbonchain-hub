@@ -162,7 +162,7 @@
           ]),
           footer: () => [
             h('button', { class: 'btn', onClick: () => { dppRef.value = null; } }, '关闭'),
-            h('button', { class: 'btn', onClick: () => App.notify.info('数字护照为链上数据的可核验呈现，导出功能对接 CBAM 申报模板（演示环境不落盘）。') }, [h('x-icon', { name: 'download', size: 15 }), '导出申报包']),
+            h('button', { class: 'btn', onClick: () => App.notify.info('数字护照为链上存证数据的可核验呈现；申报数据包导出为演示占位，当前版本不落盘。') }, [h('x-icon', { name: 'download', size: 15 }), '导出数据包（演示）']),
             h('button', { class: 'btn chain', onClick: () => { dppRef.value = null; proofRef.value = b; } }, [h('x-icon', { name: 'search', size: 15 }), '穿透式验真']),
           ],
         });
@@ -736,6 +736,51 @@
   });
 
   /* ==================================================================
+   * 三·补、公告列表（公众）
+   * ------------------------------------------------------------------
+   * 公开路由 /notice 的落地页：/api/public/notices 分页拉取，条目点击进入
+   * /notice/:id 详情。此前 OPEN_ROUTES 声明了 '/notice' 却未注册列表路由，
+   * 访问会落入 404 兜底 —— 本组件补齐该缺口。
+   * ================================================================== */
+  const PageNoticeList = defineComponent({
+    name: 'page-notice-list',
+    setup() {
+      const pager = App.usePager((q) => App.API.get('/public/notices', q), { page: 1, size: 10 });
+      onMounted(() => pager.load());
+      return () => h('div', { style: 'max-width:900px;margin:0 auto' }, [
+        h('x-page', { title: '通知公告', desc: '平台政策法规、市场公告与系统通知的公开查阅入口' }, {
+          actions: () => h('button', { class: 'btn sm', onClick: () => App.go('/screen') }, '返回大屏'),
+          default: () => {
+            const st = pager.state;
+            if (st.loading && !st.rows.length) {
+              return h('div', { class: 'col gap-10' }, Array.from({ length: 6 }).map(() => h('div', { class: 'skel', style: 'height:56px' })));
+            }
+            if (st.error) return h('div', { class: 'alertbar err' }, [h('x-icon', { name: 'alert', size: 15 }), st.error]);
+            if (!st.rows.length) return h('div', { class: 'alertbar info' }, [h('x-icon', { name: 'info', size: 15 }), '暂无公告']);
+            return h('x-card', {}, {
+              default: () => h('div', { class: 'col gap-8' }, [
+                ...st.rows.map((n) => h('div', {
+                  class: 'readout', style: 'cursor:pointer',
+                  onClick: () => App.go('/notice/' + n.id),
+                }, [
+                  h('x-tag', { dict: App.DICT.noticeType, dictKey: n.notice_type }),
+                  n.is_top ? h('span', { class: 'tag t-danger' }, '置顶') : null,
+                  h('span', { class: 'k', style: 'flex:1;color:var(--tx-0)' }, n.title),
+                  h('span', { class: 'tiny dim' }, App.fmt.d(n.publish_time)),
+                ])),
+                h('x-pager', {
+                  page: st.page, pages: st.pages, total: st.total, size: st.size,
+                  onChange: (p) => pager.goto(p),
+                }),
+              ]),
+            });
+          },
+        }),
+      ]);
+    },
+  });
+
+  /* ==================================================================
    * 四、公告详情（公众）
    * ================================================================== */
   const PageNotice = defineComponent({
@@ -778,6 +823,7 @@
     'page-explorer': PageExplorer,
     'page-block-detail': PageBlockDetail,
     'page-tx-detail': PageTxDetail,
+    'page-notice-list': PageNoticeList,
     'page-notice': PageNotice,
   });
 })();

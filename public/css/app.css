@@ -496,6 +496,9 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { box-shadow: 
 .kpi.k-sky { --tone: var(--sky); }
 .kpi.k-violet { --tone: var(--violet); }
 .kpi.k-rose { --tone: var(--rose); }
+/* 告警档位：此前色调表只有 carbon/chain/sky/violet/rose，缺"需要注意但未越限"这一档，
+   导致 KPI 意图为琥珀色时静默回退成品牌绿，把警告显示成正常。 */
+.kpi.k-amber { --tone: var(--warn); }
 /* 顶部 tone 色条：一眼分辨指标语义 */
 .kpi::before {
   content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; pointer-events: none;

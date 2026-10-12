@@ -998,7 +998,7 @@
 
       return () => {
         const s = stat.value;
-        return h('x-page', { title: '交易监管', desc: '碳配额二级市场全貌：价格发现 · 成交量 · 价格异动 · 多智能体异常扫描' }, {
+        return h('x-page', { title: '履约流转监管', desc: '碳配额二级市场全貌：价格发现 · 成交量 · 价格异动 · 多智能体异常扫描' }, {
           actions: () => h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
           default: () => !s ? h('div', { class: 'skel', style: 'height:240px' }) : [
             h('div', { class: 'grid g4 mb-16' }, [

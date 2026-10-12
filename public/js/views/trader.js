@@ -126,7 +126,7 @@
         catch (e) { App.notify.err(e.message); }
       }
 
-      return () => h('x-page', { title: '交易下单', desc: '限价委托 · 成交后配额即时划转并上链存证（每笔成交一笔 TRADE_DEAL 存证）' }, {
+      return () => h('x-page', { title: '配额挂牌', desc: '限价委托 · 成交后配额即时划转并上链存证（每笔成交一笔 TRADE_DEAL 存证）' }, {
         default: () => h('div', { class: 'grid g-1-2 mb-16' }, [
           h('x-card', { title: '提交委托' }, {
             default: () => h('div', { class: 'col gap-12' }, [
@@ -248,7 +248,7 @@
       const deals = ref([]);
       async function load() { try { deals.value = await App.API.request('GET', '/trade/deals'); } catch (e) { App.notify.err(e.message); } }
       onMounted(load);
-      return () => h('x-page', { title: '交易记录', desc: '全程可溯 · 每笔成交均上链存证，可点链上凭证跳转区块链浏览器' }, {
+      return () => h('x-page', { title: '成交记录', desc: '全程可溯 · 每笔成交均上链存证，可点链上凭证跳转区块链浏览器' }, {
         actions: () => h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
         default: () => h('x-card', { flush: true }, {
           default: () => h('x-table', {

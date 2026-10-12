@@ -149,7 +149,9 @@ async function listVersions() {
     id: Number(r.id), version: r.version,
     effectiveFrom: r.effective_from, effectiveTo: r.effective_to,
     operator: r.operator, status: r.status,
-    factorCount: (JSON.parse(r.snapshot || '[]')).length,
+    factorCount: (typeof r.snapshot === 'object' && r.snapshot !== null
+      ? r.snapshot
+      : JSON.parse(r.snapshot || '[]')).length,
     chainBlockIndex: r.chain_block_index, chainTxId: r.chain_tx_id,
   }));
 }

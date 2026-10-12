@@ -352,29 +352,65 @@ router.get('/logs', wrap(async (req, res) => {
   if (role) { where.push('role = ?'); params.push(role); }
   if (keyword) { where.push('(username LIKE ? OR action LIKE ? OR target LIKE ?)'); params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`); }
   const page = await db.paginate(
-    `SELECT * FROM audit_log WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC`, params, req.query
+    `SELECT id, user_id, username, role, module, action, target, detail, ip, result,
+            DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') AS created_at,
+            prev_hash, entry_hash, (entry_hash IS NOT NULL) AS sealed
+       FROM audit_log WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC`, params, req.query
   );
   ok(res, page);
 }));
 
 router.get('/system', wrap(async (req, res) => {
-  const tables = ['enterprise', 'verifier_org', 'sys_user', 'emission_report', 'emission_item',
+  // 动态枚举当前库的全部业务表（而非硬编码旧表清单），真实反映线上表数量，
+  // 避免「新增表后自检页仍显示旧的 14 张」的误导。
+  const allTables = await db.query(
+    `SELECT TABLE_NAME FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME`,
+    [require('../config').db.database]
+  );
+  // 优先展示核心业务表（有数据的），其余表补足
+  const core = ['enterprise', 'verifier_org', 'sys_user', 'emission_report', 'emission_item',
     'verify_task', 'verify_report', 'carbon_quota', 'quota_allocation',
     'chain_block', 'chain_tx', 'alert_record', 'audit_log', 'notice'];
+  const names = allTables.map((t) => t.TABLE_NAME || t.table_name);
+  const ordered = [...new Set([...core.filter((t) => names.includes(t)), ...names])];
   const counts = [];
-  for (const t of tables) {
-    counts.push({ table: t, rows: Number(await db.value(`SELECT COUNT(*) FROM ${t}`) || 0) });
+  for (const t of ordered) {
+    counts.push({ table: t, rows: Number(await db.value(`SELECT COUNT(*) FROM \`${t}\``) || 0) });
   }
   const byRole = await db.query('SELECT role, COUNT(*) AS cnt FROM sys_user GROUP BY role');
   const chain = await anchorSvc.getChain();
   const chainStats = await chain.stats();
   const validation = await chain.validateChain();
+
+  /* WP6：把"操作事实链"（审计哈希链）与"业务事实链"（联盟链）并排呈现。
+     两条链分工不同、都不可被静默篡改 —— 这是系统治理页最有说服力的一段。 */
+  let auditChainInfo = null;
+  let auditChainValidation = null;
+  try {
+    const auditChain = require('../services/auditChain');
+    auditChainInfo = await auditChain.stats();
+    auditChainValidation = await auditChain.verify({ sample: 1000 });
+  } catch (e) { auditChainInfo = { error: e.message }; }
+
   ok(res, {
     tableCounts: counts,
+    tableTotal: counts.length,
     totalRows: counts.reduce((a, b) => a + b.rows, 0),
     byRole,
     chain: chainStats,
     validation: { valid: validation.valid, checked: validation.checkedBlocks, errors: validation.errors.slice(0, 20), errorCount: validation.errors.length },
+    auditChain: auditChainInfo,
+    auditChainValidation: auditChainValidation
+      ? {
+        valid: auditChainValidation.valid,
+        mode: auditChainValidation.mode,
+        checked: auditChainValidation.checked,
+        errorCount: auditChainValidation.errors.length,
+        errorTypes: auditChainValidation.errorTypes,
+        errors: auditChainValidation.errors.slice(0, 20),
+      }
+      : null,
     runtime: {
       node: process.version,
       platform: process.platform,

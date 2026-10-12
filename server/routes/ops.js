@@ -9,6 +9,12 @@
  *   GET  /api/ops/canary     灰度状态
  *   POST /api/ops/canary     切换灰度功能开关（管理员）
  *   GET  /api/ops/health     深度健康检查（链/DB/内存/uptime）
+ *
+ * 审计日志哈希链（WP6 工程品质 · 操作事实防篡改）
+ *   GET  /api/ops/audit-chain              链状态概览（条目/已封印/链首链尾/按模块分布）
+ *   GET  /api/ops/audit-chain/verify       全链复算校验（?sample=N 仅抽查最后 N 条）
+ *   POST /api/ops/audit-chain/seal         封印历史未封印条目（管理员）
+ *   GET  /api/ops/audit-chain/entry/:id    单条条目可核验明细（含复算哈希）
  */
 'use strict';
 
@@ -16,7 +22,7 @@ const express = require('express');
 const monitor = require('../middleware/monitor');
 const slog = require('../middleware/structured-log');
 const canary = require('../middleware/canary');
-const { authRequired, requireRole, ok, fail } = require('../middleware/auth');
+const { authRequired, requireRole, writeLog, ok, fail, wrap } = require('../middleware/auth');
 const config = require('../config');
 
 const router = express.Router();
@@ -91,5 +97,49 @@ router.get('/health', async (req, res) => {
   const allOk = ['process', 'chain', 'db'].every((k) => checks[k] && checks[k].ok);
   res.status(allOk ? 200 : 503).json({ code: allOk ? 0 : 1, data: checks });
 });
+
+/* ==================================================================
+ * 审计日志哈希链（WP6）
+ * ------------------------------------------------------------------
+ * 需求来源：链上的业务事实再可信，操作它的人如果不留痕，"可信"也只是半截。
+ * 这里把 audit_log 从"可被静默 UPDATE 的普通表"升级为哈希链，并暴露
+ * 校验接口 —— 任何改动都能被独立复算抓出来。
+ * ================================================================== */
+
+/* 链状态概览 */
+router.get('/audit-chain', wrap(async (req, res) => {
+  const auditChain = require('../services/auditChain');
+  ok(res, await auditChain.stats());
+}));
+
+/* 全链复算校验（sample=0/省略 为全量） */
+router.get('/audit-chain/verify', wrap(async (req, res) => {
+  const auditChain = require('../services/auditChain');
+  const r = await auditChain.verify({ sample: Number(req.query.sample) || 0 });
+  /* 校验失败不是"接口错误"，而是"发现异常" —— 用 200 返回，让调用方读到明细；
+     仅当调用方主动要求 ?strict=1 时才以 4xx 表达失败，便于脚本 exit code 判断。 */
+  if (!r.valid && String(req.query.strict || '') === '1') {
+    return res.status(409).json({ code: 409, message: '审计链校验未通过，存在被篡改或未封印条目', data: r });
+  }
+  ok(res, r, r.valid ? '审计链完整，未发现篡改' : `审计链发现 ${r.errors.length} 处异常`);
+}));
+
+/* 封印历史未封印条目（仅管理员） */
+router.post('/audit-chain/seal', wrap(async (req, res) => {
+  if (req.user.role !== 'ADMIN') return fail(res, '仅管理员可执行审计链封印', 403);
+  const auditChain = require('../services/auditChain');
+  const r = await auditChain.seal({ limit: Number((req.body || {}).limit) || 2000 });
+  /* 封印本身也是一次"操作事实"，记一笔（它会被追加到刚封印的链尾之后） */
+  writeLog(req, '运维', '封印审计链', `sealed=${r.sealed}`, `剩余未封印 ${r.remaining} 条`).catch(() => {});
+  ok(res, r, r.sealed ? `已封印 ${r.sealed} 条` : '无待封印条目（幂等）');
+}));
+
+/* 单条条目可核验明细 */
+router.get('/audit-chain/entry/:id', wrap(async (req, res) => {
+  const auditChain = require('../services/auditChain');
+  const r = await auditChain.entry(req.params.id);
+  if (!r) return fail(res, `审计条目 #${req.params.id} 不存在`, 404);
+  ok(res, r);
+}));
 
 module.exports = router;

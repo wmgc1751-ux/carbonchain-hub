@@ -187,7 +187,10 @@ async function reconcileHistory(limit = 20) {
   return rows.map((r) => ({
     id: Number(r.id), reconNo: r.recon_no,
     totalRecords: Number(r.total_records), inconsistent: Number(r.inconsistent),
-    detail: JSON.parse(r.detail || '[]'), createdAt: r.created_at,
+    detail: (typeof r.detail === 'object' && r.detail !== null
+      ? r.detail
+      : JSON.parse(r.detail || '[]')),
+    createdAt: r.created_at,
   }));
 }
 

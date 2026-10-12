@@ -152,7 +152,7 @@
           '共识节点数': chainStats.value.nodes,
           '国密算法': 'SM2/SM3',
           'BOM碳分摊': bom,
-          '防篡改证据链': ['物理表计采样', '硬件芯片SM2签名', '智能合约核算', '权威节点共识确认'],
+          '防篡改证据链': ['物理表计采样', '边缘可信签名（国密 SM2）', '定点口径核算', '联盟链 PoA 共识确认'],
         };
         const blob = new Blob([JSON.stringify(dpp, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -389,7 +389,7 @@
               }),
               h('x-card', { title: '防篡改证据链', sub: '四级存证 · 穿透式核验' }, {
                 default: () => h('div', { class: 'col gap-8' }, [
-                  ['1. 物理表计采样', '2. 硬件芯片 SM2 签名', '3. 智能合约核算', '4. 权威节点共识确认'].map((t) =>
+                  ['1. 物理表计采样', '2. 边缘可信签名（国密 SM2）', '3. 定点口径核算', '4. 联盟链 PoA 共识确认'].map((t) =>
                     h('div', { class: 'proof-step' }, [h('i', { class: 'proof-dot' }), h('span', {}, t)])),
                   h('button', { class: 'btn primary mt-12', onClick: exportDPP }, [h('x-icon', { name: 'report', size: 14 }), '导出产品数字护照']),
                 ]),

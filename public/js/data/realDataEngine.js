@@ -165,6 +165,17 @@
   /** 尝试建立 WebSocket 连接（在线模式优先） */
   function connect(url) {
     if (state.ws) { try { state.ws.close(); } catch (e) {} state.ws = null; }
+
+    /* 静态部署（Cloudflare Pages）没有任何 WS 服务端，此时直接走归档序列，
+       避免无谓的连接失败请求与浏览器控制台报错（详见 staticApi.js）。 */
+    if (global.__CCH_DISABLE_WS__) {
+      state.url = '(静态模式 · 归档序列)';
+      state.status = 'offline';
+      emit('status', { status: 'offline', reason: 'static-hosting' });
+      startArchivePump();
+      return;
+    }
+
     const wsUrl = url
       || (typeof process !== 'undefined' && process.env && process.env.CCH_WS_URL)
       || ((location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws/telemetry');
