@@ -63,7 +63,7 @@ router.get('/me', authRequired, wrap(async (req, res) => {
   if (!entId) return fail(res, '仅企业端可查看本企业动态核算', 403);
   const ov = await dyn.overview(entId);
   const quota = await db.one(
-    `SELECT total_allocated, available, frozen, used, bought, sold FROM carbon_quota
+    `SELECT total_allocated, available, used FROM carbon_quota
      WHERE ent_id = ? AND year = YEAR(NOW())`, [entId]
   );
   ok(res, { ...ov, quota });

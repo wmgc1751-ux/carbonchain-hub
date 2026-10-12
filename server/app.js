@@ -87,6 +87,9 @@ app.use('/api/chain', require('./routes/chain'));
 app.use('/api/consortium', require('./routes/consortium'));
 app.use('/api/dynamic', require('./routes/dynamic'));
 app.use('/api/credit', require('./routes/credit'));
+app.use('/api/trade', require('./routes/trade'));
+app.use('/api/intelligence', require('./routes/intelligence'));
+app.use('/api/admin', require('./routes/admin'));
 app.use('/api/public', require('./routes/public'));
 app.use('/api/ops', require('./routes/ops'));
 

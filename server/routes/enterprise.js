@@ -1,6 +1,6 @@
 /**
  * routes/enterprise.js —— 企业端 API
- * 碳排放数据上报 / 链上存证 / 配额账户 / 碳配额交易 / 数据分析
+ * 碳排放数据上报 / 链上存证 / 配额账户 / 碳配额履约与流转 / 数据分析
  */
 'use strict';
 
@@ -8,7 +8,6 @@ const express = require('express');
 const db = require('../db');
 const cu = require('../blockchain/crypto-utils');
 const anchorSvc = require('../services/anchor');
-const trade = require('../services/trade');
 const keystore = require('../blockchain/keystore');
 const { authRequired, requireRole, writeLog, ok, fail, wrap } = require('../middleware/auth');
 
@@ -32,7 +31,7 @@ router.get('/overview', wrap(async (req, res) => {
   ) || 0);
 
   const quota = await db.one('SELECT * FROM carbon_quota WHERE ent_id = ? AND year = ?', [id, YEAR]) || {
-    total_allocated: 0, available: 0, frozen: 0, used: 0, bought: 0, sold: 0,
+    total_allocated: 0, available: 0, used: 0,
   };
 
   const statusCount = await db.query(
@@ -44,11 +43,6 @@ router.get('/overview', wrap(async (req, res) => {
   const chainAnchors = Number(await db.value(
     `SELECT COUNT(*) FROM chain_tx t JOIN emission_report r ON r.chain_tx_id = t.tx_id WHERE r.ent_id = ?`, [id]
   ) || 0);
-
-  const dealTotal = await db.one(
-    `SELECT COUNT(*) AS cnt, IFNULL(SUM(total_amount),0) AS amt FROM trade_deal WHERE buyer_ent_id = ? OR seller_ent_id = ?`,
-    [id, id]
-  );
 
   const trend = await db.query(
     `SELECT period, total_emission AS total, scope1_emission AS s1, scope2_emission AS s2,
@@ -91,7 +85,7 @@ router.get('/overview', wrap(async (req, res) => {
       quotaAllocated: Number(quota.total_allocated),
       quotaAvailable: Number(quota.available),
       quotaUsed: Number(quota.used),
-      quotaGap: Number((Number(quota.total_allocated) + Number(quota.bought) - Number(quota.sold) - Number(quota.used)).toFixed(2)),
+      quotaGap: Number((Number(quota.total_allocated) - Number(quota.used)).toFixed(2)),
       complianceRate: Number(quota.total_allocated) > 0
         ? Number(((Number(quota.total_allocated) / Math.max(Number(quota.used), 1)) * 100).toFixed(1)) : 0,
       reportTotal: Object.values(statusMap).reduce((a, b) => a + b, 0),
@@ -99,8 +93,6 @@ router.get('/overview', wrap(async (req, res) => {
       reportPending: (statusMap.SUBMITTED || 0) + (statusMap.VERIFYING || 0),
       reportRejected: statusMap.REJECTED || 0,
       chainAnchors,
-      dealCount: Number(dealTotal.cnt || 0),
-      dealAmount: Number(Number(dealTotal.amt || 0).toFixed(2)),
       industryRank: Number(rank[0].better) + 1,
       industryTotal,
     },
@@ -351,65 +343,6 @@ router.get('/quota', wrap(async (req, res) => {
 }));
 
 /* ==================================================================
- * 交易：挂单 / 撤单 / 订单簿 / 成交
- * ================================================================== */
-router.get('/orders', wrap(async (req, res) => {
-  const { status, side } = req.query;
-  const where = ['ent_id = ?'];
-  const params = [entId(req)];
-  if (status) { where.push('status = ?'); params.push(status); }
-  if (side) { where.push('side = ?'); params.push(side); }
-  const page = await db.paginate(
-    `SELECT * FROM trade_order WHERE ${where.join(' AND ')} ORDER BY created_at DESC`, params, req.query
-  );
-  ok(res, page);
-}));
-
-/** 市场订单簿（全部企业的未成交委托，用于画买卖盘口） */
-router.get('/orderbook', wrap(async (req, res) => {
-  const rows = await db.query(
-    `SELECT o.id, o.order_no, o.side, o.price, (o.amount - o.filled_amount) AS remain, e.ent_name, o.created_at
-     FROM trade_order o JOIN enterprise e ON e.id = o.ent_id
-     WHERE o.status IN ('OPEN','PARTIAL') AND (o.amount - o.filled_amount) > 0
-     ORDER BY o.price DESC LIMIT 40`
-  );
-  const bids = rows.filter((r) => r.side === 'BUY').sort((a, b) => b.price - a.price).slice(0, 8);
-  const asks = rows.filter((r) => r.side === 'SELL').sort((a, b) => a.price - b.price).slice(0, 8);
-  const last = await db.one('SELECT price, deal_time FROM trade_deal ORDER BY deal_time DESC LIMIT 1');
-  ok(res, { bids, asks, lastPrice: last ? Number(last.price) : null, lastTime: last ? last.deal_time : null });
-}));
-
-router.post('/orders', wrap(async (req, res) => {
-  const { side, price, amount, year } = req.body || {};
-  const r = await trade.placeOrder({ entId: entId(req), side, price, amount, year: year || YEAR });
-  await writeLog(req, '交易撮合', '创建挂单', r.orderNo,
-    `${side} ${amount} 吨 @ ${price} 元/吨，成交 ${r.deals.length} 笔`);
-  ok(res, r, r.deals.length ? `挂单成功并即时成交 ${r.deals.length} 笔` : '挂单成功，已进入撮合队列');
-}));
-
-router.post('/orders/:id/cancel', wrap(async (req, res) => {
-  const r = await trade.cancelOrder(req.params.id, entId(req));
-  await writeLog(req, '交易撮合', '撤销挂单', `#${req.params.id}`, `解冻 ${r.cancelled} 吨配额`);
-  ok(res, r, '撤单成功，冻结配额已解冻');
-}));
-
-router.get('/deals', wrap(async (req, res) => {
-  const id = entId(req);
-  const where = ['(d.buyer_ent_id = ? OR d.seller_ent_id = ?)'];
-  const params = [id, id];
-  if (req.query.period) { where.push("DATE_FORMAT(d.deal_time,'%Y-%m') = ?"); params.push(req.query.period); }
-  const page = await db.paginate(
-    `SELECT d.*, b.ent_name AS buyer_name, s.ent_name AS seller_name,
-            CASE WHEN d.buyer_ent_id = ${Number(id)} THEN 'BUY' ELSE 'SELL' END AS my_side
-     FROM trade_deal d
-     JOIN enterprise b ON b.id = d.buyer_ent_id
-     JOIN enterprise s ON s.id = d.seller_ent_id
-     WHERE ${where.join(' AND ')} ORDER BY d.deal_time DESC`, params, req.query
-  );
-  ok(res, page);
-}));
-
-/* ==================================================================
  * 数据分析
  * ================================================================== */
 router.get('/analytics', wrap(async (req, res) => {
@@ -424,10 +357,13 @@ router.get('/analytics', wrap(async (req, res) => {
      WHERE i.ent_id = ? AND r.year = ? GROUP BY i.energy_type ORDER BY value DESC`, [id, YEAR]
   );
   const quota = await db.one('SELECT * FROM carbon_quota WHERE ent_id = ? AND year = ?', [id, YEAR]);
+  // 履约缺口动态：按季度核算出的累计排放 vs 配额，反映「动态核算 → 履约」的缺口走势
   const monthly = await db.query(
-    `SELECT DATE_FORMAT(deal_time,'%Y-%m') AS month, IFNULL(SUM(amount),0) AS amount,
-            IFNULL(AVG(price),0) AS price
-     FROM trade_deal WHERE buyer_ent_id = ? OR seller_ent_id = ? GROUP BY month ORDER BY month`, [id, id]
+    `SELECT DATE_FORMAT(r.created_at,'%Y-%m') AS month,
+            IFNULL(SUM(r.total_emission),0) AS amount
+     FROM emission_report r
+     WHERE r.ent_id = ? AND r.year = ? AND r.status <> 'DRAFT'
+     GROUP BY month ORDER BY month`, [id, YEAR]
   );
   const peers = await db.query(
     `SELECT e.ent_name AS name, SUM(r.total_emission) AS value
@@ -438,7 +374,7 @@ router.get('/analytics', wrap(async (req, res) => {
   ok(res, {
     trend, mix,
     quota: quota || {},
-    monthly: monthly.map((m) => ({ ...m, amount: Number(m.amount), price: Number(Number(m.price).toFixed(2)) })),
+    monthly: monthly.map((m) => ({ ...m, amount: Number(m.amount) })),
     peers: peers.map((p) => ({ ...p, value: Number(p.value), isMe: false })),
     myName: (await db.value('SELECT ent_name FROM enterprise WHERE id = ?', [id])),
   });

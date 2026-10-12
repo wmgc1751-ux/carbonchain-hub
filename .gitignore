@@ -49,3 +49,9 @@ _stage_zip/
 /_*.js
 /_*.py
 /_*.png
+
+# ---- 本地工作数据 / 缓存（不入库） ----
+.npm-cache/
+.workbuddy/
+/_ui-check/
+/stage4-demo/
