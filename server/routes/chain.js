@@ -20,7 +20,6 @@ const TX_TYPE_CN = {
   EMISSION_REPORT: '排放上报存证',
   VERIFY_REPORT: '核查报告存证',
   QUOTA_ALLOC: '配额分配存证',
-  TRADE_DEAL: '交易成交存证',
   ENTERPRISE_REG: '企业备案存证',
 };
 
