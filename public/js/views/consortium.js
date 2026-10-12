@@ -95,7 +95,7 @@
             }, {
               actions: () => h('div', { class: 'flex gap-8' }, [
                 h('span', { class: 'tag t-mute' }, `平均链路延迟 ${ts.avgLatency} ms`),
-                h('span', { class: 'tag chain' }, `${ts.consistent}/${ts.total} 副本与主链一致`),
+                h('span', { class: 'tag chain' }, `拓扑示意 · ${ts.active}/${ts.total} 节点已授权`),
               ]),
               default: () => h('div', {}, [
                 /* 共识核心 */

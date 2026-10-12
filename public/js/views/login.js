@@ -271,7 +271,10 @@
             h('h3', {}, '登录平台'),
             h('p', { class: 'muted tiny mt-8' }, '请选择下方任一演示身份，或手动输入账号密码'),
 
-            h('div', { class: 'mt-20' }, [
+            h('form', {
+              class: 'mt-20',
+              onSubmit: (e) => { e.preventDefault(); submit(); },
+            }, [
               h('div', { class: 'field' }, [
                 h('label', {}, '登录账号'),
                 h('input', {
@@ -290,7 +293,7 @@
               ]),
               err.value && h('div', { class: 'alertbar err mb-12' }, [h('x-icon', { name: 'alert', size: 15 }), err.value]),
               h('button', {
-                class: 'btn primary block lg', disabled: loading.value, onClick: submit,
+                class: 'btn primary block lg', type: 'submit', disabled: loading.value, onClick: submit,
               }, [
                 h('x-icon', { name: loading.value ? 'refresh' : 'logout', size: 16 }),
                 loading.value ? '正在验证…' : '登 录',
