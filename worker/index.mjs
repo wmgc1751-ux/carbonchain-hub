@@ -45,10 +45,13 @@ import { attachCopilotRoutes } from './routes/copilot.mjs';
 import { attachNoticeFeedRoutes } from './routes/noticeFeed.mjs';
 import { attachEvidenceRoutes } from './routes/evidence.mjs';
 import { refreshAggregates } from './jobs/aggregate.mjs';
+import { BUILD_INFO } from './lib/buildInfo.generated.mjs';
 
+/* 构建信息来自部署前 tools/gen-build-info.mjs 生成的模块（git sha + 时间戳），
+ * 不再硬编码 —— /api/health 由此可判断线上到底是哪个提交。 */
 const BUILD = {
-  version: '2.0.0-worker',
-  builtAt: '2026-10-24',
+  version: BUILD_INFO.version,
+  builtAt: `${BUILD_INFO.builtAt} · ${BUILD_INFO.gitSha}@${BUILD_INFO.gitBranch}`,
   runtime: 'cloudflare-workers',
   database: 'd1',
 };
