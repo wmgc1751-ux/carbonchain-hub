@@ -717,4 +717,45 @@ router.post('/internal/anchor', wrap(async (req, res) => {
   }, `存证已写入权威链区块 #${chain.blockIndex}`);
 }));
 
+/* 内部：预警处置结果同步给小程序（2026-10-31 通知互通）
+ * ------------------------------------------------------------------
+ * 两端各有一张预警表（平台 alert_record / 小程序 cc_alert），编号体系
+ * 完全不同（AL2600001 vs AL202600001），企业归属也不一致。做实时推送前
+ * 必须先解决"哪条是同一件事"的问题，所以这里只暴露**按企业 id 查询
+ * 处置状态**的只读视图：小程序侧用自己的 alert 记录发起查询，按 ent_id
+ * 与时间窗口匹配，把平台侧的处置结论合并展示。
+ *
+ * 鉴权与 internal/anchor 相同（x-internal-token），未配置则 403 关闭。 */
+router.get('/internal/alerts', wrap(async (req, res) => {
+  if (!MINI_ANCHOR_TOKEN) return fail(res, '内部接口未启用（未配置 MINI_ANCHOR_TOKEN）', 403);
+  const provided = String(req.headers['x-internal-token'] || '');
+  const a = Buffer.from(provided);
+  const b = Buffer.from(MINI_ANCHOR_TOKEN);
+  if (a.length !== b.length || !require('crypto').timingSafeEqual(a, b)) {
+    return fail(res, '内部凭据无效', 403);
+  }
+  const entId = Number(req.query.entId);
+  if (!Number.isInteger(entId) || entId <= 0) return fail(res, 'entId 必须为正整数', 400);
+  const rows = await db.query(
+    `SELECT alert_no, ent_id, alert_type, level, title, status, handler, handle_note, created_at, closed_at
+       FROM alert_record WHERE ent_id = ? ORDER BY id DESC LIMIT 100`,
+    [entId],
+  );
+  return ok(res, {
+    entId,
+    total: rows.length,
+    rows: rows.map((r) => ({
+      alertNo: r.alert_no,
+      type: r.alert_type,
+      level: r.level,
+      title: r.title,
+      status: r.status,
+      handler: r.handler || null,
+      note: r.handle_note || null,
+      createdAt: r.created_at,
+      closedAt: r.closed_at,
+    })),
+  });
+}));
+
 module.exports = router;
