@@ -74,7 +74,7 @@
     "d1:verify": "node tools/migrate-to-d1.mjs --verify",
     "d1:sql-check": "node tools/validate-worker-sql.mjs",
     "deploy:worker": "wrangler deploy --config wrangler.worker.json",
-    "deploy:pages": "wrangler pages deploy dist --project-name carbonchain-hub --branch main --commit-dirty=true",
+    "deploy:pages": "node tools/gen-build-info.mjs && wrangler pages deploy dist --project-name carbonchain-hub --branch main --commit-dirty=true",
     "deploy": "npm run verify:dist && node C:/Users/wang/.workbuddy/binaries/node/versions/22.22.2-6/node.exe C:/Users/wang/.workbuddy/binaries/node/workspace/node_modules/wrangler/bin/wrangler.js pages deploy dist --project-name carbonchain-hub --branch main --commit-dirty=true",
     "verify:live": "bash tools/verify-live.sh",
     "resume:migrate": "bash tools/resume-migration.sh",

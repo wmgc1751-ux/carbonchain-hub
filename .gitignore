@@ -81,3 +81,6 @@ auth-wal
 .wrangler/
 # Pages 部署快照（构建产物，46MB；重建=复制 public + _headers/_redirects 后跑 npm run verify:dist）
 dist/
+
+# ---- 构建时生成（部署前由 tools/gen-build-info.mjs 刷新，仓库保留占位）----
+worker/lib/buildInfo.generated.mjs
