@@ -15,12 +15,26 @@
     setup() {
       const d = ref(null);
       const err = ref('');
-      async function load() { try { d.value = await App.API.get('/regulator/overview'); err.value = ''; } catch (e) { err.value = e.message; } }
+      /* 业务年度以服务端为准：平台数据在 2024/2025，写死系统时钟的当年会让
+       * 标题写「2026 年度」而数字却取不到（2026-10-29 巡检 P0-2）。 */
+      const RY = computed(() => (d.value && d.value.reportYear) || YEAR);
+      /* 年度切换（2026-10-29 巡检 P0-2：驾驶舱原先锁死单一业务年度，
+       * 想核对上一年完整数据只能改系统时钟）。空串表示"跟随服务端默认年度"。
+       * 可选年份由接口回传（库内真实存在数据的年份），不写死。 */
+      const selYear = ref('');
+      async function load() {
+        try {
+          d.value = await App.API.get('/regulator/overview', selYear.value ? { year: selYear.value } : {});
+          err.value = '';
+        } catch (e) { err.value = e.message; }
+      }
       onMounted(load);
 
       const trendOption = computed(() => {
         if (!d.value) return null;
         const t = d.value.trend;
+        /* 无数据置空 option → x-chart 渲染占位组件，而非 0-1 空轴（2026-10-29） */
+        if (!Array.isArray(t) || !t.length) return null;
         return App.chartBase({
           legend: { data: ['排放总量', '排放强度'], top: 0, right: 6 },
           grid: { left: 10, right: 26, top: 34, bottom: 6, containLabel: true },
@@ -28,40 +42,20 @@
           yAxis: [App.valAxis({ name: 'tCO₂e' }), App.valAxis({ name: '强度', splitLine: { show: false } })],
           series: [
             { name: '排放总量', type: 'line', smooth: true, symbolSize: 6, data: t.map((x) => x.total), lineStyle: { width: 2.6, color: '#10b981' }, itemStyle: { color: '#34d399' }, areaStyle: { color: App.areaGrad('rgba(16,185,129,.4)', 'rgba(16,185,129,.01)') } },
-            { name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 5, data: t.map((x) => x.intensity), lineStyle: { color: '#38bdf8', width: 2, type: 'dashed' }, itemStyle: { color: '#38bdf8' } },
+            /* connectNulls：剔除不完整报告期后 intensity 可能为 null，
+             * 默认遇到 null 就断线，曲线中途垂直断开（缺陷 P2-38）。
+             * 断点仍会在 tooltip 里如实显示，但线不断。 */
+            { name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, symbolSize: 5, connectNulls: true, data: t.map((x) => x.intensity), lineStyle: { color: '#38bdf8', width: 2, type: 'dashed' }, itemStyle: { color: '#38bdf8' } },
           ],
         });
       });
 
-      const industryOption = computed(() => {
-        if (!d.value) return null;
-        return App.chartBase({
-          tooltip: Object.assign(App.chartBase().tooltip, { trigger: 'item', formatter: '{b}<br/>{c} tCO₂e（{d}%）' }),
-          legend: { orient: 'vertical', right: 4, top: 'center' },
-          series: [{
-            type: 'pie', radius: ['46%', '72%'], center: ['36%', '52%'],
-            itemStyle: { borderColor: 'rgba(6,10,18,.9)', borderWidth: 2, borderRadius: 4 },
-            label: { show: false }, labelLine: { show: false },
-            data: d.value.byIndustry.map((x) => ({ name: x.name, value: Math.round(x.value) })),
-          }],
-        });
-      });
-
-      const regionOption = computed(() => {
-        if (!d.value) return null;
-        const list = (d.value.byRegion || []).slice().reverse();
-        return App.chartBase({
-          grid: { left: 10, right: 46, top: 14, bottom: 6, containLabel: true },
-          tooltip: Object.assign(App.chartBase().tooltip, { formatter: (ps) => `${ps[0].name}<br/><b>${App.fmt.num(ps[0].value)}</b> tCO₂e` }),
-          xAxis: App.valAxis({ show: false }),
-          yAxis: App.catAxis(list.map((x) => x.name), { axisLabel: { fontSize: 10.5 } }),
-          series: [{
-            type: 'bar', data: list.map((x) => x.value), barWidth: 10,
-            itemStyle: { borderRadius: [0, 5, 5, 0], color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: 'rgba(167,139,250,.3)' }, { offset: 1, color: '#a78bfa' }]) },
-            label: { show: true, position: 'right', color: '#8d9cb5', fontSize: 10.5, formatter: (p) => App.fmt.big(p.value) },
-          }],
-        });
-      });
+      /* 行业构成 / 区域分布两张图已从本页移除（2026-10-30）。
+       * 它们与「统计分析」页的 industryOption / regionOption 是同一份数据：
+       * 实测 /regulator/overview.byIndustry 与 /regulator/statistics.industries
+       * 的 8 个行业数值逐条相同，区域分布亦然。驾驶舱是"一眼看全局"的落地页，
+       * 下钻口径归统计分析 —— 两页画同样的图，等于让用户以为看到的是两组指标。
+       * 驾驶舱保留它独有的内容：趋势、核查进度、履约风险榜、最新预警。 */
 
       const verifyOption = computed(() => {
         if (!d.value) return null;
@@ -93,34 +87,43 @@
         return h('div', {}, [
           h('x-page', {
             title: '监管驾驶舱',
-            desc: `碳资产动态核算与可信存证监管总览 · 统计口径：${YEAR} 年度 · 数据每 60 秒自动刷新`,
+            desc: `碳资产动态核算与可信存证监管总览 · 统计口径：${RY.value} 年度 · 数据每 60 秒自动刷新`,
           }, {
             actions: () => [
+              h('select', {
+                class: 'select', style: 'width:126px', 'aria-label': '统计年度',
+                value: String(RY.value),
+                onChange: (e) => { selYear.value = e.target.value; load(); },
+              }, (d.value.years && d.value.years.length ? d.value.years : [RY.value])
+                .map((y) => h('option', { value: String(y) }, `${y} 年度`))),
               h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
               h('button', { class: 'btn sm', onClick: () => App.go('/reg/stats') }, [h('x-icon', { name: 'chart', size: 14 }), '深度分析']),
               h('button', { class: 'btn sm primary', onClick: () => App.go('/reg/allocations') }, [h('x-icon', { name: 'coin', size: 14 }), '配额分配']),
             ],
             default: () => [
-              h('div', { class: 'grid g4 mb-16' }, [
+              /* 6 张 KPI 用 3 列（=2 行）而非 4 列：4 列会让第二行只剩 2 张、
+               * 右侧空出两格。6 张卡与 3 列整除，任何断点下都不会出现空洞。 */
+              h('div', { class: 'grid g3 mb-16' }, [
                 h('x-kpi', { label: '纳入控排企业', value: App.fmt.num(k.entCount), unit: '家', icon: 'factory', tone: 'carbon', foot: `正常经营 ${k.activeEnt} 家` }),
-                h('x-kpi', { label: `${YEAR} 年度排放总量`, value: App.fmt.big(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'sky', foot: `${App.fmt.num(k.reports)} 份上报单 · 平均强度 ${k.avgIntensity}` }),
+                h('x-kpi', { label: `${RY.value} 年度排放总量`, value: App.fmt.big(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'sky', foot: `${App.fmt.num(k.reports)} 份上报单 · 平均强度 ${k.avgIntensity}` }),
                 h('x-kpi', { label: '已核证配额总量', value: App.fmt.big(k.quotaAllocated), unit: 'tCO₂e', icon: 'coin', tone: 'violet', foot: `已用完 ${App.fmt.big(k.quotaUsed)} · 剩余 ${App.fmt.big(k.quotaAvailable)}` }),
                 h('x-kpi', { label: '存在履约缺口企业', value: k.gapCount, unit: '家', icon: 'alert', tone: 'rose', foot: '动态核算可用配额为负' }),
                 h('x-kpi', { label: '链上存证总数', value: App.fmt.num(k.chainAnchors ?? 0), unit: '笔', icon: 'chain', tone: 'chain', foot: '核算结果上链存证' }),
                 h('x-kpi', { label: '未关闭预警', value: k.alertOpen, unit: '条', icon: 'alert', tone: 'rose', foot: `其中高风险 ${k.alertHigh} 条 · 累计 ${k.alertTotal} 条` }),
               ]),
 
-              h('div', { class: 'grid g-3-2 mb-16' }, [
-                h('x-card', { title: '全市场排放趋势', sub: '按报告期汇总的排放总量与排放强度' }, { default: () => h('x-chart', { option: trendOption.value, height: 'h300' }) }),
-                h('x-card', { title: '核查进度', sub: `${YEAR} 年度上报单状态分布` }, { default: () => h('x-chart', { option: verifyOption.value, height: 'h300' }) }),
-              ]),
-
-              h('div', { class: 'grid g-3-2 mb-16' }, [
-                h('x-card', { title: '行业排放结构' }, { default: () => h('x-chart', { option: industryOption.value, height: 'h300' }) }),
-                h('x-card', { title: '区域排放分布', sub: '按省级行政区（单位 tCO₂e）' }, { default: () => h('x-chart', { option: regionOption.value, height: 'h300' }) }),
-              ]),
-
+              /* 趋势 + 核查进度：驾驶舱独有的两张图（行业/区域已归还统计分析页） */
               h('div', { class: 'grid g2 mb-16' }, [
+                h('x-card', {
+                  title: '全市场排放趋势',
+                  sub: d.value.trendNote || '按报告期汇总的排放总量与排放强度',
+                }, { default: () => h('x-chart', { option: trendOption.value, height: 'h300' }) }),
+                h('x-card', { title: '核查进度', sub: `${RY.value} 年度上报单状态分布` }, { default: () => h('x-chart', { option: verifyOption.value, height: 'h300' }) }),
+              ]),
+
+              /* 履约风险 TOP10 独占整行：它是驾驶舱第一优先级（谁快要违约），
+               * 10 行表格放半宽会把企业名截断，放整行才看得全。 */
+              h('div', { class: 'mb-16' }, [
                 h('x-card', { title: '履约风险企业 TOP10', sub: '动态核算可用配额最少的十家企业', flush: true }, {
                   actions: () => h('button', { class: 'btn sm ghost', onClick: () => App.go('/reg/alerts') }, '预警中心'),
                   default: () => h('x-table', {
@@ -138,7 +141,7 @@
                     'col-industry': ({ value }) => h('span', { class: 'tag t-mute plain' }, value),
                     'col-total_allocated': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
                     'col-used': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
-                    'col-gap': ({ value }) => h('b', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, App.fmt.num(value, 0)),
+                    'col-gap': ({ value }) => h('b', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : 'var(--danger-tx)'}` }, App.fmt.num(value, 0)),
                   }),
                 }),
               ]),
@@ -220,33 +223,32 @@
       return () => h('div', {}, [
         h('x-page', {
           title: '控排企业名录',
-          desc: '覆盖全国 28 个省级行政区的重点排放单位。点击任意企业可查看其上报表、配额账户、预警事项与链上存证明细。',
+          desc: '覆盖平台在册的重点排放单位。点击任意企业可查看其上报表、配额账户、预警事项与链上存证明细。',
         }, {
           default: () => h('x-card', { flush: true }, {
             head: () => h('div', { class: 'flex gap-8 wrap', style: 'flex:1;align-items:center' }, [
               h('div', { class: 'input-group', style: 'width:260px' }, [
-                h('input', { class: 'input', placeholder: '企业名称 / 信用代码', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
-                h('button', { class: 'btn', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
+                h('input', { class: 'input', placeholder: '企业名称 / 主体编号', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
+                h('button', { class: 'btn', 'aria-label': '搜索', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
               ]),
-              h('select', { class: 'select', style: 'width:120px', value: filters.industry, onChange: (e) => { filters.industry = e.target.value; load(); } }, [
+              h('select', { class: 'select', 'aria-label': '行业筛选', style: 'width:120px', value: filters.industry, onChange: (e) => { filters.industry = e.target.value; load(); } }, [
                 h('option', { value: '' }, '全部行业'), ...opts.value.industries.map((x) => h('option', { value: x }, x)),
               ]),
-              h('select', { class: 'select', style: 'width:150px', value: filters.region, onChange: (e) => { filters.region = e.target.value; load(); } }, [
+              h('select', { class: 'select', 'aria-label': '地区筛选', style: 'width:150px', value: filters.region, onChange: (e) => { filters.region = e.target.value; load(); } }, [
                 h('option', { value: '' }, '全部地区'), ...opts.value.regions.map((x) => h('option', { value: x }, x)),
               ]),
-              h('select', { class: 'select', style: 'width:120px', value: filters.scale, onChange: (e) => { filters.scale = e.target.value; load(); } }, [
+              h('select', { class: 'select', 'aria-label': '规模筛选', style: 'width:120px', value: filters.scale, onChange: (e) => { filters.scale = e.target.value; load(); } }, [
                 h('option', { value: '' }, '全部规模'), ['大型', '中型', '小型'].map((x) => h('option', { value: x }, x)),
               ]),
-              h('select', { class: 'select', style: 'width:130px', value: filters.status, onChange: (e) => { filters.status = e.target.value; load(); } }, [
+              h('select', { class: 'select', 'aria-label': '状态筛选', style: 'width:130px', value: filters.status, onChange: (e) => { filters.status = e.target.value; load(); } }, [
                 h('option', { value: '' }, '全部状态'), ...Object.keys(App.DICT.entStatus).map((k) => h('option', { value: k }, App.DICT.entStatus[k][0])),
               ]),
             ]),
             default: () => [
               h('x-table', {
                 columns: [
-                  { key: 'ent_name', title: '企业名称' },
-                  { key: 'ent_code', title: '统一社会信用代码', width: '190px' },
-                  { key: 'industry', title: '行业', width: '85px' },
+                  { key: 'ent_name', title: '企业名称 / 主体编号', width: '190px' },
+                  { key: 'industry', title: '行业', width: '80px' },
                   { key: 'region', title: '地区', width: '110px' },
                   { key: 'scale', title: '规模', width: '70px' },
                   { key: 'emission_ytd', title: '本年度排放(tCO₂e)', align: 'right' },
@@ -259,12 +261,17 @@
                 ],
                 rows: pager.state.rows, loading: pager.state.loading, rowClick: open,
               }, {
-                'col-ent_code': ({ value }) => h('span', { class: 'mono tiny' }, value),
+                /* 12 列在 1440 宽下会把"状态"挤出卡片右边。
+                   把主体编号并进企业名称做成两行，省下 190px，行高统一、不裁列。 */
+                'col-ent_name': ({ row }) => h('div', {}, [
+                  h('span', { class: 'ellipsis', title: row.ent_name, style: 'display:block;max-width:190px' }, row.ent_name),
+                  h('span', { class: 'mono tiny', style: 'opacity:.9' }, row.ent_code),
+                ]),
                 'col-industry': ({ value }) => h('span', { class: 'tag t-mute plain' }, value),
                 'col-scale': ({ value }) => h('span', { class: 'tag plain ' + (App.DICT.scale[value] || 't-mute') }, value),
                 'col-emission_ytd': ({ value }) => h('b', { class: 'mono' }, App.fmt.num(value, 0)),
                 'col-total_allocated': ({ value }) => h('span', { class: 'mono' }, App.fmt.num(value, 0)),
-                'col-available': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, App.fmt.num(value, 0)),
+                'col-available': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : 'var(--danger-tx)'}` }, App.fmt.num(value, 0)),
                 'col-verified_reports': ({ value }) => h('span', { class: 'mono muted' }, value),
                 'col-chain_txs': ({ value }) => h('span', { class: 'tag t-chain plain' }, value),
                 'col-status': ({ row }) => h('x-tag', { dict: App.DICT.entStatus, dictKey: row.status }),
@@ -286,7 +293,7 @@
             const e = detail.value;
             return h('div', {}, [
               h('div', { class: 'grid g4 mb-16' }, [
-                h('x-kpi', { label: '统一社会信用代码', value: e.ent_code, tone: 'sky', foot: `${e.industry} · ${e.scale}企业` }),
+                h('x-kpi', { label: '主体编号（演示）', value: e.ent_code, tone: 'sky', foot: `${e.industry} · ${e.scale}企业` }),
                 h('x-kpi', { label: '年产值', value: App.fmt.big(e.annual_output), unit: '万元', tone: 'violet', foot: `员工 ${App.fmt.num(e.headcount)} 人` }),
                 h('x-kpi', { label: '碳信用分', value: e.credit_score, unit: '分', tone: e.credit_score >= 85 ? 'carbon' : 'rose', foot: `状态 ${App.DICT.entStatus[e.status] ? App.DICT.entStatus[e.status][0] : e.status}` }),
                 h('x-kpi', { label: '链上钱包', value: App.fmt.addr(e.wallet_address), tone: 'chain', foot: '点击下方可复制完整地址' }),
@@ -305,8 +312,8 @@
                   h('div', { class: 'grid g4 mt-12' }, [
                     h('div', { class: 'readout' }, [h('span', { class: 'k' }, '分配配额'), h('span', { class: 'mono', style: 'margin-left:auto' }, App.fmt.num(quotaBar.value.q.total_allocated, 0))]),
                     h('div', { class: 'readout' }, [h('span', { class: 'k' }, '实际排放'), h('span', { class: 'mono', style: 'margin-left:auto' }, App.fmt.num(quotaBar.value.q.used, 0))]),
-                    h('div', { class: 'readout' }, [h('span', { class: 'k' }, '履约状态'), h('span', { class: 'mono', style: `margin-left:auto;color:${Number(quotaBar.value.q.available) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, Number(quotaBar.value.q.available) >= 0 ? '盈余' : '缺口')]),
-                    h('div', { class: 'readout' }, [h('span', { class: 'k' }, '可用余额'), h('span', { class: 'mono', style: `margin-left:auto;color:${Number(quotaBar.value.q.available) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, App.fmt.num(quotaBar.value.q.available, 0))]),
+                    h('div', { class: 'readout' }, [h('span', { class: 'k' }, '履约状态'), h('span', { class: 'mono', style: `margin-left:auto;color:${Number(quotaBar.value.q.available) >= 0 ? 'var(--carbon-l)' : 'var(--danger-tx)'}` }, Number(quotaBar.value.q.available) >= 0 ? '盈余' : '缺口')]),
+                    h('div', { class: 'readout' }, [h('span', { class: 'k' }, '可用余额'), h('span', { class: 'mono', style: `margin-left:auto;color:${Number(quotaBar.value.q.available) >= 0 ? 'var(--carbon-l)' : 'var(--danger-tx)'}` }, App.fmt.num(quotaBar.value.q.available, 0))]),
                   ]),
                 ]),
               }),
@@ -351,7 +358,7 @@
                   }, {
                     'col-level': ({ row }) => h('x-tag', { dict: App.DICT.alertLevel, dictKey: row.level }),
                     'col-status': ({ row }) => h('x-tag', { dict: App.DICT.alertStatus, dictKey: row.status }),
-                  }) : h('div', { class: 'empty' }, '暂无预警'),
+                  }) : h('x-empty', { title: '当前无预警', sub: '全部控排企业均在阈值内，风险监测持续运行中', icon: 'shield', tone: 'safe' }),
                 }),
                 h('x-card', { title: '链上存证记录', flush: true }, {
                   default: () => h('x-table', {
@@ -384,7 +391,9 @@
     name: 'page-reg-allocations',
     setup() {
       const pager = App.usePager((p) => App.API.get('/regulator/allocations', p), { page: 1, size: 12 });
-      const filters = reactive({ year: String(YEAR), type: '', keyword: '' });
+      /* 默认不限定年度：平台数据在 2024/2025，若默认取系统时钟的 2026，
+       * 本页首屏必然是 0 笔流水 + 暂无数据（2026-10-29 巡检 P0-3b）。 */
+      const filters = reactive({ year: '', type: '', keyword: '' });
       const summary = ref(null);
       const showForm = ref(false);
       const busy = ref(false);
@@ -422,21 +431,24 @@
           actions: () => h('button', { class: 'btn sm primary', onClick: () => { showForm.value = true; } }, [h('x-icon', { name: 'plus', size: 14 }), '下发配额']),
           default: () => [
             summary.value && h('div', { class: 'grid g3 mb-16' }, [
-              h('x-kpi', { label: `${filters.year} 年度累计分配配额`, value: App.fmt.big(summary.value.total), unit: 'tCO₂e', icon: 'coin', tone: 'carbon' }),
+              h('x-kpi', { label: filters.year ? `${filters.year} 年度累计分配配额` : '累计分配配额（全部年度）', value: App.fmt.big(summary.value.total), unit: 'tCO₂e', icon: 'coin', tone: 'carbon' }),
               h('x-kpi', { label: '分配流水笔数', value: App.fmt.num(summary.value.count), unit: '笔', icon: 'report', tone: 'sky', foot: '每笔均生成链上存证' }),
               h('x-kpi', { label: '平均单笔分配量', value: App.fmt.big(summary.value.count ? summary.value.total / summary.value.count : 0), unit: 'tCO₂e', icon: 'chart', tone: 'violet' }),
             ]),
 
             h('x-card', { flush: true }, {
               head: () => h('div', { class: 'flex gap-8 wrap', style: 'flex:1;align-items:center' }, [
-                h('select', { class: 'select', style: 'width:120px', value: filters.year, onChange: (e) => { filters.year = e.target.value; load(); } },
-                  [YEAR, YEAR - 1, YEAR - 2].map((y) => h('option', { value: String(y) }, y + ' 年度'))),
-                h('select', { class: 'select', style: 'width:150px', value: filters.type, onChange: (e) => { filters.type = e.target.value; load(); } }, [
+                /* 年度下拉的首选项是真实年份（"2026 年度"），无法像"全部XX"那样推导出
+                   语义标签，必须显式给 aria-label，否则读屏里只是一个无名组合框。 */
+                h('select', { class: 'select', style: 'width:120px', 'aria-label': '年度筛选', value: filters.year, onChange: (e) => { filters.year = e.target.value; load(); } },
+                  [{ v: '', t: '全部年度' }].concat([YEAR, YEAR - 1, YEAR - 2].map((y) => ({ v: String(y), t: y + ' 年度' })))
+                    .map((o) => h('option', { value: o.v }, o.t))),
+                h('select', { class: 'select', 'aria-label': '类型筛选', style: 'width:150px', value: filters.type, onChange: (e) => { filters.type = e.target.value; load(); } }, [
                   h('option', { value: '' }, '全部类型'), ...Object.keys(App.DICT.allocType).map((k) => h('option', { value: k }, App.DICT.allocType[k][0])),
                 ]),
                 h('div', { class: 'input-group', style: 'width:250px' }, [
                   h('input', { class: 'input', placeholder: '分配单号 / 企业名', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
-                  h('button', { class: 'btn', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
+                  h('button', { class: 'btn', 'aria-label': '搜索', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
                 ]),
               ]),
               default: () => [
@@ -584,18 +596,18 @@
 
             h('x-card', { flush: true }, {
               head: () => h('div', { class: 'flex gap-8 wrap', style: 'flex:1;align-items:center' }, [
-                h('select', { class: 'select', style: 'width:150px', value: filters.type, onChange: (e) => { filters.type = e.target.value; load(); } }, [
+                h('select', { class: 'select', 'aria-label': '类型筛选', style: 'width:150px', value: filters.type, onChange: (e) => { filters.type = e.target.value; load(); } }, [
                   h('option', { value: '' }, '全部类型'), ...Object.keys(App.DICT.alertType).map((k) => h('option', { value: k }, App.DICT.alertType[k][0])),
                 ]),
-                h('select', { class: 'select', style: 'width:110px', value: filters.level, onChange: (e) => { filters.level = e.target.value; load(); } }, [
+                h('select', { class: 'select', 'aria-label': '级别筛选', style: 'width:110px', value: filters.level, onChange: (e) => { filters.level = e.target.value; load(); } }, [
                   h('option', { value: '' }, '全部级别'), ...Object.keys(App.DICT.alertLevel).map((k) => h('option', { value: k }, App.DICT.alertLevel[k][0])),
                 ]),
-                h('select', { class: 'select', style: 'width:120px', value: filters.status, onChange: (e) => { filters.status = e.target.value; load(); } }, [
+                h('select', { class: 'select', 'aria-label': '状态筛选', style: 'width:120px', value: filters.status, onChange: (e) => { filters.status = e.target.value; load(); } }, [
                   h('option', { value: '' }, '全部状态'), ...Object.keys(App.DICT.alertStatus).map((k) => h('option', { value: k }, App.DICT.alertStatus[k][0])),
                 ]),
                 h('div', { class: 'input-group', style: 'width:240px' }, [
                   h('input', { class: 'input', placeholder: '标题 / 企业名', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
-                  h('button', { class: 'btn', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
+                  h('button', { class: 'btn', 'aria-label': '搜索', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
                 ]),
               ]),
               default: () => [
@@ -661,13 +673,23 @@
     name: 'page-reg-stats',
     setup() {
       const d = ref(null);
-      const year = ref(YEAR);
-      async function load() { try { d.value = await App.API.get('/regulator/statistics', { year: year.value }); } catch (e) { App.notify.err(e.message); } }
+      /* 初始不指定年度 → 由后端按库内最新有数据年度决定，
+       * 避免默认 2026 拿到一片空白；拿到 reportYear 后再回填筛选器。 */
+      const year = ref('');
+      async function load() {
+        try {
+          const r = await App.API.get('/regulator/statistics', year.value ? { year: year.value } : {});
+          d.value = r;
+          if (!year.value && r && r.reportYear) year.value = String(r.reportYear);
+        } catch (e) { App.notify.err(e.message); }
+      }
       onMounted(load);
 
       const industryOption = computed(() => {
         if (!d.value) return null;
         const list = d.value.industries;
+        /* 无数据置空 option → x-chart 渲染占位组件，而非 0-1 空轴（2026-10-29） */
+        if (!Array.isArray(list) || !list.length) return null;
         return App.chartBase({
           legend: { data: ['排放总量', '排放强度'], top: 0, right: 6 },
           grid: { left: 10, right: 26, top: 34, bottom: 6, containLabel: true },
@@ -675,13 +697,16 @@
           yAxis: [App.valAxis({ name: 'tCO₂e' }), App.valAxis({ name: '强度', splitLine: { show: false } })],
           series: [
             { name: '排放总量', type: 'bar', barWidth: '44%', data: list.map((x) => Math.round(x.emission)), itemStyle: { borderRadius: [5, 5, 0, 0], color: App.areaGrad('#10b981', 'rgba(16,185,129,.28)') } },
-            { name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, data: list.map((x) => x.intensity), lineStyle: { color: '#f5a524', width: 2 }, itemStyle: { color: '#fbbf24' } },
+            { name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, connectNulls: true, data: list.map((x) => x.intensity), lineStyle: { color: '#f5a524', width: 2 }, itemStyle: { color: '#fbbf24' } },
           ],
         });
       });
 
       const energyOption = computed(() => {
         if (!d.value) return null;
+        /* 能源结构为空（或全 0）时置空 option → 占位组件替代灰色空心环（2026-10-29） */
+        const mix = d.value.energyMix;
+        if (!Array.isArray(mix) || !mix.length || !mix.some((x) => Number(x.value) > 0)) return null;
         return App.chartBase({
           tooltip: Object.assign(App.chartBase().tooltip, { trigger: 'item', formatter: '{b}<br/>{c} tCO₂e（{d}%）' }),
           legend: { orient: 'vertical', right: 4, top: 'center' },
@@ -717,8 +742,8 @@
           xAxis: App.catAxis(t.map((x) => x.period), { boundaryGap: false }),
           yAxis: [App.valAxis({ name: 'tCO₂e' }), App.valAxis({ name: '%', splitLine: { show: false } })],
           series: [
-            { name: '排放总量', type: 'line', smooth: true, data: t.map((x) => x.total), lineStyle: { width: 2.6, color: '#10b981' }, itemStyle: { color: '#34d399' }, areaStyle: { color: App.areaGrad('rgba(16,185,129,.38)', 'rgba(16,185,129,.01)') } },
-            { name: '平均同比变化率', type: 'line', yAxisIndex: 1, smooth: true, data: t.map((x) => x.yoy), lineStyle: { color: '#fb7185', type: 'dashed', width: 2 }, itemStyle: { color: '#fb7185' } },
+            { name: '排放总量', type: 'line', smooth: true, connectNulls: true, data: t.map((x) => x.total), lineStyle: { width: 2.6, color: '#10b981' }, itemStyle: { color: '#34d399' }, areaStyle: { color: App.areaGrad('rgba(16,185,129,.38)', 'rgba(16,185,129,.01)') } },
+            { name: '平均同比变化率', type: 'line', yAxisIndex: 1, smooth: true, connectNulls: true, data: t.map((x) => x.yoy), lineStyle: { color: '#fb7185', type: 'dashed', width: 2 }, itemStyle: { color: '#fb7185' } },
           ],
         });
       });
@@ -731,8 +756,13 @@
           actions: () => [
             h('select', {
               class: 'select', style: 'width:120px', value: year.value,
+              'aria-label': '年度筛选',
               onChange: (e) => { year.value = e.target.value; load(); },
-            }, [YEAR, YEAR - 1].map((y) => h('option', { value: y }, y + ' 年度'))),
+            }, (() => {
+              const set = new Set([String(YEAR), String(YEAR - 1), String(YEAR - 2)]);
+              if (year.value) set.add(String(year.value));
+              return Array.from(set).sort((a, b) => Number(b) - Number(a)).map((y) => h('option', { value: y }, y + ' 年度'));
+            })()),
             h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
           ],
           default: () => {
@@ -774,7 +804,7 @@
                     'col-industry': ({ value }) => h('span', { class: 'tag t-mute plain' }, value),
                     'col-emission': ({ value }) => h('b', { class: 'mono' }, App.fmt.num(value, 0)),
                     'col-intensity': ({ value }) => h('span', { class: 'mono muted' }, Number(value).toFixed(4)),
-                    'col-quota_available': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : '#fda4af'}` }, App.fmt.num(value, 0)),
+                    'col-quota_available': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) >= 0 ? 'var(--carbon-l)' : 'var(--danger-tx)'}` }, App.fmt.num(value, 0)),
                   }),
                 }),
                 h('x-card', { title: '企业规模结构' }, {
@@ -812,15 +842,15 @@
         h('x-page', { title: '操作审计日志', desc: '记录平台所有用户的关键操作行为，满足网络安全等级保护对"安全审计"的要求。' }, {
           default: () => h('x-card', { flush: true }, {
             head: () => h('div', { class: 'flex gap-8 wrap', style: 'flex:1;align-items:center' }, [
-              h('select', { class: 'select', style: 'width:140px', value: filters.module, onChange: (e) => { filters.module = e.target.value; load(); } }, [
+              h('select', { class: 'select', 'aria-label': '模块筛选', style: 'width:140px', value: filters.module, onChange: (e) => { filters.module = e.target.value; load(); } }, [
                 h('option', { value: '' }, '全部模块'), ...MODULES.map((m) => h('option', { value: m }, m)),
               ]),
-              h('select', { class: 'select', style: 'width:150px', value: filters.role, onChange: (e) => { filters.role = e.target.value; load(); } }, [
+              h('select', { class: 'select', 'aria-label': '角色筛选', style: 'width:150px', value: filters.role, onChange: (e) => { filters.role = e.target.value; load(); } }, [
                 h('option', { value: '' }, '全部角色'), ...Object.keys(App.DICT.role).map((r) => h('option', { value: r }, App.DICT.role[r])),
               ]),
               h('div', { class: 'input-group', style: 'width:250px' }, [
                 h('input', { class: 'input', placeholder: '账号 / 动作 / 对象', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
-                h('button', { class: 'btn', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
+                h('button', { class: 'btn', 'aria-label': '搜索', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
               ]),
             ]),
             default: () => [
@@ -915,7 +945,13 @@
               h('div', { class: 'grid g-2-1 mb-16' }, [
                 h('x-card', { title: '各数据表行数', sub: '每张表的仿真数据规模（均 ≥ 50 行）', flush: true }, {
                   default: () => h('div', { class: 'card-body' }, h('div', { class: 'grid g2' }, d.value.tableCounts.map((t) => h('div', { class: 'bar-row' }, [
-                    h('div', { class: 'nm mono' }, t.table),
+                    /* 表名要能读全：原来 .nm 固定 128px，「agg.industry_sta…」
+                     * 之类的长名被截成不可辨识的前缀（2026-10-29 巡检 P2-34）。
+                     * 放宽到 200px，并把完整表名放进 title 兜底。 */
+                    h('div', {
+                      class: 'nm mono', title: t.table,
+                      style: 'width:200px;flex:0 0 200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis',
+                    }, t.table),
                     h('div', { class: 'bar-track' }, [h('div', {
                       class: 'bar-fill', style: `width:${Math.max(2, (t.rows / Math.max(...d.value.tableCounts.map((x) => x.rows), 1)) * 100)}%`,
                     })]),
@@ -946,17 +982,33 @@
                     h('button', { class: 'btn danger', disabled: tampering.value, onClick: doTamper }, '模拟篡改并校验'),
                     panel.value && h('button', { class: 'btn chain', disabled: tampering.value, onClick: doRepair }, '修复链'),
                   ]),
-                  panel.value && h('div', { class: ['alertbar', panel.value.data.validation.valid ? 'ok' : 'err', 'mb-12'] }, [
+                  /* /chain/repair 的返回体是 { fromIndex, repaired }，没有 validation；
+                   * 无条件读 panel.value.data.validation.valid 会在点"修复链"后抛
+                   * "Cannot read properties of undefined (reading 'length')"
+                   * （与 /explorer 同一处缺陷，2026-10-28 一并修复）。 */
+                  panel.value && panel.value.kind === 'tamper' && h('div', { class: ['alertbar', panel.value.data.validation.valid ? 'ok' : 'err', 'mb-12'] }, [
                     h('x-icon', { name: 'alert', size: 15 }),
                     panel.value.data.validation.valid
                       ? `校验通过，共校验 ${panel.value.data.validation.checkedBlocks} 个区块`
                       : `校验失败：${panel.value.data.validation.errors.length} 处异常 —— ${panel.value.data.validation.errors[0].message}`,
+                  ]),
+                  panel.value && panel.value.kind === 'repair' && h('div', { class: 'alertbar ok mb-12' }, [
+                    h('x-icon', { name: 'check', size: 15 }),
+                    `链已按共识重新出块：重算 ${panel.value.data.repaired.length} 个区块，后缀哈希与 PoA 签名均已重建`,
                   ]),
                   h('div', { class: 'mt-8' }, d.value.validation.errors.length
                     ? d.value.validation.errors.map((e) => h('div', { class: 'readout fail mb-8' }, [
                       h('span', { class: 'flag' }, e.type), h('span', {}, e.message),
                     ]))
                     : h('div', { class: 'alertbar ok' }, [h('x-icon', { name: 'check', size: 15 }), `全链 ${v.checked} 个区块校验一致：哈希链、PoW 难度与 Merkle 根全部匹配。`])),
+                  /* 治理告警：出块节点事后被撤销/停用。它不计入 valid ——
+                     撤销一个节点不能反溯撤销它签过的历史区块（否则每次治理动作
+                     都会让整条链"变红"），但这属于必须留痕的治理事实，不能藏。 */
+                  (d.value.validation.warningCount || 0) > 0 && h('div', { class: 'alertbar warn mt-12' }, [
+                    h('x-icon', { name: 'alert', size: 15 }),
+                    h('span', {}, `${d.value.validation.warningCount} 个历史区块由当前已停用/撤销的节点出块（治理提示，不计入完整性异常）。`
+                      + ((d.value.validation.warnings || [])[0] ? `最近一例：${d.value.validation.warnings[0].message}` : '')),
+                  ]),
                 ]),
               }),
             ],
@@ -1025,9 +1077,9 @@
                   rows: scan.value, empty: '暂无高风险企业',
                 }, {
                   'col-dynRisk': ({ row }) => h('x-tag', { dict: App.DICT.riskLevel, dictKey: row.dynRisk }),
-                  'col-predictedGap': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) > 0 ? '#fda4af' : '#34d399'}` }, App.fmt.num(value, 0)),
+                  'col-predictedGap': ({ value }) => h('span', { class: 'mono', style: `color:${Number(value) > 0 ? 'var(--danger-tx)' : '#34d399'}` }, App.fmt.num(value, 0)),
                   'col-exceedProbability': ({ value }) => h('span', { class: 'mono' }, (Number(value) * 100).toFixed(0) + '%'),
-                  'col-anomalyCount': ({ value }) => h('span', { style: `color:${value > 3 ? '#fda4af' : '#6ee7b7'}` }, value),
+                  'col-anomalyCount': ({ value }) => h('span', { style: `color:${value > 3 ? 'var(--danger-tx)' : 'var(--ok-tx)'}` }, value),
                 }),
               }),
             ]),

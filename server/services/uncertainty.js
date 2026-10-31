@@ -45,6 +45,9 @@ const db = require('../db');
 const st = require('./statistics');
 const cu = require('../blockchain/crypto-utils');
 const anchorSvc = require('./anchor');
+/* ⭐ 年度口径的唯一来源。本模块**不允许**自写年化公式（见 posterior 内的说明）：
+   同一份读数在两侧套不同放大系数，就是"核算口径分叉"的来源 ②。 */
+const dyn = require('./dynamic');
 
 /* ==================================================================
  * 一、口径常量（每一个都给出依据，不出现"经验值"三个字）
@@ -255,6 +258,7 @@ function integrate(kept) {
     list.sort((a, b) => a.t - b.t);
     let mCovered = 0;
     let mGap = 0;
+    let mEnergy = 0;
     for (let i = 0; i < list.length - 1; i++) {
       const dtMin = (list[i + 1].t - list[i].t) / 60000;
       if (!(dtMin > 0)) continue;
@@ -265,6 +269,7 @@ function integrate(kept) {
       const energy = list[i].rate * (use / 60);      // tCO2e
       spreadToDays(byDay, byDayMin, list[i].t, use, energy);
       mCovered += use;
+      mEnergy += energy;
       points++;
     }
     coveredMin += mCovered;
@@ -281,11 +286,26 @@ function integrate(kept) {
       ownSpanMin: Number(((list[list.length - 1].t - list[0].t) / 60000).toFixed(2)),
       coveredMin: Number(mCovered.toFixed(2)),
       gapMin: Number(mGap.toFixed(2)),
+      /* 该排口窗口内的实测排放量：既用于诊断，也是"企业级覆盖时长"加权平均的权重 */
+      energy: Number(mEnergy.toFixed(3)),
     });
   }
+  /* ⭐ 企业级"被测量覆盖时长"= 各排口覆盖时长按**该排口实测排放量**加权平均。
+     推导：设排口 m 占企业排放份额 shareₘ（Σ=1），则
+       基准应排放量 = Σₘ baseRate·shareₘ·coveredₘ = baseRate · Σₘ shareₘ·coveredₘ，
+     故企业级覆盖时长 = Σₘ shareₘ·coveredₘ（份额加权），份额用实测排放量作代理。
+     与 dynamic.observedCorrection 的 coveredHours 同一口径 —— 排口完全同质时
+     退化为算术平均；被"只出现过几分钟"的排口污染时不会崩（实测 ent7 有 16 个排口）。 */
+  const emittedTotal = monitors.reduce((a, m) => a + m.energy, 0);
+  const coveredHoursWeighted = emittedTotal > 0
+    ? monitors.reduce((a, m) => a + (m.coveredMin / 60) * m.energy, 0) / emittedTotal
+    : 0;
+
   return {
     byDay, byDayMin, coveredMin, gapMin, maxGapMin, points,
     monitors: byMonitor.size, monitorDetail: monitors,
+    emittedTotal: Number(emittedTotal.toFixed(3)),
+    coveredHoursWeighted: Number(coveredHoursWeighted.toFixed(3)),
   };
 }
 
@@ -414,6 +434,9 @@ async function dailySeries(entId, opts = {}) {
     coverage: {
       ratio: Number(coverage.toFixed(4)),
       coveredMinutes: Number(ig.coveredMin.toFixed(1)),
+      /* 企业级覆盖时长（排放量加权，见 integrate 内推导）—— 年度口径用它，不用算术平均 */
+      coveredHoursWeighted: ig.coveredHoursWeighted,
+      emittedTotal: ig.emittedTotal,
       ownSpanMinutes: Number(ownSpanMin.toFixed(1)),
       gapMinutes: Number(ig.gapMin.toFixed(1)),
       gapShare: Number(gapShare.toFixed(6)),
@@ -470,7 +493,17 @@ async function entContext(entId) {
  * 模型：设日均排放 x ~ Normal(μ, σ²)，μ 与 σ² 同时未知，取 Normal-Inverse-Gamma 共轭先验。
  *   先验中心 μ0 取企业当年配额的年化日均（企业自己的履约目标就是最自然的先验）；
  *   先验强度 κ0 取 1（等效 1 个观测点，弱信息），并在敏感性扫描中自证其无关性。
- * 输出：日均后验 + 年化区间（× 365）。
+ *
+ * ⭐ 年化口径（2026-10-14，来源 ② 根治）：与平台核算账**共用 `dynamic.annualFrom`**
+ *      annual = 基准速率(base/24) × 8760 + 实测偏差修正
+ *   而不是本模块原先自作主张的「实测日均 × 365」。两者的差别在于**未实测时段怎么填**：
+ *     · 核算账：未实测时段按配额基准模型填补，实测覆盖时段按实测值（偏差是绝对量）；
+ *     · 旧本模块：整年都按实测速率外推（偏差被放大 8760/coveredHours ≈ 12 倍）。
+ *   窗口只覆盖年度 8.5%（31/365 天）时，两条外推假设必然分叉 —— 实测 ent2 相差 16.11%。
+ *   统计上正确的做法不是"再起一个口径"，而是**对平台那个估计量做区间刻画**：
+ *   偏差项对日均均值的灵敏度系数是被实测覆盖的**有效天数**（而非 365），抽样区间按它传播；
+ *   未实测时段的模型风险按"未实测日与实测日同分布"另行计入，两项平方和开根。
+ *   这样既不夸大也不缩小，且与本平台对外唯一的核算口径严格一致。
  */
 async function posterior(entId, opts = {}) {
   const ctx = await entContext(entId);
@@ -532,13 +565,67 @@ async function posterior(entId, opts = {}) {
     + `点估计将被拉向配额日均 ${mu0.toFixed(2)} tCO2e/day，偏移 `
     + `${strong.map((s) => `${s.meanShiftPct.toFixed(1)}%`).join(' / ')}；本平台不采用该档先验。`;
 
-  /* 年化（口径：∑ 日均 × 365 = 日均均值 × 365） */
+  /* ==================================================================
+   * ⭐ 年化：与平台核算账共用唯一口径（2026-10-14，来源 ② 根治）
+   * ================================================================== */
+  const HOURS_PER_YEAR = dyn.HOURS_PER_YEAR;                 // 8760
+  const baseRate = dyn.dailyBaseFor(ctx.ent, ctx.quotaAnnual || 0) / 24;   // tCO2e/h
+
+  /* 企业级覆盖时长 / 窗口实测排放量：**直接取 integrate 的口径**，不在本函数里
+     另算一份算术平均。这一步很关键 —— 另算一份就是"同一口径写两遍"，
+     而这正是来源 ① 的成因。integrate 里已按"份额加权（实测排放量作代理）"
+     求出企业级覆盖时长，与 dynamic.observedCorrection 同源。
+     ⚠ 用全量实测数据（不扣残缺日）：日完整性门控是**统计**用的（避免把只测了
+       两小时的首日当成"极端低排放日"抬高样本方差），不是**核算**过滤。 */
+  const coveredHours = Number(ds.coverage.coveredHoursWeighted) || 0;
+  const measuredTotal = Number(ds.coverage.emittedTotal) || 0;
+  const coveredDays = coveredHours / 24;
+  const uncoveredDays = Math.max(0, HOURS_PER_YEAR / 24 - coveredDays);
+
+  /* 实测偏差修正（本模块**自行**积分、门控更严 → 与核算账是有意义的独立交叉校验，
+     而不是把核算账的值搬过来）。口径与 dynamic.observedCorrection 相同：
+     correction = ∫实测速率 dt − 基准速率 × 被实测覆盖时长 */
+  const baseOnCovered = baseRate * coveredHours;
+  const correction = measuredTotal - baseOnCovered;
+
+  /* 点估计：唯一口径 */
+  const annualMean = dyn.annualFrom(baseRate, correction);
+
+  /* ---- 区间的两项来源（平方和开根） ----
+     ① 抽样项：估计量对日均均值的灵敏度系数 = 被实测覆盖的**有效天数**（不是 365）。
+        日均均值 μ 的 95% 区间半宽为 post.ci.halfWidth，故 n 天合计的半宽 = n × 半宽。
+     ② 模型项：未实测时段按基准模型填补这一**假设本身**的不确定度。
+        假设"未实测日与实测日同分布"，则未实测时段的偏差合计 ~ N(0, uncoveredDays·σ²)，
+        其中 σ 取实测日间波动 obs.sd，95% 半宽 = 1.96 × √uncoveredDays × σ。
+        这一项通常远大于 ① —— 它如实反映"一年里只有约 8.5% 被真正测到"。
+     两项独立，按平方和开根合成。 */
+  const samplingHalf = post.ci.halfWidth * ds.days;
+  const modelHalf = 1.96 * Math.sqrt(uncoveredDays) * (obs.sd || 0);
+  const halfWidth = Math.sqrt(samplingHalf * samplingHalf + modelHalf * modelHalf);
+
   const annual = {
-    mean: post.mean * DAYS_PER_YEAR,
-    low: post.ci.low * DAYS_PER_YEAR,
-    high: post.ci.high * DAYS_PER_YEAR,
-    halfWidth: post.ci.halfWidth * DAYS_PER_YEAR,
-    relHalfWidth: post.mean !== 0 ? post.ci.halfWidth / Math.abs(post.mean) : null,
+    mean: annualMean,
+    low: annualMean - halfWidth,
+    high: annualMean + halfWidth,
+    halfWidth,
+    relHalfWidth: annualMean !== 0 ? halfWidth / Math.abs(annualMean) : null,
+    /* 口径自证：与核算账同源，且把"区间为什么这么宽/窄"拆开摆出来 */
+    basis: 'annual = 基准速率 × 8760 + 实测偏差修正（与 dynamic.annualFrom 同一实现）',
+    baseRate,
+    correction,
+    decomposition: {
+      baseYear: baseRate * HOURS_PER_YEAR,
+      measuredTotal: Number(measuredTotal.toFixed(3)),
+      baseOnCovered: Number(baseOnCovered.toFixed(3)),
+      coveredDays: Number(coveredDays.toFixed(2)),
+      uncoveredDays: Number(uncoveredDays.toFixed(2)),
+      monitors: ds.coverage.monitors,
+      activeMonitors: ds.coverage.activeMonitors,
+      samplingHalfWidth: Number(samplingHalf.toFixed(3)),
+      modelHalfWidth: Number(modelHalf.toFixed(3)),
+      note: '抽样项 = 日均均值区间半宽 × 实测覆盖天数；模型项 = 1.96 × √未实测天数 × 实测日间波动。'
+        + '模型项占绝对多数属正常：本年度仅约 8.5% 的时段有实测数据。',
+    },
   };
 
   const row = {
@@ -559,12 +646,14 @@ async function posterior(entId, opts = {}) {
       annual, classical, classicalDelta, priorSweep: sweep, priorSafe, maxShift, priorVerdict,
       quotaAnnual: ctx.quotaAnnual,
       /* 年化点估计与配额的对照（履约口径）：缺口为正即超排 */
-      quotaGap: ctx.quotaAnnual ? post.mean * DAYS_PER_YEAR - ctx.quotaAnnual : null,
-      quotaRatio: ctx.quotaAnnual ? post.mean * DAYS_PER_YEAR / ctx.quotaAnnual : null,
+      quotaGap: ctx.quotaAnnual ? annualMean - ctx.quotaAnnual : null,
+      quotaRatio: ctx.quotaAnnual ? annualMean / ctx.quotaAnnual : null,
       coverage: ds.coverage, gating: ds.gating, series: ds.series,
       entName: ctx.ent.ent_name, industry: ctx.ent.industry,
-      disclaimer: '本区间刻画的是**日均排放的抽样不确定度**，不含系统性偏差（如监测系统未校准的量程误差）。'
-        + '口径说明：先验取非信息档（κ₀ = 0.01），并在报告中披露 κ₀ 跨 4 个数量级的敏感性扫描结果。',
+      disclaimer: '本区间刻画的是**年度排放估计量的抽样不确定度 + 未实测时段的模型外推风险**，'
+        + '不含系统性偏差（如监测系统未校准的量程误差）——后者由 GUM 合成口径（/propagate）单独给出。'
+        + '口径说明：年度点估计与平台核算账共用同一公式（基准速率 × 8760 + 实测偏差修正），'
+        + '先验取非信息档（κ₀ = 0.01），并在报告中披露 κ₀ 跨 4 个数量级的敏感性扫描结果。',
     },
   };
   return row;
@@ -611,8 +700,26 @@ async function propagate(entId, opts = {}) {
   const ds = await dailySeries(entId, opts);
 
   const cov = ds.coverage.ratio;
-  const uCems = cov >= 0.95 ? TIER_UNCERTAINTY.cemsHigh
-    : cov >= 0.80 ? TIER_UNCERTAINTY.cemsMid : TIER_UNCERTAINTY.cemsLow;
+  /* ⭐ 取档口径 = 年度有效时间覆盖率（cems_coverage，与监管预警同一张表、同一个数），
+   * 而不是"重算窗口"的窗口覆盖度 —— 窗口通常只有 24~48h，窗口 100% 会把年度
+   * 82.5% 的企业放进 ±5% 档，与预警文案「低于 95% 质量分级管控线」直接矛盾
+   * （2026-10-31 巡检 P1-4）。窗口覆盖度仍如实展示在「时间覆盖度与采样密度」一节，
+   * 其"注"里已写明窗口仅覆盖年度的一部分。
+   * 口径细节：cems_coverage 同一年度可能同时有「单排口行」与「(全厂合计)行」，
+   * 直接 SUM 会重复计数（曾把 82.5% 算成 90.1%）—— 取最新年度，优先全厂合计行。 */
+  const covRows = await db.query(
+    `SELECT year, outlet_name, valid_hours, expected_hours
+       FROM cems_coverage WHERE ent_id = ? ORDER BY year DESC`, [entId]);
+  const maxCovYear = covRows.length ? covRows[0].year : null;
+  const yrRows = covRows.filter((r) => r.year === maxCovYear);
+  const plantRows = yrRows.filter((r) => r.outlet_name === '(全厂合计)');
+  const pickRows = plantRows.length ? plantRows : yrRows;
+  const covDen = pickRows.reduce((a, r) => a + Number(r.expected_hours || 0), 0);
+  const covAnnual = covDen > 0
+    ? pickRows.reduce((a, r) => a + Number(r.valid_hours || 0), 0) / covDen
+    : cov;
+  const uCems = covAnnual >= 0.95 ? TIER_UNCERTAINTY.cemsHigh
+    : covAnnual >= 0.80 ? TIER_UNCERTAINTY.cemsMid : TIER_UNCERTAINTY.cemsLow;
 
   /* 缺口替代项：缺口时长占比 × 替代值不确定度（面积加权，非简单相加） */
   const gapShare = ds.coverage.gapShare;
@@ -623,7 +730,8 @@ async function propagate(entId, opts = {}) {
     key: 'cems',
     name: 'CEMS 实测（范围一）',
     relative: uCems,
-    basis: `HJ 75/76 在线监测系统准确度要求；本企业有效时间覆盖 ${(cov * 100).toFixed(1)}%`
+    basis: `HJ 75/76 在线监测系统准确度要求；本企业**年度**有效时间覆盖率 ${(covAnnual * 100).toFixed(1)}%`
+      + `（cems_coverage 口径，与监管预警同源；重算窗口覆盖度 ${(cov * 100).toFixed(1)}% 仅反映最近 ${ds.coverage.windowSpanDays || '?'} 天）`
       + `（≥95% 取 ±${(TIER_UNCERTAINTY.cemsHigh * 100).toFixed(0)}%，80~95% 取 ±${(TIER_UNCERTAINTY.cemsMid * 100).toFixed(0)}%，<80% 取 ±${(TIER_UNCERTAINTY.cemsLow * 100).toFixed(0)}%）`,
   });
   components.push({
@@ -856,8 +964,10 @@ async function report(entId, opts = {}) {
     const uGum = prop.relativeUncertainty;
 
     /* ---- 两个口径量的根本不是同一件事，必须先说清楚 ----
-     *   贝叶斯区间：**抽样随机性** —— "再观测一批数据，日均值会在多大范围内摆动"。
-     *              它随观测点增多必然收窄，反映的是"证据够不够"。
+     *   贝叶斯区间：**年度估计量的不确定度** —— 由两项构成：
+     *              (a) 抽样随机性（实测覆盖天数的日均均值区间，随观测增多收窄）；
+     *              (b) 模型外推风险（未实测时段"按基准填补"这一假设本身，按实测日间波动外推）。
+     *              (b) 通常主导，因为本年度仅约 8.5% 的时段有实测数据。
      *   GUM 合成：  **报告值的合成误差** —— 含仪器准确度、计量、排放因子等
      *              **系统性**项，这些项**不会因为多测而变小**。
      * 因此正确的必要条件不是"两者接近"，而是 **u_GUM ≥ u_Bayes**；
@@ -874,7 +984,7 @@ async function report(entId, opts = {}) {
 
     crossCheck = {
       bayesian: { k1Relative: uBayes, ci95: [a.low, a.high], halfWidth: a.halfWidth,
-        meaning: '抽样随机性（可随观测点增多而收窄）' },
+        meaning: '年度估计量的不确定度（抽样项 + 未实测时段的模型外推项）' },
       gum: { k1Relative: uGum, randomPart: uRandom, systematicPart: uSystematic,
         meaning: '报告值的合成误差（含不随观测增多的系统性项）' },
       ratio,
@@ -900,11 +1010,24 @@ async function report(entId, opts = {}) {
   const win = ds.allDays.length
     ? `${ds.allDays[0].day} ~ ${ds.allDays[ds.allDays.length - 1].day}`
     : '—';
+  const ann = post.available === false ? null : (post.extra && post.extra.annual);
   const limitations = [
     `有效序列仅 ${ds.days} 天（数据窗口 ${win}，其中 ${ds.incompleteDays} 天为残缺日已排除），`
-      + '未覆盖完整年度，因此后验区间刻画的是"由现有数据外推年度"的不确定度，而非全年逐日观测的不确定度；'
-      + '随着数据积累该区间会自然收窄。',
-    '贝叶斯区间只含抽样随机性，不含监测系统的量程/线性度系统偏差 —— 后者由 GUM 口径单独给出。',
+      + '未覆盖完整年度。年度点估计与平台核算账共用同一口径'
+      + '（annual = 基准速率 × 8760 + 实测偏差修正），因此其区间由两项构成：'
+      + (ann && ann.decomposition
+        ? `抽样项 ±${ann.decomposition.samplingHalfWidth.toFixed(0)} tCO2e（实测覆盖 `
+          + `${ann.decomposition.coveredDays.toFixed(1)} 天）与模型项 ±${ann.decomposition.modelHalfWidth.toFixed(0)} tCO2e`
+          + `（未实测 ${ann.decomposition.uncoveredDays.toFixed(0)} 天，按实测日间波动外推）。`
+          + (ann.decomposition.modelHalfWidth > ann.decomposition.samplingHalfWidth
+            ? '**模型项主导** —— 这意味着继续加密采样对收窄年度区间帮助有限，'
+              + '真正的杠杆是延长实测覆盖时段（或为未实测时段提供可核查的凭证）。'
+            : '抽样项主导。')
+        : '抽样项与模型项之和。'),
+    '口径诚实说明：未实测时段按配额基准模型填补（这是本平台对外唯一的年度累计口径），'
+      + '其不确定度以"未实测日与实测日同分布"为模型估计，属**模型风险**而非已观测事实；'
+      + '随着实测覆盖时段延长，模型项按 √未实测天数 自然收窄。',
+    '贝叶斯区间不含监测系统的量程/线性度系统偏差 —— 后者由 GUM 口径单独给出。',
     ds.coverage.ratio < 0.95
       ? `时间覆盖 ${(ds.coverage.ratio * 100).toFixed(1)}% < 95%，CEMS 项按 ±${(TIER_UNCERTAINTY.cemsMid * 100).toFixed(0)}% 或更宽的分级缺省值计，`
         + '这会主导总不确定度。'

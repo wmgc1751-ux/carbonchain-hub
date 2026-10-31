@@ -30,18 +30,51 @@
         });
       });
 
+      /* 结论分布。
+       * 【2026-10-30】单个结论时（如本机构 12 份全为通过）环图会画成一个纯色满环，
+       * 和「数据为空」的占位灰环在视觉上几乎无法区分，也读不出份数与通过率。
+       * 因此无论几类结论，都在环心补一个总数/通过率的文字，
+       * 让"只有一种结论"和"没有结论"一眼可分。 */
+      const concSummary = computed(() => {
+        const rows = (d.value && d.value.conclusion) || [];
+        const total = rows.reduce((a, c) => a + Number(c.value || 0), 0);
+        const pass = rows.filter((c) => c.name === 'PASS').reduce((a, c) => a + Number(c.value || 0), 0);
+        return { total, pass, rate: total ? Math.round((pass / total) * 1000) / 10 : 0, kinds: rows.length };
+      });
+
       const concOption = computed(() => {
         if (!d.value) return null;
+        /* 结论数据为空时置空 option → x-chart 渲染占位组件，而非灰色空心环（2026-10-29） */
+        if (!Array.isArray(d.value.conclusion) || !d.value.conclusion.length) return null;
+        const s = concSummary.value;
+        /* 环心文字用 title（left 即水平中心），graphic 的 left 是左边缘，
+         * 会让数字偏向一侧、和环心对不齐。 */
+        const center = ['38%', '52%'];
         return App.chartBase({
           tooltip: Object.assign(App.chartBase().tooltip, { trigger: 'item', formatter: '{b}<br/>{c} 份（{d}%）' }),
           legend: { orient: 'vertical', right: 4, top: 'center', formatter: (n) => ({ PASS: '通过', CONDITIONAL: '有条件通过', FAIL: '不通过' })[n] || n },
+          title: {
+            left: center[0], top: '43%', textAlign: 'center',
+            itemGap: 4,
+            text: String(s.total),
+            subtext: `份 · 通过率 ${s.rate}%`,
+            textStyle: { color: '#e8eef7', fontSize: 26, fontWeight: 600 },
+            subtextStyle: { color: '#93a4bd', fontSize: 11 },
+          },
           series: [{
-            type: 'pie', radius: ['50%', '76%'], center: ['38%', '52%'],
+            type: 'pie', radius: ['50%', '76%'], center,
             itemStyle: { borderColor: 'rgba(6,10,18,.9)', borderWidth: 2, borderRadius: 4 },
             label: { show: false }, labelLine: { show: false },
             data: d.value.conclusion.map((c) => ({ name: c.name, value: c.value })),
           }],
         });
+      });
+
+      /* 近 12 个月工作量：横轴已由接口补齐为连续 12 个月（含 0 值月份），
+       * 柱与柱之间才是真实时间间距；原实现只画有数据的 3 个月，视觉上像连续出量。 */
+      const workloadTotal = computed(() => {
+        const m = (d.value && d.value.monthly) || [];
+        return m.reduce((a, x) => a + Number(x.cnt || 0), 0);
       });
 
       return () => {
@@ -60,9 +93,14 @@
               h('div', { class: 'grid g5 mb-16' }, [
                 h('x-kpi', { label: '待受理任务', value: k.pending, unit: '件', icon: 'clock', tone: 'chain', foot: '请及时受理，避免超期' }),
                 h('x-kpi', { label: '核查中', value: k.processing, unit: '件', icon: 'verify', tone: 'sky', foot: '已受理待出具结论' }),
-                h('x-kpi', { label: '累计完成', value: k.done, unit: '件', icon: 'shield', tone: 'carbon', foot: `驳回 ${k.rejected} 件` }),
-                h('x-kpi', { label: '平均偏差率', value: k.avgDeviation, unit: '%', icon: 'target', tone: 'violet', foot: '申报值与认定值之差的绝对值均值' }),
-                h('x-kpi', { label: '链上存证', value: App.fmt.num(k.chainCount), unit: '笔', icon: 'chain', tone: 'chain', foot: '由本机构钱包签发的报告存证' }),
+                /* 【缺陷 P1-31】「累计完成」按**核查任务**计（任务状态 DONE），
+                 * 「链上存证」按**核查报告（VR 编号）**计 —— 两套编号体系。
+                 * 一份报告重签/补签都会再次上链，所以存证数可能大于完成数；
+                 * 原来两条 foot 都没说口径，评委第一眼就会当成数据打架。
+                 * 现在把计数字段写进 foot，差异可解释、可追溯。 */
+                h('x-kpi', { label: '累计完成', value: k.done, unit: '件', icon: 'shield', tone: 'carbon', foot: `按核查任务计 · 驳回 ${k.rejected} 件` }),
+                h('x-kpi', { label: '平均偏差率', value: k.avgDeviation, unit: '%', icon: 'target', tone: 'violet', foot: '已上链结论 · 认定值与申报值之差的绝对值均值' }),
+                h('x-kpi', { label: '链上存证', value: App.fmt.num(k.chainCount), unit: '份', icon: 'chain', tone: 'chain', foot: `已存证报告数 = 完成 ${k.done} + 驳回 ${k.rejected}（按报告去重）` }),
               ]),
 
               h('div', { class: 'grid g-3-2 mb-16' }, [
@@ -78,35 +116,52 @@
                       { key: 'status', title: '状态', width: '95px' },
                     ],
                     rows: d.value.todoTasks,
-                    rowClick: () => App.go('/ver/tasks'),
+                    /* 【2026-10-30】带上任务 id，让作业台直接打开这一件。
+                     * 原来只跳列表页，文案说"点击进入核查作业"却没进入。 */
+                    rowClick: (row) => App.go('/ver/tasks?open=' + row.id),
                   }, {
                     'col-task_no': ({ value }) => h('span', { class: 'mono' }, value),
                     'col-period': ({ value }) => h('span', { class: 'tag t-info plain mono' }, value),
                     'col-total_emission': ({ value }) => h('b', { class: 'mono' }, App.fmt.num(value, 2)),
                     'col-priority': ({ row }) => h('x-tag', { dict: App.DICT.priority, dictKey: row.priority }),
                     'col-status': ({ row }) => h('x-tag', { dict: App.DICT.taskStatus, dictKey: row.status }),
-                  }) : h('div', { class: 'empty' }, '暂无待办任务'),
+                  }) : h('x-empty', { title: '暂无待办任务', sub: '任务池已清空，新任务到达后会出现在这里', icon: 'check', tone: 'safe' }),
                 }),
-                h('x-card', { title: '核查结论分布' }, { default: () => h('x-chart', { option: concOption.value, height: 'h300' }) }),
+                h('x-card', { title: '核查结论分布', sub: `${concSummary.value.total} 份已上链结论 · ${concSummary.value.kinds} 类结论 · 通过率 ${concSummary.value.rate}%` }, { default: () => h('x-chart', { option: concOption.value, height: 'h300' }) }),
               ]),
 
               h('div', { class: 'grid g2' }, [
-                h('x-card', { title: '近 12 个月核查工作量' }, { default: () => h('x-chart', { option: workloadOption.value, height: 'h260' }) }),
-                h('x-card', { title: '最近出具的核查报告', flush: true }, {
-                  default: () => h('x-table', {
+                h('x-card', { title: '近 12 个月核查工作量', sub: `按受理月份统计 · 合计 ${workloadTotal.value} 件` }, { default: () => h('x-chart', { option: workloadOption.value, height: 'h260' }) }),
+                /* 【2026-10-30】本块原来是「最近出具的核查报告」，与「核查报告台账」
+                 * 首屏是同一批数据（同排序、同字段），既不能点进详情也没有台账页的
+                 * 「核验」入口，读者从这里拿不到台账页给不了的信息 —— 属重复区块。
+                 * 换成「待复核结论」：这是全站唯一会卡住的状态（经办提交后
+                 * 等待另一名复核岗批准才生效上链），此前界面没有任何入口。 */
+                /* 空态用 inline 版式：grid 会把两个卡片拉到等高，
+                 * 完整空态（86px 图标 + 46px 内边距）留在 500px 高的卡片里
+                 * 会形成大片空白。这里保留一个居中说明即可。 */
+                h('x-card', { title: '待复核结论', sub: '经办已提交、等待复核人批准后生效并上链', flush: true }, {
+                  actions: () => h('button', { class: 'btn sm ghost', onClick: () => App.go('/ver/reports') }, '报告台账'),
+                  default: () => (d.value.pendingReview || []).length ? h('x-table', {
                     columns: [
                       { key: 'report_no', title: '报告号' },
-                      { key: 'verified_value', title: '认定排放(tCO₂e)', align: 'right' },
+                      { key: 'ent_name', title: '被核查企业' },
+                      { key: 'period', title: '报告期', width: '90px' },
                       { key: 'deviation_rate', title: '偏差率', align: 'right', width: '90px' },
-                      { key: 'issue_time', title: '签发时间', width: '150px' },
+                      { key: 'draft_conclusion', title: '拟结论', width: '110px' },
                     ],
-                    rows: d.value.deviation,
+                    rows: d.value.pendingReview,
+                    rowClick: () => App.go('/ver/reports'),
                   }, {
                     'col-report_no': ({ value }) => h('span', { class: 'mono' }, value),
-                    'col-verified_value': ({ value }) => h('b', { class: 'mono' }, App.fmt.num(value, 2)),
+                    'col-period': ({ value }) => h('span', { class: 'tag t-info plain mono' }, value),
                     'col-deviation_rate': ({ value }) => h('span', { class: ['delta', Math.abs(Number(value)) > 3 ? 'bad' : 'good'], style: 'font-size:12px' }, (Number(value) >= 0 ? '+' : '') + value + '%'),
-                    'col-issue_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
-                  }),
+                    'col-draft_conclusion': ({ row }) => h('x-tag', { dict: App.DICT.conclusion, dictKey: row.draft_conclusion }),
+                  }) : h('div', { class: 'empty', style: 'padding:0 20px;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:260px' }, [
+                    h('div', { class: 'empty-mark', style: 'width:64px;height:64px;margin-bottom:12px' }, [h('x-icon', { name: 'check', size: 26 })]),
+                    h('div', { class: 'empty-title', style: 'font-size:14px' }, '没有待复核的结论'),
+                    h('div', { class: 'empty-sub', style: 'font-size:12px;max-width:320px;margin-top:6px' }, '出具结论后若未复核，会出现在这里等待另一名同事批准'),
+                  ]),
                 }),
               ]),
             ],
@@ -130,7 +185,17 @@
       const form = reactive({ conclusion: 'PASS', verifiedValue: 0, opinion: '' });
 
       function load() { pager.load({ status: filters.status, priority: filters.priority, keyword: filters.keyword }); }
-      onMounted(load);
+
+      /* 【2026-10-30】支持 /ver/tasks?open=<taskId> 直接从总览的待办任务跳进来。
+       * 原来总览的 rowClick 只是 App.go('/ver/tasks')，落到列表页后
+       * 还要自己再找一遍那一行 —— 页面文案写着"点击进入核查作业"，
+       * 实际只到列表，属于承诺没兑现。这里按 id 直接打开作业台。 */
+      onMounted(async () => {
+        load();
+        const id = App.Router.query && App.Router.query.open;
+        if (!id) return;
+        try { await open({ id }); } catch (e) { /* open 内部已提示 */ }
+      });
 
       async function open(row) {
         try {
@@ -210,7 +275,7 @@
               ]),
               h('div', { class: 'input-group', style: 'width:280px' }, [
                 h('input', { class: 'input', placeholder: '搜索任务号 / 企业名 / 上报单号', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
-                h('button', { class: 'btn', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
+                h('button', { class: 'btn', 'aria-label': '搜索', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
               ]),
             ]),
             default: () => [
@@ -271,7 +336,7 @@
                 h('x-card', { title: '企业档案' }, {
                   default: () => h('dl', { class: 'kv', style: 'grid-template-columns:100px 1fr' }, [
                     h('dt', {}, '企业名称'), h('dd', {}, t.ent_name),
-                    h('dt', {}, '信用代码'), h('dd', { class: 'mono tiny' }, t.ent_code),
+                    h('dt', {}, '主体编号'), h('dd', { class: 'mono tiny' }, t.ent_code + '（演示）'),
                     h('dt', {}, '所属行业'), h('dd', {}, t.industry + ' · ' + t.scale + '企业'),
                     h('dt', {}, '所在地区'), h('dd', {}, t.region + t.city),
                     h('dt', {}, '碳信用分'), h('dd', {}, String(t.credit_score)),
@@ -386,7 +451,7 @@
               ]),
               h('div', { class: 'input-group', style: 'width:260px' }, [
                 h('input', { class: 'input', placeholder: '搜索报告号 / 企业名', value: filters.keyword, onInput: (e) => { filters.keyword = e.target.value; }, onKeyup: (e) => { if (e.key === 'Enter') load(); } }),
-                h('button', { class: 'btn', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
+                h('button', { class: 'btn', 'aria-label': '搜索', onClick: load }, [h('x-icon', { name: 'search', size: 14 })]),
               ]),
             ]),
             default: () => [

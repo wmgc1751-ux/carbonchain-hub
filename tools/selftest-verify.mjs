@@ -62,6 +62,12 @@ const cases = [];
 function expectOk(name, mutate, expectTypes, extraArgs = []) {
   const payload = clone();
   const detail = mutate(payload);
+  /* 前置数据缺失 → 明确跳过：计入报告、单列呈现，但**不计入断言分母**，
+     更不抛异常中断整条 chain:prove 链路（P2 修复）。跳过 ≠ 通过。 */
+  if (detail === null) {
+    cases.push({ name, detail: '前置数据缺失，本次跳过', expectTypes, gotTypes: [], errorCount: 0, exitCode: null, pass: true, skipped: true });
+    return;
+  }
   const { exitCode, report } = runVerify(payload, extraArgs);
   const got = report.errors.map((e) => e.type);
   const uniqueGot = [...new Set(got)];
@@ -103,12 +109,16 @@ expectOk('T2 篡改区块时间戳', (p) => {
 
 /* ---------- T3 删一笔链上交易（Merkle 根失配） ---------- */
 expectOk('T3 抽走一笔链上交易', (p) => {
-  // 必须挑一笔**未被批量锚定**的交易，否则会连带触发 BATCH_ROOT_MISMATCH，
-  // 干扰"只应报 Merkle 失配"的对照结论。
+  // 必须挑一笔**未被批量锚定、且已上链**的交易：
+  //   · 被锚定的交易会连带触发 BATCH_ROOT_MISMATCH，干扰"只应报 Merkle 失配"的对照结论；
+  //   · block_index 为空表示该交易尚未进入任何区块（待打包），抽走它不会改变
+  //     任何区块的叶集合，于是出现"预期 MERKLE_ROOT_MISMATCH、实测 0 处"的**假失败**
+  //     （2026-10-14 实测踩到：导出 904 笔中含 6 笔未上链交易，恰被选中）。
   const anchored = new Set((p.batchLeaves || []).map((l) => l.tx_id));
   const byBlock = new Map();
   p.txs.forEach((t, i) => {
     if (anchored.has(t.tx_id)) return;
+    if (t.block_index === null || t.block_index === undefined) return;   // 未上链，不参与 Merkle 对照
     if (!byBlock.has(t.block_index)) byBlock.set(t.block_index, []);
     byBlock.get(t.block_index).push(i);
   });
@@ -117,7 +127,7 @@ expectOk('T3 抽走一笔链上交易', (p) => {
   if (victim === null) {
     for (const [, idxs] of byBlock) { victim = idxs[0]; break; }
   }
-  if (victim === null) throw new Error('未找到未被锚定的可删交易');
+  if (victim === null) return null;   // 无已上链交易可抽 → 空态跳过，不中断链路
   const t = p.txs[victim];
   p.txs.splice(victim, 1);
   return `从区块 #${t.block_index} 抽走未锚定交易 ${t.tx_id.slice(0, 12)}…`;
@@ -132,7 +142,9 @@ expectOk('T4 篡改 prevHash 制造断链', (p) => {
 
 /* ---------- T5 抽换批次叶（批量锚定被破坏） ---------- */
 expectOk('T5 抽换批量锚定的叶', (p) => {
-  if (!p.batchLeaves || !p.batchLeaves.length) throw new Error('无 batchLeaves');
+  /* 当前数据集链上「批次 0 · 叶 0」——无批量锚定记录时本对照无适用样本，
+     明确返回 null 跳过（旧实现在此处抛错，导致 chain:prove 第 3 段整条中断）。 */
+  if (!p.batchLeaves || !p.batchLeaves.length) return null;
   const leaf = p.batchLeaves[Math.min(3, p.batchLeaves.length - 1)];
   leaf.tx_id = 'd'.repeat(64);
   return `批次 ${leaf.batch_no} 的第 ${leaf.leaf_index} 叶 tx_id 被换`;
@@ -159,21 +171,32 @@ console.log(`  样本规模  区块 ${base.blocks.length} · 交易 ${base.txs.l
   + ` · 批次 ${(base.anchorBatches || []).length} · 叶 ${(base.batchLeaves || []).length}`);
 console.log('────────────────────────────────────────────────────────────────');
 for (const c of cases) {
-  const mark = c.pass ? '✔' : '✘';
+  const mark = c.skipped ? '⊘' : (c.pass ? '✔' : '✘');
   console.log(`  ${mark} ${c.name}`);
   console.log(`      注入：${c.detail}`);
+  if (c.skipped) {
+    console.log('      判定：本轮无适用样本，未计入断言分母（跳过 ≠ 通过）');
+    continue;
+  }
   console.log(`      期望检出：${c.expectTypes.length ? c.expectTypes.join(' + ') : '（无异常）'}`
     + `   实测：${c.errorCount} 处 ${c.gotTypes.length ? '[' + c.gotTypes.join(', ') + ']' : ''}`
     + `   退出码 ${c.exitCode}`);
 }
 console.log('────────────────────────────────────────────────────────────────');
-const pass = cases.filter((c) => c.pass).length;
-console.log(`  结果：${pass}/${cases.length} 组对照通过`);
-console.log(pass === cases.length
+const ran = cases.filter((c) => !c.skipped);
+const skippedCount = cases.length - ran.length;
+const pass = ran.filter((c) => c.pass).length;
+console.log(`  结果：${pass}/${ran.length} 组对照通过`
+  + (skippedCount ? `（另有 ${skippedCount} 组因前置数据缺失跳过）` : ''));
+console.log(pass === ran.length
   ? '  ✔ 校验器具备逐类篡改的独立检出能力，且无误报（基线零异常、时区假阳性已抑制）。'
   : '  ✘ 存在未通过项，校验器检出能力不完整。');
+if (skippedCount) {
+  console.log(`  ⚠ 注意：跳过的 ${skippedCount} 组检出能力本轮**未被覆盖**，`
+    + '如需完整覆盖请先产生批量锚定数据后重跑。');
+}
 console.log('════════════════════════════════════════════════════════════════');
 console.log('');
 
 fs.rmSync(tmpDir, { recursive: true, force: true });
-process.exit(pass === cases.length ? 0 : 1);
+process.exit(pass === ran.length ? 0 : 1);

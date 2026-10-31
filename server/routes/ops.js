@@ -29,7 +29,8 @@ const router = express.Router();
 
 /* 运维接口整体需要监管/管理角色 —— 指标、日志、告警、灰度均含内部运行信息，
  * 一律不得匿名可读（前端 /ops 页亦仅对 REGULATOR/ADMIN 开放）。 */
-router.use(authRequired, requireRole('REGULATOR'));
+/* P1：运维监控属管理员职责，应可访问（业务决策接口不在此文件）。 */
+router.use(authRequired, requireRole('REGULATOR', 'ADMIN'));
 
 /* Prometheus 指标（text/plain，version=0.0.4） */
 router.get('/metrics', (req, res) => {

@@ -460,6 +460,31 @@ async function main() {
     console.log('');
   }
 
+  /* ---------- 证据落盘（指标溯源台账 iot.* 四条的证据源） ----------
+   * 台账纪律"缺证即空"要求每个被引用的数字都有落盘文件可查；
+   * 本套件此前只打印不落盘，导致台账四条 iot 指标永远 MISSING。
+   * 数字直接取自 /api/iot/stats 实时统计（registry.stats()），
+   * 与页面/接口口径同源，不在此处二次计算。 */
+  try {
+    const stats = await apiGet('/api/iot/stats');
+    const outDir = path.resolve(process.cwd(), 'tools', 'out');
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'iot-stats.json'), JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      generator: 'tools/iot-selftest.mjs',
+      cmd: 'node tools/iot-selftest.mjs',
+      source: '/api/iot/stats（registry.stats() 实时统计）',
+      data: {
+        total: stats.total, active: stats.active,
+        directReports: stats.directReports, crcVerified: stats.crcVerified,
+      },
+      selftest: { pass, total: results.length },
+    }, null, 2), 'utf8');
+    console.log(`  证据已写出：tools/out/iot-stats.json（设备 ${stats.total} 台 / ACTIVE ${stats.active} / 直报 ${stats.directReports} 帧 / CRC 通过 ${stats.crcVerified} 帧）`);
+  } catch (e) {
+    console.log(`  ⚠ 证据落盘失败（不影响用例判定）：${e.message}`);
+  }
+
   process.exit(pass === results.length ? 0 : 1);
 }
 

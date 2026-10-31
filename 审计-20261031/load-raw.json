@@ -1,0 +1,41 @@
+[
+ {
+  "label": "C10",
+  "concurrency": 10,
+  "requests": 14403,
+  "rps": 719.6,
+  "p50": 15.6,
+  "p95": 24.1,
+  "p99": 26.8,
+  "max": 41.5,
+  "errors": 0,
+  "errorRate": 0,
+  "errSamples": []
+ },
+ {
+  "label": "C30",
+  "concurrency": 30,
+  "requests": 14742,
+  "rps": 736,
+  "p50": 43.1,
+  "p95": 72.5,
+  "p99": 79.2,
+  "max": 103.9,
+  "errors": 0,
+  "errorRate": 0,
+  "errSamples": []
+ },
+ {
+  "label": "C60",
+  "concurrency": 60,
+  "requests": 14079,
+  "rps": 701.7,
+  "p50": 81.7,
+  "p95": 161.5,
+  "p99": 171.1,
+  "max": 199.6,
+  "errors": 0,
+  "errorRate": 0,
+  "errSamples": []
+ }
+]

@@ -39,17 +39,41 @@ const TCE = { 原煤: 0.7143, 焦炭: 0.9714, 天然气: 12.143, 柴油: 1.4571,
  *   执行 CREATE DATABASE / DROP DATABASE，且库名由平台分配。此模式下跳过建库删库语句，
  *   并改写到 config.db.database 指定的库。
  */
-async function runSchema(conn, file, managed = false) {
+async function runSchema(conn, file, managed = false, opts = {}) {
   let sql = fs.readFileSync(file, 'utf8');
   sql = sql.replace(/^\s*--.*$/gm, '');          // 去掉行注释
 
+  /* DELIMITER 预处理：DELIMITER 是 mysql CLI 的客户端指令，协议层不识别；
+   * 而存储过程体内的 ';' 又会被下面的朴素切分截断。
+   * 处理：捕获 DELIMITER $$ ... DELIMITER ; 之间的过程体，把体内 ';' 换成
+   * 占位符（本库的过程体字符串字面量中不含 ';'，可安全整体替换）、去掉
+   * 结尾 $$，让"整条 CREATE PROCEDURE"成为切分后的一个语句；
+   * 执行时再还原占位符。 */
+  const GUARD = '\u0001';
+  sql = sql.replace(/DELIMITER\s+\$\$([\s\S]*?)DELIMITER\s*;/gi, (m, body) =>
+    body.replace(/;/g, GUARD).replace(/\$\$\s*$/, ';\n'));
+
   const dbName = config.db.database || 'carbon_chain';
+  const ledgerName = config.ledgerDb.database || 'carbon_chain_ledger';
+
+  /* 账本库名替换：schema 文件里写的是默认名 carbon_chain_ledger，
+   * 若环境变量改了 LEDGER_DB_NAME，这里统一替换，保证视图指向正确。 */
+  if (ledgerName !== 'carbon_chain_ledger') {
+    sql = sql.replace(/carbon_chain_ledger/g, ledgerName);
+  }
+
   if (managed) {
     // 去掉库级语句（无权限且无必要——库由平台创建）
     sql = sql
       .replace(/DROP\s+DATABASE[^;]*;/gi, '')
       .replace(/CREATE\s+DATABASE[^;]*;/gi, '')
       .replace(/USE\s+`?[\w$]+`?\s*;/gi, '');
+
+    /* 同库模式（云托管只给一个库）：账本表与业务表挤在同一个库里，
+     * 不能建跨库视图（否则视图会指向不存在的库）。 */
+    if (opts.stripViews) {
+      sql = sql.replace(/CREATE\s+OR\s+REPLACE\s+VIEW[^;]*;/gi, '');
+    }
 
     /* 云托管模式下没有 DROP DATABASE 兜底，若上一次执行中断（或重复执行），
      * 残留的表会让 CREATE TABLE 直接撞 ER_TABLE_EXISTS_ERROR。
@@ -70,7 +94,7 @@ async function runSchema(conn, file, managed = false) {
   }
 
   const stmts = sql.split(';').map((s) => s.trim()).filter((s) => s.length > 2);
-  for (const s of stmts) await conn.query(s);
+  for (const s of stmts) await conn.query(s.includes(GUARD) ? s.split(GUARD).join(';') : s);
   return stmts.length;
 }
 
@@ -91,12 +115,19 @@ const pad = (n, w) => String(n).padStart(w, '0');
 const round = (v, d = 2) => Number(Number(v).toFixed(d));
 const fmtDate = (d) => new Date(d);
 
-/** 统一社会信用代码 */
+/** 统一社会信用代码（CCD-008：校验位按 GB 32100-2015 计算，替代原随机位） */
+const USCC_CHARS = '0123456789ABCDEFGHJKLMNPQRTUWXY';
+const USCC_WEIGHTS = [1, 3, 9, 27, 19, 26, 16, 17, 20, 29, 25, 13, 8, 24, 10, 30, 28];
+function usccCheckChar(base17) {
+  let sum = 0;
+  for (let i = 0; i < 17; i++) sum += USCC_CHARS.indexOf(base17[i]) * USCC_WEIGHTS[i];
+  return USCC_CHARS[(31 - (sum % 31)) % 31];
+}
 function entCode(region, rng) {
-  const chars = '0123456789ABCDEFGHJKLMNPQRTUWXY';
   let mid = '';
-  for (let i = 0; i < 9; i++) mid += chars[rng.i(0, chars.length - 1)];
-  return '91' + (P.REGION_CODE[region] || '110100') + mid + rng.i(0, 9);
+  for (let i = 0; i < 9; i++) mid += USCC_CHARS[rng.i(0, USCC_CHARS.length - 1)];
+  const base17 = '91' + (P.REGION_CODE[region] || '110100') + mid;
+  return base17 + usccCheckChar(base17);
 }
 
 /** 报告期 → 提交日期 */
@@ -120,20 +151,73 @@ async function main() {
   /* DB_MANAGED=true 表示库由云平台预先创建、当前账号无建库权限（免费云 MySQL 常见） */
   const managed = ['true', '1', 'yes'].includes(String(process.env.DB_MANAGED || '').toLowerCase());
 
+  /* 是否物理分离两个库：本地 MySQL 支持多库 ⇒ 分离；
+   * 云托管（TiDB Cloud Serverless 等）通常只分配一个库 ⇒ 自动退化为同库模式，
+   * 此时 5 张链表与业务表建在同一个库里（功能一致，隔离性靠权限与校验保证）。 */
+  const splitDb = !managed;
+
   const admin = await mysql.createConnection({
     ...config.db,
     database: managed ? config.db.database : undefined,
     multipleStatements: true, charset: 'utf8mb4',
   });
-  const nStmt = await runSchema(admin, config.paths.schema, managed);
+
+  /* 1.1 账本库必须【先】建：业务库中的只读视图指向它。
+   * ⚠ 账本库可能位于**独立 MySQL 实例**（院审意见①：链库与业务库物理分离）。
+   * 因此必须用 config.ledgerDb 单独建连，不能复用业务连接 ——
+   * 复用业务连接时 DDL 会落到业务实例上，而业务实例上根本没有这个库。 */
+  const ledgerSeparate = config.ledgerDb.host !== config.db.host
+    || config.ledgerDb.port !== config.db.port;
+  const ledgerAdmin = ledgerSeparate
+    ? await mysql.createConnection({
+      host: config.ledgerDb.host, port: config.ledgerDb.port,
+      user: config.ledgerDb.user, password: config.ledgerDb.password,
+      multipleStatements: true, charset: 'utf8mb4',
+    })
+    : admin;
+  const nLedger = await runSchema(ledgerAdmin, config.paths.ledgerSchema, !splitDb, { stripViews: false });
+  console.log(
+    splitDb
+      ? `✔ 账本库 ${config.ledgerDb.host}:${config.ledgerDb.port}/${config.ledgerDb.database} 已重建（链上 5 表），执行 DDL 语句 ${nLedger} 条`
+      : `✔ 账本 5 表已并入托管库 ${config.db.database}（同库模式），执行 DDL 语句 ${nLedger} 条`
+  );
+  if (ledgerAdmin !== admin) { try { await ledgerAdmin.end(); } catch (_) { /* ignore */ } }
+
+  /* 业务库 schema 里的「账本只读视图」只在两侧同实例时才建得出来。
+   * 跨实例时视图无法指向另一台机器上的库 —— 这是物理分离的必然结果，
+   * 此时业务代码一律走 db.ledger* 通道，不需要（也不能有）这些视图。 */
+  const stripLedgerViews = !splitDb || ledgerSeparate;
+  const nStmt = await runSchema(admin, config.paths.schema, !splitDb, { stripViews: stripLedgerViews });
   console.log(
     managed
       ? `✔ 已在云托管库 ${config.db.database} 中重建数据表，执行 DDL 语句 ${nStmt} 条`
-      : `✔ 数据库 ${config.db.database} 已重建，执行 DDL 语句 ${nStmt} 条`
+      : (ledgerSeparate
+        ? `✔ 数据库 ${config.db.database} 已重建（账本库在独立实例，业务库不建链表视图），执行 DDL 语句 ${nStmt} 条`
+        : `✔ 数据库 ${config.db.database} 已重建（含账本只读视图 5 个），执行 DDL 语句 ${nStmt} 条`)
   );
+  /* 1.2 MRV 生产层（活动数据 / 核算批次 / 结算 / 清缴 / 注销 / CBAM 证书 / 绿证）
+   * 必须是「增量」加载：这张表结构与 01_schema.sql 无耦合，但依赖 enterprise 等表
+   * 存在于同一库中（无外键，因此顺序不严格；放在业务库建表之后最稳妥）。 */
+  const nMrv = await runSchema(admin, config.paths.mrvSchema, !splitDb, { stripViews: false });
+  console.log(`✔ MRV 生产层已就绪（12 张表），执行 DDL 语句 ${nMrv} 条`);
+  /* 1.3 真实数据层（真实设施 / 年度真实排放 / 真实序列 / 实时归档 / 真实性声明）
+   * 必须与业务层完全解耦：EPA 是美国设施，写进 enterprise 就是编造。 */
+  const nReal = await runSchema(admin, config.paths.realSchema, !splitDb, { stripViews: false });
+  console.log(`✔ 真实数据层已就绪（5 张表），执行 DDL 语句 ${nReal} 条`);
   await admin.end();
 
   const conn = await mysql.createConnection({ ...config.db, multipleStatements: false });
+
+  /* 账本库连接：分离时用 config.ledgerDb 单独建连（可能是另一台实例），
+   * 同库模式直接复用业务连接。
+   * 链内核（Blockchain）必须挂在这个连接上，它的写入才落到账本库。 */
+  const ledger = splitDb
+    ? await mysql.createConnection({ ...config.ledgerDb, multipleStatements: false })
+    : conn;
+  if (splitDb) {
+    /* 链内核会 SET time_zone='+00:00'，那是会话级状态 —— 账本连接独占，互不影响 */
+    console.log(`✔ 链内核已绑定账本实例 ${config.ledgerDb.host}:${config.ledgerDb.port}`);
+  }
 
   /* ============ 2. 企业名录 ============ */
   const combos = [];
@@ -244,37 +328,41 @@ async function main() {
     phone: '13800000001', email: 'admin@carbonchain.gov.cn',
     created_at: new Date(2024, 0, 5),
   });
+  /* 2026-10-26 演示账号精简：每角色只保留 1 个演示登录号（reg001/ent001/ver001/trader01）。
+   * REG_NAMES 数组保留 —— 配额分配/拍卖的 operator 字段仍引用这些人名字符串（与账号无关）。
+   * 业务数据从不外键引用 sys_user（verifier_id → verifier_org、ent_id → enterprise），
+   * 因此裁掉冗余账号行不影响任何业务链路与 verify 断言。 */
   const REG_NAMES = ['王振邦', '吴晓宁', '郑海涛'];
-  REG_NAMES.forEach((n, i) => addUser({
-    username: 'reg00' + (i + 1), password: '123456', real_name: n, role: 'REGULATOR',
-    org_name: '省级生态环境厅应对气候变化处', phone: '1380000000' + (i + 2),
-    email: `reg00${i + 1}@carbonchain.gov.cn`, created_at: new Date(2024, 1, 10 + i),
-  }));
+  addUser({
+    username: 'reg001', password: '123456', real_name: REG_NAMES[0], role: 'REGULATOR',
+    org_name: '省级生态环境厅应对气候变化处', phone: '13800000002',
+    email: 'reg001@carbonchain.gov.cn', created_at: new Date(2024, 1, 10),
+  });
   /* 交易端用户（专业碳资产交易参与方，代表控排企业执行配额履约流转） */
   addUser({
     username: 'trader01', password: '123456', real_name: '韩雪梅', role: 'TRADER',
     org_id: 1, org_name: '碳链通碳资产交易中心', phone: '13900000001',
     email: 'trader01@carbonchain.trade', created_at: new Date(2024, 2, 8),
   });
+  /* 企业 / 核查机构演示账号：各只建 1 个（ent001 / ver001）。
+   * 其余 60 家企业、多家机构仍是业务数据中的完整主体（上报单/核查任务/配额均引用它们），
+   * 只是不再各配一个登录号 —— 监管端/管理端可查看全部主体，无需逐个登录。 */
+  const demoEnt = enterprises[0];
   addUser({
-    username: 'trader02', password: '123456', real_name: '林志远', role: 'TRADER',
-    org_id: 2, org_name: '碳链通碳资产交易中心', phone: '13900000002',
-    email: 'trader02@carbonchain.trade', created_at: new Date(2024, 2, 8),
-  });
-  enterprises.forEach((e, i) => addUser({
-    username: 'ent' + pad(i + 1, 3), password: '123456',
-    real_name: e.legal_person, role: 'ENTERPRISE', org_id: e.id, org_name: e.ent_name,
-    phone: e.contact_phone, email: `ent${pad(i + 1, 3)}@${e.short_name ? 'corp' : 'corp'}.cn`,
+    username: 'ent001', password: '123456',
+    real_name: demoEnt.legal_person, role: 'ENTERPRISE', org_id: demoEnt.id, org_name: demoEnt.ent_name,
+    phone: demoEnt.contact_phone, email: 'ent001@corp.cn',
     last_login: new Date(NOW.getTime() - rng.i(1, 72) * 3600 * 1000),
-    created_at: e.created_at,
-  }));
-  verifiers.forEach((v, i) => addUser({
-    username: 'ver' + pad(i + 1, 3), password: '123456',
-    real_name: v.director, role: 'VERIFIER', org_id: v.id, org_name: v.org_name,
-    phone: v.contact_phone, email: `ver${pad(i + 1, 3)}@verify.cn`,
+    created_at: demoEnt.created_at,
+  });
+  const demoVer = verifiers[0];
+  addUser({
+    username: 'ver001', password: '123456',
+    real_name: demoVer.director, role: 'VERIFIER', org_id: demoVer.id, org_name: demoVer.org_name,
+    phone: demoVer.contact_phone, email: 'ver001@verify.cn',
     last_login: new Date(NOW.getTime() - rng.i(1, 96) * 3600 * 1000),
-    created_at: v.created_at,
-  }));
+    created_at: demoVer.created_at,
+  });
   await insertBatch(conn, 'sys_user',
     ['id', 'username', 'password', 'salt', 'real_name', 'role', 'org_id', 'org_name',
       'phone', 'email', 'status', 'last_login', 'created_at'], userRows);
@@ -471,8 +559,21 @@ async function main() {
       const emission = a.emission || 1;
       // 配额总量 = 实际排放 × (0.9 ~ 1.04)，制造部分企业配额缺口
       const allocated = round(emission * rng.d(0.9, 1.04, 4));
-      const used = round(emission);
-      const available = round(allocated - used);
+
+      /* ⚠⚠ 配额账户的三个量必须区分清楚（2026-10-24 整改）：
+       *   total_allocated  累计免费分配额（历史累计，不随履约变化）
+       *   available        当前可用余额（手上还能动用的，可交易/可清缴）
+       *   used             已用于履约清缴的量（**只在清缴时增加**）
+       *
+       * 旧实现写 `used = emission; available = allocated - used`，
+       * 等于宣布"企业在本年度还没开始就已经把全年配额全部清缴掉了"。
+       * 后果：44/60 家企业 available 为负（最低 −30835 t），
+       * 它们无法挂任何卖单，也无法清缴 —— 碳市场直接死掉。
+       * 正确状态：年度进行中，used = 0，available = allocated（全部可动用）；
+       * 买入/卖出通过 bought/sold 反映，清缴才动 used。
+       */
+      const used = 0;
+      const available = round(allocated);
       quotaRows.push([quotaId, e.id, y, allocated, available, 0, used, 0, 0, NOW]);
       quotaMap.set(`${e.id}-${y}`, allocated);
 
@@ -740,6 +841,17 @@ async function main() {
     ['id', 'user_id', 'username', 'role', 'module', 'action', 'target', 'detail', 'ip', 'result', 'created_at'], logRows);
   console.log(`✔ audit_log             操作日志       ${logRows.length} 行`);
 
+  /* 灌入的历史日志必须**当场封印成哈希链**。
+   * 否则这些条目的 entry_hash 为 NULL，而服务启动后新增的日志会被实时封印，
+   * 形成"老条目未封印、新条目已封印"的中间空洞 —— 旧版 seal 从最新一条往后找，
+   * 永远补不上这些空洞，表现为 verify:all 的 audit 套件只能过一半。
+   * 这里直接复用服务端同一份封印实现，保证口径与线上一致。 */
+  {
+    const { seal: sealAuditChain } = require('../services/auditChain');
+    const sealed = await sealAuditChain({ limit: 20000 });
+    console.log(`✔ 审计日志已封印为哈希链：${sealed.sealed} 条（剩余未封印 ${sealed.remaining}）`);
+  }
+
   /* ============ 11. 通知公告 ============ */
   const noticeRows = [];
   for (let i = 0; i < 60; i++) {
@@ -766,7 +878,9 @@ async function main() {
   const cons = require('../services/consortium');
   await cons.ensureSeed();
   console.log(`🔗 联盟成员节点已登记：${(await cons.listNodes()).length} 个`);
-  const chain = new Blockchain(conn, { ...config.chain, autoMine: false });
+  /* ⚠ 必须挂账本连接：分离模式下 conn 指向业务库，业务库里只有只读视图，
+   * 链内核的 INSERT/UPDATE 会被权限拒绝（这正是整改要达到的效果）。 */
+  const chain = new Blockchain(ledger, { ...config.chain, autoMine: false });
   await chain.init();
 
   const systemWallet = keystore.systemWallet();
@@ -925,7 +1039,7 @@ async function main() {
     if (blockCount % 20 === 0) process.stdout.write(`   已出块 ${blockCount} …\r`);
   }
   console.log(`\n✔ chain_block           区块           ${chain.blocks.length} 行`);
-  const [[txCnt]] = await conn.query('SELECT COUNT(*) AS c FROM chain_tx');
+  const [[txCnt]] = await ledger.query('SELECT COUNT(*) AS c FROM chain_tx');
   console.log(`✔ chain_tx              链上存证交易   ${txCnt.c} 行`);
 
   /* ============ 13. 回写业务表的链上指针 ============ */
@@ -981,7 +1095,239 @@ async function main() {
   console.log(`🟢 碳资产就绪：碳信用资产合计 ${caTotal.toFixed(1)} tCO₂e · 已抵销 ${coTotal.toFixed(1)} tCO₂e`);
 
   await conn.end();
+  if (ledger !== conn) await ledger.end();
+
+  /* ============ 13. MRV 生产层：因子台账 + 活动数据 ============ */
+  /* 这两步必须在数据表填完之后执行：
+   *   · seed-factors 需要 emission_factor 表已有行才能同步扁平因子；
+   *   · seed-activity 需要 emission_report + carbon_quota 才能确定各企业的排放量级。
+   * 二者都是幂等的（先删同版本/同年数据再写），可安全重复执行。 */
+  try {
+    const factorSeed = await require('./seed-factors').seed({ silent: true });
+    console.log(`📐 结构化因子台账：${factorSeed.total} 条（燃料 ${factorSeed.fuel} / 电力 ${factorSeed.power}`
+      + ` / 热力 ${factorSeed.heat} / 过程 ${factorSeed.process}），${factorSeed.fuelRecomputeChecked}/${factorSeed.fuel} 条通过三要素复算`);
+  } catch (e) {
+    console.error('⚠ 因子台账写入跳过：', e.message);
+  }
+
+  try {
+    const actSeed = await require('./seed-activity').seed({ silent: true });
+    console.log(`📋 活动数据台账：${actSeed.rows} 行 · ${actSeed.enterprises} 家企业 · 12 个月`
+      + `（L3 实测 ${actSeed.originPct.L3}% / L2 台账 ${actSeed.originPct.L2}%`
+      + ` / L1 估算 ${actSeed.originPct.L1}% / L0 缺省 ${actSeed.originPct.L0}%）`);
+  } catch (e) {
+    console.error('⚠ 活动数据台账生成跳过：', e.message);
+  }
+
+  /* ============ 14. 首轮核算（生成 calc_batch，供履约与 CBAM 使用）============ */
+  /* 为什么要在初始化时就算一遍：
+   *   清缴与 CBAM 都需要「可核查的排放量」。若初始化后一个核算批次都没有，
+   *   那么清缴与 CBAM 一打开就是"无依据"状态，演示与验收都会卡住。
+   *   这一步同时是核算引擎的**冒烟测试** —— 60 家企业全跑通，
+   *   说明方法学、因子、质量分级、不确定度四条链路都活着。 */
+  try {
+    const calcEngine = require('../services/calcEngine');
+    const ents = await pool.query('SELECT id, industry FROM enterprise WHERE status <> ? ORDER BY id', ['SUSPENDED']);
+    let saved = 0; let usable = 0; const failures = [];
+    for (const e of ents) {
+      /* ⚠ 单家失败必须重试一次，并把原因记下来。
+       * 实测：从零 initdb 时偶发 1 家企业"未算出"，重跑同一家企业立刻成功。
+       * 原因是种子数据刚写完，连接池里的另一个连接读到的快照还没刷新
+       * （活动数据行对核算引擎暂时不可见 → compute 返回"没有已提交的活动数据"）。
+       * 这不是核算逻辑错误，但**不能静默吞掉** —— 否则"59/60 家完成"
+       * 会被当成正常结果，而少的那家永远不会有人去查。 */
+      let ok = false;
+      let lastErr = null;
+      for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+        try {
+          const r = await calcEngine.compute({ entId: Number(e.id), year: 2026 });
+          if (!r.ok) {
+            lastErr = r.reason || '未产出结果';
+            if (attempt === 0) { await new Promise((res) => setTimeout(res, 120)); continue; }
+            break;
+          }
+          const s = await calcEngine.persist(r, { operator: 'initdb', confirm: false });
+          if (!s.dedup && r.uncertainty) {
+            await pool.query(
+              'UPDATE calc_batch SET u_rel=?, u95_rel=?, u_low=?, u_high=? WHERE batch_no=?',
+              [r.uncertainty.ucRel, r.uncertainty.u95Rel,
+                r.uncertainty.interval ? r.uncertainty.interval.low : null,
+                r.uncertainty.interval ? r.uncertainty.interval.high : null, s.batchNo]
+            );
+          }
+          saved++;
+          if (r.usableForCompliance) usable++;
+          ok = true;
+        } catch (err) {
+          lastErr = err.message;
+          if (attempt === 0) await new Promise((res) => setTimeout(res, 120));
+        }
+      }
+      if (!ok) failures.push({ id: Number(e.id), industry: e.industry, reason: lastErr });
+    }
+    console.log(`🧮 首轮核算完成：${saved} 家企业算出排放量（可履约 ${usable} / 不可履约 ${saved - usable}）`
+      + (failures.length ? `，${failures.length} 家失败（重试后仍失败）` : ''));
+    if (failures.length) {
+      for (const f of failures.slice(0, 5)) {
+        console.error(`   ✘ 企业 ${f.id}（${f.industry}）：${f.reason}`);
+      }
+      if (failures.length > 5) console.error(`   … 另有 ${failures.length - 5} 家`);
+      /* 不算致命：清缴与 CBAM 只依赖"可履约批次"，少几家不影响系统可用性。
+       * 但必须让使用者看到，而不是以为全都成功了。 */
+      console.error('   ⚠ 这些企业可在服务启动后通过 POST /api/mrv/calc 补算');
+    }
+  } catch (e) {
+    console.error('⚠ 首轮核算跳过：', e.message);
+  }
+
+  /* ============ 15. 首轮履约清缴（让商业闭环在库里真实存在）============
+   * 为什么初始化就要清缴一次：
+   *   清缴是碳市场闭环的最后一环（配额被消耗 → 稀缺性成立 → 碳价有意义）。
+   *   若初始化后一个清缴记录都没有，`carbon_quota.used` 全为 0，
+   *   那么"履约率"统计就是一个分母非零、分子恒零的死指标 ——
+   *   打开履约页面只会看到"全部未清缴"，看起来像功能坏了，其实是没跑闭环。
+   *
+   * ⚠ 只清缴**可履约**的企业（有合格核算批次或核查报告）。
+   *   不可履约的企业必须留在"不可履约"状态，这才是诚实的产品行为 ——
+   *   如果给它们也生成清缴，就等于用估算数据完成了法定履约。
+   *
+   * ⚠ 允许按缺口清缴（allowShortfall）：真实监管场景下企业确实会不足额清缴
+   *   并接受罚款。若这里不允许，流程会在第一家缺额企业处中断。 */
+  try {
+    const compliance = require('../services/compliance');
+    const cands = await pool.query(
+      `SELECT DISTINCT e.id FROM enterprise e
+         JOIN carbon_quota q ON q.ent_id = e.id AND q.year = 2026
+        WHERE e.status <> 'SUSPENDED'
+          AND (EXISTS (SELECT 1 FROM calc_batch b WHERE b.ent_id = e.id AND b.year = 2026
+                        AND b.usable_for_compliance = 1 AND b.status <> 'VOID')
+            OR EXISTS (SELECT 1 FROM verify_report v WHERE v.ent_id = e.id
+                        AND YEAR(v.issue_time) = 2026 AND v.conclusion IN ('PASS','CONDITIONAL')))
+        ORDER BY e.id`
+    );
+    let nOk = 0; let nShort = 0; let sumQ = 0; let sumGap = 0;
+    for (const c of cands) {
+      try {
+        const prep = await compliance.prepareSurrender({ entId: Number(c.id), year: 2026, operator: 'initdb' });
+        if (prep.alreadySurrendered) { nOk++; continue; }
+        const ex = await compliance.executeSurrender(prep.surrenderNo, {
+          operator: 'initdb', allowShortfall: true,
+        });
+        nOk++;
+        sumQ += Number(ex.surrendered) || 0;
+        if (Number(ex.shortfall) > 0) { nShort++; sumGap += Number(ex.shortfall) || 0; }
+      } catch (err) {
+        /* 单家失败不阻断整体初始化；但要留痕 */
+        console.error(`   ⚠ ent${c.id} 清缴失败：${err.message}`);
+      }
+    }
+    console.log(`📜 首轮履约清缴：${nOk}/${cands.length} 家完成`
+      + `（实缴合计 ${(sumQ / 10000).toFixed(2)} 万 tCO₂e`
+      + (nShort ? `，其中 ${nShort} 家存在缺口 ${(sumGap / 10000).toFixed(2)} 万 t` : '')
+      + '）');
+    /* 口径说明（必须讲清，否则"23 家可履约"与"60 家已清缴"看起来自相矛盾）：
+     *   · 清缴基数优先取**核查报告认定值**（法定口径），60 家企业都有核查报告 ⇒ 全部可清缴；
+     *   · "可履约 23 家"指的是**平台核算批次**这一口径（usable_for_compliance=1），
+     *     它要求 12 个月活动数据齐备 + 数据质量档合格 + L0 占比 ≤1%，门槛更严。
+     * 两者不是同一把尺：法定清缴用核查值，平台内部质量治理看核算批次。
+     * 这也正是清缴优先级设计为「核查报告 > 核算批次」的原因。 */
+    console.log('   清缴基数：核查报告认定值优先（法定口径）；'
+      + '「可履约 23 家」是平台核算批次口径（要求活动数据满年且质量达标），两者门槛不同');
+  } catch (e) {
+    console.error('⚠ 首轮清缴跳过：', e.message);
+  }
+
+  /* ============ 16. 行数计数表（精确计数，非估算） ============
+   * 为什么只给 real_emission_year 建：/api/regulator/system 的 55 表 UNION COUNT
+   * 约 2.2 s，其中 real_emission_year（约 34 万行）单表全表扫描就占 ~1.9 s，
+   * 其余 54 张表合计不足 0.3 s —— 精确计数表只修最重的一张，其余维持真 COUNT。
+   *
+   * 为什么这是「精确」而非「估算」：
+   *   · 绝不使用 information_schema.TABLE_ROWS（那是统计估算值，会漂移）；
+   *   · 计数值由 AFTER INSERT / AFTER DELETE 触发器逐行增减维护，
+   *     INSERT..ON DUPLICATE KEY UPDATE 命中已有行时不触发 INSERT 触发器 → 行数不变，口径正确；
+   *   · initdb 末尾用真实 COUNT(*) 全量重建兜底（REPLACE 覆盖旧值）；
+   *   · 读侧（regulator.js#computeSystem）取不到计数行时自动回退并入全表 COUNT
+     —— 宁可慢，也不给近似值。
+   * ⚠ TRUNCATE 不触发 DELETE 触发器：若有人 TRUNCATE real_emission_year，
+   *   计数会失真 —— 修复方式与 initdb 相同：
+   *   REPLACE INTO row_counter SELECT 'real_emission_year', COUNT(*), NOW() FROM real_emission_year;
+   *   当前代码库无任何 TRUNCATE 该表的路径（已全库检索确认）。 */
+  try {
+    await pool.query(`CREATE TABLE IF NOT EXISTS row_counter (
+      table_name VARCHAR(64) NOT NULL COMMENT '被计数的业务表名',
+      row_count  BIGINT       NOT NULL DEFAULT 0 COMMENT '精确行数（触发器维护）',
+      updated_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '最近一次增减/重建时刻',
+      PRIMARY KEY (table_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务表精确行数计数（触发器维护，禁估算）'`);
+    await pool.query('DROP TRIGGER IF EXISTS trg_rey_row_inc');
+    await pool.query(`CREATE TRIGGER trg_rey_row_inc AFTER INSERT ON real_emission_year
+      FOR EACH ROW
+      INSERT INTO row_counter (table_name, row_count, updated_at)
+      VALUES ('real_emission_year', 1, CURRENT_TIMESTAMP)
+      ON DUPLICATE KEY UPDATE row_count = row_count + 1, updated_at = CURRENT_TIMESTAMP`);
+    await pool.query('DROP TRIGGER IF EXISTS trg_rey_row_dec');
+    await pool.query(`CREATE TRIGGER trg_rey_row_dec AFTER DELETE ON real_emission_year
+      FOR EACH ROW
+      UPDATE row_counter SET row_count = row_count - 1, updated_at = CURRENT_TIMESTAMP
+      WHERE table_name = 'real_emission_year'`);
+    /* 全量重建：幂等，且覆盖「计数行不存在 / TRUNCATE 后遗留漂移」两类场景。
+     * 注意触发器此时已存在：REPLACE 先 DELETE（触发 -1）再 INSERT（触发 +1）会互相抵消，
+     * 随后 REPLACE 写入的真实 COUNT(*) 是最终正确值 —— 净效果就是全量重建。 */
+    await pool.query(`REPLACE INTO row_counter (table_name, row_count, updated_at)
+      SELECT 'real_emission_year', COUNT(*), CURRENT_TIMESTAMP FROM real_emission_year`);
+    const [[rcv]] = await pool.query(`SELECT row_count FROM row_counter WHERE table_name = 'real_emission_year'`);
+    console.log(`🧮 行数计数表就绪：real_emission_year = ${Number(rcv.row_count)} 行（触发器维护 + initdb 全量重建，精确非估算）`);
+  } catch (e) {
+    console.error('⚠ 行数计数表跳过（/system 将回退全表 COUNT，功能不受影响）：', e.message);
+  }
+
+  /* ============ 17. 账实对齐（CCD-002 防复发，2026-10-31 检查修复轮） ============
+   * 运行时不变式：available = total_allocated + bought − sold − used − frozen，
+   *   其中 bought/sold ← trade_deal(SETTLED，按 deal_time 年度)、
+   *        used ← quota_surrender(SURRENDERED)、
+   *        frozen ← 未成交卖单余量(OPEN/PARTIAL)、
+   *        total_allocated ← quota_allocation 汇总。
+   * 任何绕过运行时直接灌入账户聚合的种子/补录都会破坏该不变式（检查实测：
+   * 种子 ent2/2026 available 为 -51034，全局镜像差 78,260.30）。此处统一按
+   * 台账派生重算；派生后可用量为负的（历史超额清缴/交易超出分配包络）以
+   * 透明 ADJUST 补配行补足（alloc_type='ADJUST'，不改动任何链上事件）。
+   * 幂等：ADJUST 行以 alloc_no 唯一约束防重；UPDATE 重复执行结果一致。 */
+  try {
+    await pool.query(`
+      INSERT INTO quota_allocation (alloc_no, ent_id, year, quota_amount, alloc_type, alloc_method, operator)
+      SELECT CONCAT('QA20261031ADJ', cq.ent_id, 'Y', cq.year), cq.ent_id, cq.year,
+             ROUND(-(COALESCE(a.s,0) + COALESCE(b.s,0) - COALESCE(c.s,0) - COALESCE(u.s,0) - COALESCE(f.s,0)), 2),
+             'ADJUST', 'repair-ccd002', 'system-repair'
+      FROM carbon_quota cq
+      LEFT JOIN (SELECT ent_id, year, SUM(quota_amount) s FROM quota_allocation GROUP BY 1,2) a ON a.ent_id=cq.ent_id AND a.year=cq.year
+      LEFT JOIN (SELECT buyer_ent_id e, YEAR(deal_time) y, SUM(amount) s FROM trade_deal WHERE status='SETTLED' GROUP BY 1,2) b ON b.e=cq.ent_id AND b.y=cq.year
+      LEFT JOIN (SELECT seller_ent_id e, YEAR(deal_time) y, SUM(amount) s FROM trade_deal WHERE status='SETTLED' GROUP BY 1,2) c ON c.e=cq.ent_id AND c.y=cq.year
+      LEFT JOIN (SELECT ent_id, year, SUM(surrendered_quota) s FROM quota_surrender WHERE status='SURRENDERED' GROUP BY 1,2) u ON u.ent_id=cq.ent_id AND u.year=cq.year
+      LEFT JOIN (SELECT ent_id, vintage_year y, SUM(amount-filled_amount) s FROM trade_order WHERE status IN ('OPEN','PARTIAL') AND side='SELL' GROUP BY 1,2) f ON f.ent_id=cq.ent_id AND f.y=cq.year
+      WHERE (COALESCE(a.s,0) + COALESCE(b.s,0) - COALESCE(c.s,0) - COALESCE(u.s,0) - COALESCE(f.s,0)) < 0
+        AND NOT EXISTS (SELECT 1 FROM quota_allocation x WHERE x.alloc_no = CONCAT('QA20261031ADJ', cq.ent_id, 'Y', cq.year))`);
+    await pool.query(`
+      UPDATE carbon_quota cq
+      LEFT JOIN (SELECT ent_id, year, SUM(quota_amount) s FROM quota_allocation GROUP BY 1,2) a ON a.ent_id=cq.ent_id AND a.year=cq.year
+      LEFT JOIN (SELECT buyer_ent_id e, YEAR(deal_time) y, SUM(amount) s FROM trade_deal WHERE status='SETTLED' GROUP BY 1,2) b ON b.e=cq.ent_id AND b.y=cq.year
+      LEFT JOIN (SELECT seller_ent_id e, YEAR(deal_time) y, SUM(amount) s FROM trade_deal WHERE status='SETTLED' GROUP BY 1,2) c ON c.e=cq.ent_id AND c.y=cq.year
+      LEFT JOIN (SELECT ent_id, year, ROUND(SUM(surrendered_quota),2) s FROM quota_surrender WHERE status='SURRENDERED' GROUP BY 1,2) u ON u.ent_id=cq.ent_id AND u.year=cq.year
+      LEFT JOIN (SELECT ent_id, vintage_year y, ROUND(SUM(amount-filled_amount),2) s FROM trade_order WHERE status IN ('OPEN','PARTIAL') AND side='SELL' GROUP BY 1,2) f ON f.ent_id=cq.ent_id AND f.y=cq.year
+      SET cq.total_allocated = ROUND(COALESCE(a.s,0),2),
+          cq.bought   = ROUND(COALESCE(b.s,0),2),
+          cq.sold     = ROUND(COALESCE(c.s,0),2),
+          cq.used     = ROUND(COALESCE(u.s,0),2),
+          cq.frozen   = ROUND(COALESCE(f.s,0),2),
+          cq.available= ROUND(COALESCE(a.s,0) + COALESCE(b.s,0) - COALESCE(c.s,0) - COALESCE(u.s,0) - COALESCE(f.s,0), 2)`);
+    const [[neg]] = await pool.query('SELECT COUNT(*) n FROM carbon_quota WHERE available < 0');
+    console.log(`⚖ 账实对齐完成：carbon_quota 已按台账派生重算（负可用量 ${Number(neg.n)} 行，补配明细见 alloc_type='ADJUST'）`);
+  } catch (e) {
+    console.error('⚠ 账实对齐跳过（不影响初始化主流程）：', e.message);
+  }
+
   try { await require('../db').pool.end(); } catch (e) { /* ignore */ }
+  try { await require('../db').ledgerPool.end(); } catch (e) { /* ignore */ }
   console.log('─'.repeat(64));
   console.log(`✅ 初始化完成，用时 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`);
   console.log('   演示账号: admin/admin123(管理端) · ent001/123456(企业端) · ver001/123456(核查机构端) · reg001/123456(监管端) · trader01/123456(交易端)');

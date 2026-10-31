@@ -69,12 +69,26 @@
       let seq = 0;
       let unsubCems = null, unsubStatus = null, unsubFactor = null;
 
+      /* 实时趋势缓存 —— 每帧一条，保留最近 60 帧（约 3 分钟）。
+       * 2026-10-29 巡检 P1-16：「#1 机组主烟道」卡片中下部约 350px 完全空白，
+       * 评审的原话是"这里应该有实时曲线"。卡片与右侧「核算口径」同处一个
+       * grid 行，被后者撑高，于是内容之外全是空。补一条真实帧序列曲线。 */
+      const TREND_MAX = 60;
+      const trend = ref([]);
+      function pushTrend() {
+        trend.value = trend.value.concat([{
+          rate: Number(physical.instantRate) || 0,
+          co2: Number(physical.co2Pct) || 0,
+        }]).slice(-TREND_MAX);
+      }
+
       function physTick() {
         if (!live.value) return;
         t0 += 3;
         C.tick(physical, t0, 3);
         frameCount.value++;
         archiveIdx.value = RDE ? RDE.snapshot().archiveIndex : t0;
+        pushTrend();
       }
       function chainTick() {
         if (!live.value) return;
@@ -147,6 +161,7 @@
             physical.cumulative = t.cumulative;
             frameCount.value++;
             archiveIdx.value = RDE.snapshot().archiveIndex;
+            pushTrend();
           });
           RDE.connect();  /* 尝试 WS，失败自动降级归档序列 */
         } else {
@@ -172,12 +187,12 @@
       /* ---- 顶部 KPI ---- */
       function kpis() {
         return h('div', { class: 'grid g4 mb-16' }, [
-          h('x-kpi', { label: '瞬时 CO₂ 排放速率', value: fmtNum(physical.instantRate, 2), unit: 'tCO₂/h', tone: 'carbon', icon: 'factory',
+          h('x-kpi', { label: '瞬时 CO₂ 排放速率', value: fmtNum(physical.instantRate, 3), unit: 'tCO₂/h', tone: 'carbon', icon: 'factory',
             foot: `Q ${Math.round(physical.flow)} m³/h × φ ${physical.co2Pct.toFixed(2)}%` }),
           h('x-kpi', { label: '今日累计排放', value: fmtNum(physical.cumulative, 2), unit: 'tCO₂', tone: 'chain', icon: 'block',
             foot: `自启动 ${fmtNum((Date.now() - physical.bootAt) / 1000, 0)} 秒 · 实时跳动` }),
           h('x-kpi', { label: '采样帧数 / 在线率', value: frameCount.value, unit: '帧', tone: 'info', icon: 'chart',
-            foot: `在线率 ${(11 / 12 * 100).toFixed(1)}%（12 台设备 1 台降解）` }),
+            foot: `在线率 ${(11 / 12 * 100).toFixed(1)}%（12 台设备 1 台降级）` }),
           h('x-kpi', { label: '链上存证高度', value: attestations.value[0] ? attestations.value[0].blockHeight : blockBase.value, unit: '', tone: 'violet', icon: 'chain',
             foot: `本会话已产出 ${attestations.value.length} 笔存证` }),
         ]);
@@ -208,14 +223,22 @@
             h('button', { class: 'btn sm ghost', onClick: toggleLive }, live.value ? '暂停' : '恢复'),
             h('button', { class: 'btn sm primary', onClick: openDrawer }, [h('x-icon', { name: 'layers', size: 14 }), '查看 CEMS 原始国标报文']),
           ]),
-          default: () => h('div', { style: 'padding:14px 16px' }, [
+          default: () => h('div', {
+            /* 卡片与右侧「核算口径」同处一个 grid 行，会被后者撑高；
+             * 内容按列排布并让趋势图吃掉剩余高度，避免卡片下部留白
+             * （2026-10-29 巡检 P1-16）。 */
+            style: 'padding:14px 16px;display:flex;flex-direction:column;height:100%;box-sizing:border-box',
+          }, [
             h('div', { class: 'cems-readout-grid' }, [
               readout('标态干烟气流量', Math.round(physical.flow), 'm³/h', '基准 180000 · ±3%'),
               readout('CO₂ 体积浓度', physical.co2Pct.toFixed(2), '%', '基准 12.4 · ±0.5'),
               readout('排烟温度', physical.temp.toFixed(1), '℃', '125 ~ 130'),
               readout('烟气压力', Math.round(physical.pressure), 'Pa', '−110 ~ −130'),
               readout('烟气含氧量', physical.o2Pct.toFixed(2), '%', '6.0 ~ 7.2'),
-              readout('瞬时碳排速率', physical.instantRate.toFixed(3), 'tCO₂/h', '动态核算'),
+              /* 同一物理量在上方 KPI 与这里各出现一次，标签与精度必须一致：
+               * 原来一处写 43.95（两位）、一处写 43.952（三位），读者会以为
+               * 是两个不同的量（2026-10-29 巡检 P2-40）。统一为三位。 */
+              readout('瞬时 CO₂ 排放速率', physical.instantRate.toFixed(3), 'tCO₂/h', '动态核算'),
             ]),
             h('div', { class: 'tiny dim mt-16', style: 'line-height:1.8' }, [
               '核算口径：标态干烟气量 × CO₂ 体积分数 × (44/22.4) × 1e-3 = '
@@ -223,8 +246,67 @@
               h('b', { style: 'color:var(--brand-l)' }, physical.instantRate.toFixed(3) + ' tCO₂/h'),
               '。物理量按工业容差内多正弦叠加 + 微噪声波动，每 3 秒刷新一帧。',
             ]),
+            trendChart(),
           ]),
         });
+      }
+
+      /** 实时趋势曲线（纯 SVG，不依赖图表库，每帧重绘代价可忽略） */
+      function trendChart() {
+        const rows = trend.value;
+        const W = 600, H = 116, PAD = 6;
+        const head = h('div', {
+          style: 'display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px',
+        }, [
+          h('div', { class: 'tiny dim' }, '瞬时排放速率 · 最近 60 帧（约 3 分钟，每 3 秒 1 帧）'),
+          h('div', { class: 'mono', style: 'font-size:11.5px;color:var(--tx-3)' },
+            rows.length >= 2 ? `${rows.length} 帧 · 峰值 ${fmtNum(Math.max(...rows.map((x) => x.rate)), 2)} tCO₂/h` : '采集中'),
+        ]);
+        /* 外层吃满剩余高度：曲线区随卡片高度伸缩，不留空 */
+        const wrapStyle = 'margin-top:14px;flex:1 1 auto;display:flex;flex-direction:column;min-height:150px';
+        if (rows.length < 2) {
+          return h('div', { style: wrapStyle }, [head,
+            h('div', { class: 'tiny dim', style: 'flex:1 1 auto;display:flex;align-items:center;justify-content:center' },
+              '已采集 ' + rows.length + ' 帧，满 2 帧后绘制曲线')]);
+        }
+        const vals = rows.map((x) => x.rate);
+        const mn = Math.min(...vals), mx = Math.max(...vals);
+        const span = mx - mn || Math.max(mx * 0.02, 0.001);
+        const lo = mn - span * 0.15, hi = mx + span * 0.15;
+        const px = (i) => PAD + (i / (rows.length - 1)) * (W - PAD * 2);
+        const py = (v) => H - PAD - ((v - lo) / (hi - lo)) * (H - PAD * 2);
+        const line = rows.map((x, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(x.rate).toFixed(1)}`).join(' ');
+        const area = `${line} L${px(rows.length - 1).toFixed(1)},${H - PAD} L${px(0).toFixed(1)},${H - PAD} Z`;
+        return h('div', { style: wrapStyle }, [
+          head,
+          h('svg', {
+            viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'none',
+            style: 'display:block;width:100%;flex:1 1 auto;min-height:116px;overflow:visible',
+            'aria-label': '瞬时排放速率实时曲线',
+          }, [
+            h('defs', {}, [
+              h('linearGradient', { id: 'cemsTrendGrad', x1: '0', y1: '0', x2: '0', y2: '1' }, [
+                h('stop', { offset: '0%', 'stop-color': 'rgba(16,185,129,.40)' }),
+                h('stop', { offset: '100%', 'stop-color': 'rgba(16,185,129,.02)' }),
+              ]),
+            ]),
+            h('line', { x1: 0, y1: py(rows[rows.length - 1].rate), x2: W, y2: py(rows[rows.length - 1].rate), stroke: 'rgba(255,255,255,.10)', 'stroke-dasharray': '4 4', 'stroke-width': 1 }),
+            h('path', { d: area, fill: 'url(#cemsTrendGrad)', stroke: 'none' }),
+            h('path', { d: line, fill: 'none', stroke: '#10b981', 'stroke-width': 1.8, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }),
+            h('circle', {
+              cx: px(rows.length - 1), cy: py(rows[rows.length - 1].rate), r: 3.2,
+              fill: '#34d399', stroke: 'rgba(6,10,18,.9)', 'stroke-width': 1.5,
+            }),
+          ]),
+          h('div', {
+            style: 'display:flex;justify-content:space-between;margin-top:4px;'
+              + 'font-family:var(--mono);font-size:10.5px;color:var(--tx-3)',
+          }, [
+            h('span', {}, `最低 ${fmtNum(mn, 2)}`),
+            h('span', {}, `当前 ${fmtNum(rows[rows.length - 1].rate, 2)} tCO₂/h`),
+            h('span', {}, `最高 ${fmtNum(mx, 2)}`),
+          ]),
+        ]);
       }
       function readout(k, v, u, foot) {
         return h('div', { class: 'cems-readout' }, [
@@ -275,7 +357,8 @@
               h('span', {}, '单位推导：质量流量(g/h) = Q × φ × ρ(g/m³) = Q × φ × 1964.3；折吨 = ×1e-6，'
                 + '其中 ρ = (44 g/mol ÷ 22.4 L/mol) × 1000 L/m³ = 1964.3 g/m³。'
                 + '故 t/h = Q × (φ/100) × (44/22.4) × 1e-3（量纲自洽，180000 m³/h × 12.4% ≈ 43.8 t/h，符合工业燃煤锅炉量级）。'
-                + '范围二因子切换后，电力折算排放实时更新；因子来源见 App.Sources 台账（22 条引用可追溯）。'),
+                + '范围二因子切换后，电力折算排放实时更新；因子来源见 App.Sources 台账（'
+                + App.Sources.stats().citations + ' 条引用可追溯）。'),
             ]),
           ]),
         });

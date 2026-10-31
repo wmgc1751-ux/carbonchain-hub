@@ -155,11 +155,21 @@ function capability() {
     suite: 'SM2（GB/T 32918） + SM3（GB/T 32905）',
     signing: 'SM2-with-SM3（OpenSSL createSign("SM3") + SM2 私钥）',
     curve: gm.CAPS && gm.CAPS.curve ? gm.CAPS.curve : null,
-    storeFile: FILE,
+    /* 2026-10-29 巡检 P1-26（二次收敛）：
+     * 最初这里直接返回 FILE 的**绝对路径**，把开发机目录
+     * D:\workspace\…\server\sm2-keystore.json 原样渲染到密钥治理页 ——
+     * 既暴露部署路径与操作系统用户名（信息泄漏），对使用者也没有任何意义。
+     * 上一轮只改成相对路径 server/xxx.json，仍然泄漏了服务端的目录结构。
+     * 现在**不返回任何文件系统信息**：只说明"密钥存在哪一类介质里、是否静态加密"。
+     * 真正要审计的是密钥指纹与轮换日志，不是它躺在哪个盘。 */
+    storeFile: null,
+    storeRef: '平台内置密钥库（服务端本地）',
     storeEncrypted: !!encKey(),
     provider: 'SOFTWARE（本地密钥库）',
     hsmReady: false,
-    hsmNote: '已预留 provider 抽象：接入 HSM/KMS 时实现 signWithProvider()，调用方无需改动。当前**未接硬件加密机**，如实声明。',
+    /* 后端文本不带 Markdown 标记：前端此前按纯文本渲染，`**` 会原样显示成星号。
+     * 强调交给前端样式（标签已加粗），此处只留纯文本。 */
+    hsmNote: '已预留 provider 抽象：接入 HSM/KMS 时实现 signWithProvider()，调用方无需改动。当前未接硬件加密机，如实声明。',
   };
 }
 

@@ -2,7 +2,7 @@
  * anchor.js —— 业务动作上链服务
  * ------------------------------------------------------------------
  * 业务代码只需要调用 anchor()，即可完成：
- *   构造交易 → 用发起方私钥 ECDSA 签名 → 进入交易池 → 打包 → PoW 出块 → 返回区块高度与交易号
+ *   构造交易 → 用发起方私钥 ECDSA 签名 → 进入交易池 → 打包 → PoA 轮值节点出块 → 返回区块高度与交易号
  * 业务表再回写 chain_block_index / chain_tx_id，形成"链上链下双记录"，
  * 任何一方被篡改都能通过比对发现。
  */
@@ -40,6 +40,24 @@ async function getChain() {
  */
 async function anchor(p) {
   const c = await getChain();
+  /* ⚠ 2026-10-29 归一化：undefined 键在两条序列化路径上口径不同——
+   *   payloadHash 用 stableStringify（undefined → null），
+   *   payload_json 用 JSON.stringify（undefined 键直接丢弃）。
+   *   只要 payload 里有 undefined 值的键，锚定后链下绑定校验必 mismatch
+   *   （实测：EPA 批次 payload.facility.id 因 SELECT 漏列触发）。
+   *   在进 buildTx 前先递归剔除 undefined 键，让哈希与存储口径恒一致。 */
+  const stripUndefined = (v) => {
+    if (Array.isArray(v)) return v.map(stripUndefined);
+    if (v && typeof v === 'object') {
+      const o = {};
+      for (const k of Object.keys(v)) {
+        if (v[k] !== undefined) o[k] = stripUndefined(v[k]);
+      }
+      return o;
+    }
+    return v;
+  };
+  if (p.payload) p.payload = stripUndefined(p.payload);
   const from = keystore.walletFor(p.fromLabel || 'regulator:system');
   const to = p.toLabel ? keystore.walletFor(p.toLabel) : keystore.systemWallet();
 

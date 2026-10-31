@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <!-- 核心能力 · 动态核算与双轨对账（ISO 14064 / 14067 双曲线） -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a1326"/><stop offset="1" stop-color="#0b1526"/>
+    </linearGradient>
+    <radialGradient id="gG" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#10b981" stop-opacity=".26"/><stop offset="1" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gC" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity=".22"/><stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="diff" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#34d399" stop-opacity=".05"/>
+      <stop offset=".55" stop-color="#f5c542" stop-opacity=".16"/>
+      <stop offset="1" stop-color="#34d399" stop-opacity=".05"/>
+    </linearGradient>
+    <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M60 0 H 0 V 60" fill="none" stroke="#ffffff" stroke-opacity=".045"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#bg)"/>
+  <rect width="1200" height="800" fill="url(#grid)"/>
+  <ellipse cx="300" cy="240" rx="420" ry="260" fill="url(#gG)"/>
+  <ellipse cx="920" cy="520" rx="420" ry="260" fill="url(#gC)"/>
+
+  <!-- 基线与刻度 -->
+  <g stroke="#ffffff" stroke-opacity=".14">
+    <line x1="90" y1="620" x2="1110" y2="620" stroke-width="2"/>
+    <line x1="90" y1="620" x2="90" y2="180" stroke-width="2"/>
+  </g>
+  <g stroke="#ffffff" stroke-opacity=".07">
+    <line x1="90" y1="500" x2="1110" y2="500"/>
+    <line x1="90" y1="380" x2="1110" y2="380"/>
+    <line x1="90" y1="260" x2="1110" y2="260"/>
+  </g>
+  <g fill="#ffffff" opacity=".2" font-family="monospace" font-size="17">
+    <text x="98" y="642">Q1</text><text x="330" y="642">Q2</text><text x="562" y="642">Q3</text><text x="794" y="642">Q4</text><text x="1026" y="642">FY</text>
+  </g>
+
+  <!-- 柱：月度排放 -->
+  <g fill="#10b981" opacity=".14">
+    <rect x="130" y="470" width="52" height="150" rx="6"/>
+    <rect x="362" y="430" width="52" height="190" rx="6"/>
+    <rect x="594" y="452" width="52" height="168" rx="6"/>
+    <rect x="826" y="392" width="52" height="228" rx="6"/>
+    <rect x="1058" y="420" width="52" height="200" rx="6"/>
+  </g>
+  <g fill="#06b6d4" opacity=".12">
+    <rect x="192" y="492" width="52" height="128" rx="6"/>
+    <rect x="424" y="452" width="52" height="168" rx="6"/>
+    <rect x="656" y="470" width="52" height="150" rx="6"/>
+    <rect x="888" y="412" width="52" height="208" rx="6"/>
+  </g>
+
+  <!-- 双轨差异带 -->
+  <path d="M116 300 C 240 250 330 330 450 292 C 580 252 660 350 790 300 C 900 258 1000 330 1096 282
+           L 1096 250 C 1000 292 900 226 790 264 C 660 312 580 216 450 254 C 330 292 240 216 116 262 Z"
+        fill="url(#diff)"/>
+
+  <!-- 轨 A：组织碳 14064（翡翠） -->
+  <path d="M116 262 C 240 216 330 292 450 254 C 580 216 660 312 790 264 C 900 226 1000 292 1096 250"
+        fill="none" stroke="#34d399" stroke-width="7" stroke-linecap="round"/>
+  <!-- 轨 B：产品碳足迹 14067（青） -->
+  <path d="M116 300 C 240 250 330 330 450 292 C 580 252 660 350 790 300 C 900 258 1000 330 1096 282"
+        fill="none" stroke="#22d3ee" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- 交点标记 = 对账点 -->
+  <g>
+    <circle cx="450" cy="272" r="13" fill="#0b1526" stroke="#f5c542" stroke-width="4"/>
+    <circle cx="450" cy="272" r="4" fill="#f5c542"/>
+    <circle cx="890" cy="248" r="13" fill="#0b1526" stroke="#34d399" stroke-width="4"/>
+    <circle cx="890" cy="248" r="4" fill="#34d399"/>
+  </g>
+  <g stroke="#f5c542" stroke-opacity=".55" stroke-dasharray="2 8" stroke-width="2.4">
+    <line x1="450" y1="272" x2="450" y2="620"/>
+  </g>
+
+  <!-- 图例 -->
+  <g font-family="monospace" font-size="19">
+    <rect x="90" y="96" width="26" height="8" rx="4" fill="#34d399"/><text x="128" y="106" fill="#9be8d8" opacity=".85">14064</text>
+    <rect x="236" y="96" width="26" height="8" rx="4" fill="#22d3ee"/><text x="274" y="106" fill="#9be8d8" opacity=".85">14067</text>
+  </g>
+
+  <!-- 流动点缀 -->
+  <g fill="#2ee6c8">
+    <circle cx="252" cy="212" r="3.4" opacity=".9"/><circle cx="318" cy="238" r="2.6" opacity=".6"/><circle cx="382" cy="226" r="2.2" opacity=".4"/>
+  </g>
+  <g stroke="#2ee6c8" stroke-width="1.6" fill="none" opacity=".5">
+    <path d="M252 212 C 280 224 300 228 318 238" stroke-dasharray="1 7" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -36,7 +36,7 @@
           tooltip: Object.assign(App.chartBase().tooltip, {
             formatter: (ps) => {
               const p = ps[0];
-              return `<b>${p.axisValue}</b><br/>排放总量：<b style="color:#34d399">${App.fmt.num(t[p.dataIndex].total)}</b> tCO₂e<br/>排放强度：<b style="color:#38bdf8">${t[p.dataIndex].intensity}</b> t/万元`;
+              return `<b>${p.axisValue}</b><br/>排放总量：<b style="color:#34d399">${App.fmt.num(t[p.dataIndex].total)}</b> tCO₂e<br/>排放强度：<b style="color:#38bdf8">${t[p.dataIndex].intensity === null ? "—（无官方电量）" : t[p.dataIndex].intensity}</b> tCO₂e/万kWh`;
             },
           }),
           xAxis: App.catAxis(t.map((x) => x.period), { boundaryGap: false }),
@@ -52,7 +52,7 @@
               areaStyle: { color: App.areaGrad('rgba(16,185,129,.42)', 'rgba(16,185,129,.02)') },
             },
             {
-              name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, symbol: 'circle', symbolSize: 5,
+              name: '排放强度', type: 'line', yAxisIndex: 1, smooth: true, symbol: 'circle', symbolSize: 5, connectNulls: true,
               data: t.map((x) => x.intensity), lineStyle: { width: 2, color: '#38bdf8', type: 'dashed' },
               itemStyle: { color: '#38bdf8' },
             },
@@ -128,26 +128,38 @@
             ]),
           ]),
 
-          /* 行情条 */
+          /* 行情条。
+           * 「年度排放」必须写明是哪一年 —— 默认取库中有核查数据的最新年度，
+           * 不是系统当前年。不标注会让读者以为是本年数据。
+           * 「平均强度」在无官方上网电量的年度返回 null，显示"—"而不是 0，
+           * 因为 0 会被读成"零碳"。 */
           h('div', { class: 'ticker mb-16' }, [
-            h('div', { class: 'tick' }, ['控排企业 ', h('b', {}, k.entCount), h('span', { class: 'tiny dim' }, '家')]),
-            h('div', { class: 'tick' }, ['覆盖省份 ', h('b', {}, k.regionCount)]),
-            h('div', { class: 'tick' }, ['年度排放 ', h('b', {}, App.fmt.big(k.emissionYtd)), h('span', { class: 'tiny dim' }, 'tCO₂e')]),
-            h('div', { class: 'tick' }, ['平均强度 ', h('b', {}, k.avgIntensity), h('span', { class: 'tiny dim' }, 'tCO₂e/万元')]),
+            h('div', { class: 'tick' }, ['控排企业 ', h('b', {}, k.entCount), h('span', { class: 'tiny dim' }, '家 · 在营（持有配额账户）')]),
+            h('div', { class: 'tick' }, ['覆盖省份 ', h('b', {}, k.regionCount), h('span', { class: 'tiny dim' }, '省')]),
+            h('div', { class: 'tick' }, [
+              `${d.value.reportYear || ''} 年度排放 `,
+              h('b', {}, App.fmt.big(k.emissionYtd)),
+              h('span', { class: 'tiny dim' }, 'tCO₂e'),
+            ]),
+            h('div', { class: 'tick' }, [
+              '平均强度 ',
+              h('b', {}, k.avgIntensity === null || k.avgIntensity === undefined ? '—' : k.avgIntensity),
+              h('span', { class: 'tiny dim' }, k.avgIntensity === null ? '（无官方电量）' : 'tCO₂e/万kWh'),
+            ]),
             h('div', { class: 'tick', style: 'margin-left:auto' }, ['链上存证 ', h('b', {}, App.fmt.num(c.totalTxs)), h('span', { class: 'tiny dim' }, '笔 · ' + (c.difficulty ? 'PoW 难度 ' + c.difficulty : 'PoA 共识'))]),
           ]),
 
           /* KPI */
           h('div', { class: 'grid g4 mb-16' }, [
-            h('x-kpi', { label: '本年度排放总量', value: App.fmt.num(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: `已纳入 ${k.reportCount} 份上报单` }),
+            h('x-kpi', { label: `${d.value.reportYear || ''} 年度排放总量`, value: App.fmt.num(k.emissionYtd), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: `已纳入 ${k.reportCount} 份上报单` }),
             h('x-kpi', { label: '核查通过率', value: k.verifiedRate, unit: '%', icon: 'shield', tone: 'sky', foot: '第三方机构核证结论' }),
-            h('x-kpi', { label: '区块高度', value: App.fmt.num(c.height), icon: 'block', tone: 'chain', foot: `${c.totalBlocks} 个区块 · 平均出块 ${c.avgMineTime ? c.avgMineTime + 'ms' : '—'}` }),
+            h('x-kpi', { label: '区块高度', value: App.fmt.num(c.height), icon: 'block', tone: 'chain', foot: `${c.totalBlocks} 个区块 · 平均出块 ${c.avgMineTime ? c.avgMineTime + 'ms' : '—'}${c.mineTimeSamples ? `（${c.mineTimeSamples} 个真实出块样本）` : ''}` }),
             h('x-kpi', { label: '链上存证总数', value: App.fmt.num(c.totalTxs), unit: '笔', icon: 'chain', tone: 'violet', foot: '核算结果可信存证' }),
           ]),
 
           /* 主图区 */
           h('div', { class: 'grid g-3-2 mb-16' }, [
-            h('x-card', { title: '碳排放总量与强度趋势', sub: '按报告期汇总 · 单位 tCO₂e 与 tCO₂e/万元' }, {
+            h('x-card', { title: '碳排放总量与强度趋势', sub: '按报告期汇总 · 排放 tCO₂e / 强度 tCO₂e/万kWh（分母为官方上网电量）' }, {
               default: () => h('x-chart', { option: trendOption.value, height: 'h300' }),
             }),
             h('x-card', { title: '行业排放结构', sub: '按国民经济行业分类' }, {

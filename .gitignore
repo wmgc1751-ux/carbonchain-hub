@@ -14,6 +14,9 @@ server/sm2-keystore.json
 # 云端数据库连接信息（含密码）
 cloud-db.env
 !cloud-db.env.example
+# 固件站点参数（含 Wi-Fi 口令；模板 cc_site.h.example 入库）
+hardware/firmware/src/cc_site.h
+!hardware/firmware/src/cc_site.h.example
 
 # ---- 运行时产物 ----
 artifacts/.edge-profile*/
@@ -66,3 +69,15 @@ tools/out/
 /qa-out/
 /qa-pack/
 /_artifacts/
+
+# ---- 固件互操作验证用的 mbedtls 源码缓存（可由 verify:interop 自动下载）----
+.cache/
+
+# ---- 检查修复轮（2026-10-31）补充 ----
+# 883 SQLite 残留（零字节）
+auth
+auth-wal
+# Cloudflare 本地缓存
+.wrangler/
+# Pages 部署快照（构建产物，46MB；重建=复制 public + _headers/_redirects 后跑 npm run verify:dist）
+dist/

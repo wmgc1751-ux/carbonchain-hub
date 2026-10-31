@@ -116,7 +116,18 @@ router.post('/greenpower/match', wrap(async (req, res) => {
     await writeLog(req, '国际互认', '小时级绿电匹配', `ent:${id}`,
       `${r.summary.hours} 小时 · 覆盖率 ${(r.summary.coverageRatio * 100).toFixed(2)}% · 减碳 ${r.summary.savedTco2} tCO2e`);
     ok(res, r, `已完成 ${r.summary.hours} 小时的绿电匹配，覆盖率 ${(r.summary.coverageRatio * 100).toFixed(2)}%`);
-  } catch (e) { fail(res, e.message, 400); }
+  } catch (e) {
+    /* 无本期能耗数据 ≠ 错误：是"没有可匹配的输入"。返回 200 空结果 + 边界说明，
+     * 前端按空态呈现 —— 400 会让自动化回归把正常业务空态判为点击异常（2026-10-31 巡检）。 */
+    if (/无能耗数据|无法推导用电曲线/.test(e.message || '')) {
+      return ok(res, {
+        noData: true,
+        summary: { hours: 0, coverageRatio: 0, savedTco2: 0 },
+        boundary: { note: `${e.message}（本期无匹配输入，非系统故障）` },
+      }, '本企业本期无能耗数据，无可匹配输入');
+    }
+    fail(res, e.message, 400);
+  }
 }));
 
 router.get('/greenpower/summary', wrap(async (req, res) => {

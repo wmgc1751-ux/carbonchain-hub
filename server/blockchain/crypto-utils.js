@@ -297,8 +297,22 @@ function hashPasswordScrypt(password, salt) {
 }
 
 /**
- * 口令校验：兼容历史 SHA256 摘要，对 scrypt 摘要做定长安全比较（防时序侧信道）。
- * @returns {{ok:boolean, legacy:boolean}} legacy=true 表示命中旧格式、可在登录后自动升级
+ * 口令摘要（跨端格式）：PBKDF2-SHA256（10 万次迭代，32 字节 hex）。
+ * 输出格式：pbkdf2$<hex>
+ *
+ * 【为什么需要它】scrypt 是 Node 专属（WebCrypto 无 scrypt），云端 Workers
+ * 无法校验 scrypt$ 摘要 → 本地注册的账号在线上登录直接 501。pbkdf2 两端
+ * 运行时都有原生实现（Node crypto.pbkdf2Sync / Workers crypto.subtle），
+ * 因此**新口令一律用 pbkdf2$**，保证同一账号在本地与云端都能登录。
+ */
+function hashPasswordPbkdf2(password, salt) {
+  const buf = crypto.pbkdf2Sync(String(password), String(salt), 100000, 32, 'sha256');
+  return 'pbkdf2$' + buf.toString('hex');
+}
+
+/**
+ * 口令校验：兼容历史 SHA256 摘要，对 scrypt/pbkdf2 摘要做定长安全比较（防时序侧信道）。
+ * @returns {{ok:boolean, legacy:boolean, format:string}} legacy=true 表示命中旧格式、可在登录后自动升级
  */
 function verifyPassword(password, salt, stored) {
   const s = String(stored || '');
@@ -306,9 +320,15 @@ function verifyPassword(password, salt, stored) {
     const calc = hashPasswordScrypt(password, salt);
     const a = Buffer.from(calc);
     const b = Buffer.from(s);
-    return { ok: a.length === b.length && crypto.timingSafeEqual(a, b), legacy: false };
+    return { ok: a.length === b.length && crypto.timingSafeEqual(a, b), legacy: false, format: 'scrypt' };
   }
-  return { ok: sha256(salt + password) === s, legacy: true };
+  if (s.startsWith('pbkdf2$')) {
+    const calc = hashPasswordPbkdf2(password, salt);
+    const a = Buffer.from(calc);
+    const b = Buffer.from(s);
+    return { ok: a.length === b.length && crypto.timingSafeEqual(a, b), legacy: false, format: 'pbkdf2' };
+  }
+  return { ok: sha256(salt + password) === s, legacy: true, format: 'sha256' };
 }
 
 /**
@@ -341,6 +361,7 @@ module.exports = {
   randomSalt,
   hashPassword,
   hashPasswordScrypt,
+  hashPasswordPbkdf2,
   verifyPassword,
   bizNo,
   ZERO,

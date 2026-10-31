@@ -1,0 +1,19 @@
+{
+  "name": "carbonchain-hub",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "a6ab5e12b7b416b364d799353d08e50c",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "carbonchain-platform", "database_id": "2f6b8d8d-4dad-4357-968f-0a31fc23c6ab" }
+  ],
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["*/30 * * * *", "17 3 * * *"] }
+}

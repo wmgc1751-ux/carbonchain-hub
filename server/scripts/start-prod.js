@@ -30,9 +30,8 @@ const config = require('../config');
  *   trade_order / trade_deal 等表，导致线上冷启动误判"已最新"而跳过建表，
  *   依赖新表的接口（因子库/对账中心）SQL 报错 → 500。现补全关键新表。 */
 const REQUIRED_COLUMN = { table: 'chain_block', column: 'consensus' };
+/* 业务库必需的 10 张表 */
 const REQUIRED_TABLES = [
-  'chain_node',
-  'chain_node_replica',
   'cems_reading',
   'carbon_dynamic_account',
   'credit_asset',
@@ -44,10 +43,15 @@ const REQUIRED_TABLES = [
   'trade_order',
   'trade_deal',
 ];
+/* 账本库必需的表 —— 必须在【账本库】里查。
+ * 账本库独立成实例后（院审意见①的整改），业务库里根本不存在这些表；
+ * 若混在 REQUIRED_TABLES 里，结构探测会恒判"旧版"，进而触发整库重建 —— 那是会丢数据的误判。 */
+const REQUIRED_LEDGER_TABLES = ['chain_node', 'chain_node_replica'];
 
 /** 探测数据库结构是否为最新版（不抛异常，任何异常都视为"需要初始化"） */
 async function schemaIsLatest() {
   let conn;
+  let led;
   try {
     conn = await mysql.createConnection({
       ...config.db,
@@ -55,12 +59,24 @@ async function schemaIsLatest() {
       connectTimeout: 15000,
     });
 
-    const [[col]] = await conn.query(
-      'SELECT COUNT(*) AS c FROM information_schema.COLUMNS '
-      + 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
-      [config.db.database, REQUIRED_COLUMN.table, REQUIRED_COLUMN.column]
-    );
-    if (!Number(col.c)) {
+    /* chain_block 可能在业务库（同库模式）或账本库（分离模式），两处都查一次 */
+    let hasConsensus = false;
+    for (const [cfg, label] of [[config.db, '业务库'], [config.ledgerDb, '账本库']]) {
+      try {
+        const c = cfg === config.db ? conn : (led || (led = await mysql.createConnection({
+          ...config.ledgerDb, connectTimeout: 15000,
+        })));
+        const [[r]] = await c.query(
+          'SELECT COUNT(*) AS n FROM information_schema.COLUMNS '
+          + 'WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
+          [cfg.database, REQUIRED_COLUMN.table, REQUIRED_COLUMN.column]
+        );
+        if (Number(r.n)) { hasConsensus = true; break; }
+      } catch (e) {
+        console.log(`   · ${label}结构探测跳过（${e.code || e.message}）`);
+      }
+    }
+    if (!hasConsensus) {
       console.log(`   · 未发现 ${REQUIRED_COLUMN.table}.${REQUIRED_COLUMN.column}（旧版结构）`);
       return false;
     }
@@ -75,12 +91,25 @@ async function schemaIsLatest() {
       console.log(`   · 新版业务表缺失：已存在 ${tbl.c}/${REQUIRED_TABLES.length}`);
       return false;
     }
+
+    if (!led) led = await mysql.createConnection({ ...config.ledgerDb, connectTimeout: 15000 });
+    const lph = REQUIRED_LEDGER_TABLES.map(() => '?').join(',');
+    const [[ltbl]] = await led.query(
+      `SELECT COUNT(*) AS c FROM information_schema.TABLES `
+      + `WHERE TABLE_SCHEMA = ? AND TABLE_NAME IN (${lph})`,
+      [config.ledgerDb.database, ...REQUIRED_LEDGER_TABLES]
+    );
+    if (Number(ltbl.c) < REQUIRED_LEDGER_TABLES.length) {
+      console.log(`   · 账本表缺失：已存在 ${ltbl.c}/${REQUIRED_LEDGER_TABLES.length}`);
+      return false;
+    }
     return true;
   } catch (e) {
     console.log(`   · 结构探测未成功（${e.code || e.message}），将执行初始化`);
     return false;
   } finally {
     if (conn) { try { await conn.end(); } catch (_) { /* ignore */ } }
+    if (led) { try { await led.end(); } catch (_) { /* ignore */ } }
   }
 }
 

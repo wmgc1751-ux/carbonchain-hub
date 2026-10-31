@@ -3,6 +3,15 @@
 # 导致部署后老访客命中旧 JS，出现「HTML 新、JS 旧」混合态，新页面 404。
 # 策略：全局短缓存兜底；vendor/img 内容稳定可长缓存；HTML 最短缓存。
 
+# 安全响应头（全站）：与 API 运行时同一套（server/app.js 与 worker/lib/http.mjs）。
+# nosniff 防 JSON 被嗅探为 HTML 执行；DENY 防验真页被透明 iframe 套壳诱导点击；
+# Referrer-Policy 防钱包地址随 Referer 外泄。本站全走 HTTPS，HSTS 常开。
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
 # 第三方运行时：内容稳定，长缓存 + immutable
 /vendor/*
   Cache-Control: public, max-age=604800, immutable

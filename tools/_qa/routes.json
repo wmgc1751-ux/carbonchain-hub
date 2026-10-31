@@ -1,0 +1,1227 @@
+[
+ {
+  "method": "POST",
+  "path": "/api/auth/login",
+  "file": "auth"
+ },
+ {
+  "method": "GET",
+  "path": "/api/auth/me",
+  "file": "auth"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/logout",
+  "file": "auth"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/register",
+  "file": "auth"
+ },
+ {
+  "method": "POST",
+  "path": "/api/auth/change-password",
+  "file": "auth"
+ },
+ {
+  "method": "GET",
+  "path": "/api/auth/demo-accounts",
+  "file": "auth"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/overview",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/reports",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/reports/:id",
+  "file": "enterprise"
+ },
+ {
+  "method": "POST",
+  "path": "/api/enterprise/reports",
+  "file": "enterprise"
+ },
+ {
+  "method": "POST",
+  "path": "/api/enterprise/reports/:id/submit",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/reports/:id/chain",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/quota",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/analytics",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/notices",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/enterprise/wallet",
+  "file": "enterprise"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/overview",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/tasks",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/tasks/:id",
+  "file": "verifier"
+ },
+ {
+  "method": "POST",
+  "path": "/api/verifier/tasks/:id/accept",
+  "file": "verifier"
+ },
+ {
+  "method": "POST",
+  "path": "/api/verifier/tasks/:id/verify",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/reports",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/reports/:id/chain",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/wallet",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/verifier/notices",
+  "file": "verifier"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/overview",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/enterprises",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/enterprises/filters",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/enterprises/:id",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/allocations",
+  "file": "regulator"
+ },
+ {
+  "method": "POST",
+  "path": "/api/regulator/allocations",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/alerts",
+  "file": "regulator"
+ },
+ {
+  "method": "POST",
+  "path": "/api/regulator/alerts/:id/handle",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/statistics",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/logs",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/system",
+  "file": "regulator"
+ },
+ {
+  "method": "POST",
+  "path": "/api/regulator/notices",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/regulator/notices",
+  "file": "regulator"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/trust-model",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/stats",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/blocks",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/blocks/:index",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/txs",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/tx/:txId",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/pool",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/validate",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/business-binding",
+  "file": "chain"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chain/tamper",
+  "file": "chain"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chain/repair-payload",
+  "file": "chain"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chain/repair",
+  "file": "chain"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chain/mine",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/address/:address",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/anchor/stats",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/anchor/batches",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/anchor/batch/:batchNo",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/chain/anchor/proof",
+  "file": "chain"
+ },
+ {
+  "method": "POST",
+  "path": "/api/chain/anchor/run",
+  "file": "chain"
+ },
+ {
+  "method": "GET",
+  "path": "/api/consortium/nodes",
+  "file": "consortium"
+ },
+ {
+  "method": "GET",
+  "path": "/api/consortium/replica",
+  "file": "consortium"
+ },
+ {
+  "method": "POST",
+  "path": "/api/consortium/nodes/apply",
+  "file": "consortium"
+ },
+ {
+  "method": "POST",
+  "path": "/api/consortium/nodes/:nodeId/approve",
+  "file": "consortium"
+ },
+ {
+  "method": "POST",
+  "path": "/api/consortium/nodes/:nodeId/revoke",
+  "file": "consortium"
+ },
+ {
+  "method": "POST",
+  "path": "/api/consortium/nodes/:nodeId/sync",
+  "file": "consortium"
+ },
+ {
+  "method": "POST",
+  "path": "/api/consortium/sync",
+  "file": "consortium"
+ },
+ {
+  "method": "POST",
+  "path": "/api/consortium/nodes/:nodeId/desync",
+  "file": "consortium"
+ },
+ {
+  "method": "GET",
+  "path": "/api/dynamic/overview",
+  "file": "dynamic"
+ },
+ {
+  "method": "GET",
+  "path": "/api/dynamic/readings",
+  "file": "dynamic"
+ },
+ {
+  "method": "POST",
+  "path": "/api/dynamic/ingest",
+  "file": "dynamic"
+ },
+ {
+  "method": "POST",
+  "path": "/api/dynamic/recompute",
+  "file": "dynamic"
+ },
+ {
+  "method": "GET",
+  "path": "/api/dynamic/me",
+  "file": "dynamic"
+ },
+ {
+  "method": "GET",
+  "path": "/api/credit/summary",
+  "file": "credit"
+ },
+ {
+  "method": "GET",
+  "path": "/api/credit/assets",
+  "file": "credit"
+ },
+ {
+  "method": "GET",
+  "path": "/api/credit/status",
+  "file": "credit"
+ },
+ {
+  "method": "GET",
+  "path": "/api/credit/offsets",
+  "file": "credit"
+ },
+ {
+  "method": "POST",
+  "path": "/api/credit/offset",
+  "file": "credit"
+ },
+ {
+  "method": "GET",
+  "path": "/api/trade/market",
+  "file": "trade"
+ },
+ {
+  "method": "GET",
+  "path": "/api/trade/orderbook",
+  "file": "trade"
+ },
+ {
+  "method": "GET",
+  "path": "/api/trade/orders",
+  "file": "trade"
+ },
+ {
+  "method": "POST",
+  "path": "/api/trade/orders",
+  "file": "trade"
+ },
+ {
+  "method": "POST",
+  "path": "/api/trade/orders/:id/cancel",
+  "file": "trade"
+ },
+ {
+  "method": "GET",
+  "path": "/api/trade/deals",
+  "file": "trade"
+ },
+ {
+  "method": "GET",
+  "path": "/api/trade/account",
+  "file": "trade"
+ },
+ {
+  "method": "POST",
+  "path": "/api/trade/offset",
+  "file": "trade"
+ },
+ {
+  "method": "GET",
+  "path": "/api/intelligence/report",
+  "file": "intelligence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/intelligence/forecast",
+  "file": "intelligence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/intelligence/over-quota",
+  "file": "intelligence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/intelligence/anomaly",
+  "file": "intelligence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/intelligence/advisor",
+  "file": "intelligence"
+ },
+ {
+  "method": "POST",
+  "path": "/api/intelligence/simulate",
+  "file": "intelligence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/intelligence/market-scan",
+  "file": "intelligence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/admin/overview",
+  "file": "admin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/admin/factors",
+  "file": "admin"
+ },
+ {
+  "method": "POST",
+  "path": "/api/admin/factors",
+  "file": "admin"
+ },
+ {
+  "method": "POST",
+  "path": "/api/admin/factors/publish",
+  "file": "admin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/admin/factor-versions",
+  "file": "admin"
+ },
+ {
+  "method": "POST",
+  "path": "/api/admin/reconcile",
+  "file": "admin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/admin/reconciliations",
+  "file": "admin"
+ },
+ {
+  "method": "POST",
+  "path": "/api/admin/ipfs/anchor",
+  "file": "admin"
+ },
+ {
+  "method": "POST",
+  "path": "/api/admin/oracle",
+  "file": "admin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/admin/verifier-registrations",
+  "file": "admin"
+ },
+ {
+  "method": "POST",
+  "path": "/api/admin/verifier-registrations/:id/review",
+  "file": "admin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/dashboard",
+  "file": "public"
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/enterprises",
+  "file": "public"
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/notices",
+  "file": "public"
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/notices/summary",
+  "file": "public"
+ },
+ {
+  "method": "GET",
+  "path": "/api/public/notices/:id",
+  "file": "public"
+ },
+ {
+  "method": "GET",
+  "path": "/api/notify/stream",
+  "file": "notify"
+ },
+ {
+  "method": "GET",
+  "path": "/api/notify/test",
+  "file": "notify"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/metrics",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/stats",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/alerts",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/logs",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/canary",
+  "file": "ops"
+ },
+ {
+  "method": "POST",
+  "path": "/api/ops/canary",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/health",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/audit-chain",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/audit-chain/verify",
+  "file": "ops"
+ },
+ {
+  "method": "POST",
+  "path": "/api/ops/audit-chain/seal",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/ops/audit-chain/entry/:id",
+  "file": "ops"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/status",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/stats",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/devices",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/pma",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/quality",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/trend",
+  "file": "iot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/iot/offline-sweep",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/factors",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/conformance",
+  "file": "iot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/iot/devices/:did/auth",
+  "file": "iot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/iot/devices/:did/bind",
+  "file": "iot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/iot/seed",
+  "file": "iot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/iot/devices/register-key",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/verify-stats",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/iot/verify-selftest",
+  "file": "iot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/keys/capability",
+  "file": "keymgmt"
+ },
+ {
+  "method": "GET",
+  "path": "/api/keys/status",
+  "file": "keymgmt"
+ },
+ {
+  "method": "GET",
+  "path": "/api/keys/inventory",
+  "file": "keymgmt"
+ },
+ {
+  "method": "GET",
+  "path": "/api/keys/labels",
+  "file": "keymgmt"
+ },
+ {
+  "method": "POST",
+  "path": "/api/keys/sign",
+  "file": "keymgmt"
+ },
+ {
+  "method": "POST",
+  "path": "/api/keys/verify",
+  "file": "keymgmt"
+ },
+ {
+  "method": "POST",
+  "path": "/api/keys/rotation-safety-demo",
+  "file": "keymgmt"
+ },
+ {
+  "method": "POST",
+  "path": "/api/keys/rotations",
+  "file": "keymgmt"
+ },
+ {
+  "method": "POST",
+  "path": "/api/keys/rotations/:id/approve",
+  "file": "keymgmt"
+ },
+ {
+  "method": "POST",
+  "path": "/api/keys/rotations/:id/reject",
+  "file": "keymgmt"
+ },
+ {
+  "method": "GET",
+  "path": "/api/keys/rotations",
+  "file": "keymgmt"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/catalog",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/series/:entId",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/posterior/:entId",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/propagate/:entId",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/model/:entId",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/report/:entId",
+  "file": "uncertainty"
+ },
+ {
+  "method": "POST",
+  "path": "/api/uncertainty/report/:entId/anchor",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/list",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/models",
+  "file": "uncertainty"
+ },
+ {
+  "method": "POST",
+  "path": "/api/uncertainty/recompute",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/industry",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/uncertainty/selftest",
+  "file": "uncertainty"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/activity",
+  "file": "mrv"
+ },
+ {
+  "method": "POST",
+  "path": "/api/mrv/activity",
+  "file": "mrv"
+ },
+ {
+  "method": "POST",
+  "path": "/api/mrv/activity/bulk",
+  "file": "mrv"
+ },
+ {
+  "method": "POST",
+  "path": "/api/mrv/activity/:id/review",
+  "file": "mrv"
+ },
+ {
+  "method": "POST",
+  "path": "/api/mrv/calc/preview",
+  "file": "mrv"
+ },
+ {
+  "method": "POST",
+  "path": "/api/mrv/calc",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/calc/batches",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/calc/batch/:batchNo",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/calc/batch/:batchNo/verify",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/factor",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/factor/selftest",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/factor/regions",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/quality",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/mrv/quality/uq-selftest",
+  "file": "mrv"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/account",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/account/deposit",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/account/withdraw",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/account/overview",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/surrender/status",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/surrender/prepare",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/surrender/execute",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/surrender/batch",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/surrender",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/retirement",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/retirement",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/retirement/candidates",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/cbam/factor",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/cbam/calculate",
+  "file": "settlement"
+ },
+ {
+  "method": "POST",
+  "path": "/api/settlement/cbam/certificate",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/settlement/cbam/certificates",
+  "file": "settlement"
+ },
+ {
+  "method": "GET",
+  "path": "/api/zk/data-truth",
+  "file": "zk"
+ },
+ {
+  "method": "GET",
+  "path": "/api/zk/protocol",
+  "file": "zk"
+ },
+ {
+  "method": "POST",
+  "path": "/api/zk/commit",
+  "file": "zk"
+ },
+ {
+  "method": "POST",
+  "path": "/api/zk/verify",
+  "file": "zk"
+ },
+ {
+  "method": "POST",
+  "path": "/api/zk/disclose",
+  "file": "zk"
+ },
+ {
+  "method": "POST",
+  "path": "/api/zk/aggregate",
+  "file": "zk"
+ },
+ {
+  "method": "GET",
+  "path": "/api/zk/commitments",
+  "file": "zk"
+ },
+ {
+  "method": "GET",
+  "path": "/api/zk/commitments/:id",
+  "file": "zk"
+ },
+ {
+  "method": "GET",
+  "path": "/api/zk/disclosures",
+  "file": "zk"
+ },
+ {
+  "method": "POST",
+  "path": "/api/zk/formula/prove",
+  "file": "zk"
+ },
+ {
+  "method": "POST",
+  "path": "/api/zk/formula/verify",
+  "file": "zk"
+ },
+ {
+  "method": "GET",
+  "path": "/api/zk/selftest",
+  "file": "zk"
+ },
+ {
+  "method": "GET",
+  "path": "/api/evidence/nodes",
+  "file": "evidence"
+ },
+ {
+  "method": "POST",
+  "path": "/api/evidence/batch/:batchNo",
+  "file": "evidence"
+ },
+ {
+  "method": "POST",
+  "path": "/api/evidence/notarize",
+  "file": "evidence"
+ },
+ {
+  "method": "POST",
+  "path": "/api/evidence/verify",
+  "file": "evidence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/evidence/list",
+  "file": "evidence"
+ },
+ {
+  "method": "GET",
+  "path": "/api/copilot/status",
+  "file": "copilot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/copilot/providers",
+  "file": "copilot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/copilot/capabilities",
+  "file": "copilot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/copilot/ask",
+  "file": "copilot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/copilot/stream",
+  "file": "copilot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/copilot/config",
+  "file": "copilot"
+ },
+ {
+  "method": "POST",
+  "path": "/api/copilot/probe",
+  "file": "copilot"
+ },
+ {
+  "method": "GET",
+  "path": "/api/twin/candidates",
+  "file": "twin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/twin/plant/:id",
+  "file": "twin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/twin/compare",
+  "file": "twin"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/overview",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/facilities",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/facilities/:id",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/benchmarks",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/trend",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/macro",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/sources",
+  "file": "real"
+ },
+ {
+  "method": "POST",
+  "path": "/api/real/sync",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/cn/regions",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/cn/concentration",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/cn/owner-groups",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/cn/crosscheck",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/cn/insight",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/cn/cbam-check",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/truth",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/live",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/live/history",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/live/selfcheck",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/real/stream",
+  "file": "real"
+ },
+ {
+  "method": "GET",
+  "path": "/api/cbam/catalog",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/cbam/overview",
+  "file": "international"
+ },
+ {
+  "method": "POST",
+  "path": "/api/cbam/calc",
+  "file": "international"
+ },
+ {
+  "method": "POST",
+  "path": "/api/cbam/generate",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/cbam/declarations",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/cbam/declaration/:id",
+  "file": "international"
+ },
+ {
+  "method": "POST",
+  "path": "/api/greenpower/match",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/greenpower/summary",
+  "file": "international"
+ },
+ {
+  "method": "POST",
+  "path": "/api/report/export",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/report/list",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/report/:id",
+  "file": "international"
+ },
+ {
+  "method": "GET",
+  "path": "/api/cost/comparison",
+  "file": "international"
+ }
+]

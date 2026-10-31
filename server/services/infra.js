@@ -157,7 +157,7 @@ async function reconcile() {
     let matched = 0, missing = 0;
     for (const r of rows) {
       if (!r.txid) continue;
-      const exists = await db.one('SELECT tx_id FROM chain_tx WHERE tx_id = ?', [r.txid]);
+      const exists = await db.ledgerOne('SELECT tx_id FROM chain_tx WHERE tx_id = ?', [r.txid]);
       if (exists) matched++; else missing++;
     }
     result.tables.push({

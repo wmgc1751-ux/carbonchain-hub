@@ -202,7 +202,7 @@ const line = (state, msg) => {
   for (const t of ['cbam_declaration', 'green_power_match', 'report_export', 'uncertainty_posterior', 'model_eval', 'key_rotation_log']) {
     counts[t] = Number((await db.one(`SELECT COUNT(*) AS n FROM ${t}`)).n);
   }
-  const chain = await db.one('SELECT COUNT(*) AS blocks FROM chain_block');
+  const chain = await db.ledgerOne('SELECT COUNT(*) AS blocks FROM chain_block');
 
   console.log('\n──────────────────────────────────────────────────────────────');
   console.log(`  种子结果：成功 ${ok} / 跳过 ${skip} / 失败 ${bad}`);

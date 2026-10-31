@@ -11,10 +11,24 @@ const db = require('../db');
 /* ---------------- JWT ---------------- */
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 
+/* 吊销黑名单（内存版，jti → 过期时刻）。单实例部署下完整有效（本服务有实例互斥）；
+ * 登出/改密即写入，token 自身过期后条目自动清除，内存有界。
+ * 多副本部署时应替换为 Redis（与本文件顶注释同口径）。 */
+const revokedTokens = new Map();
+function pruneRevoked() {
+  const now = Date.now() / 1000;
+  for (const [jti, exp] of revokedTokens) if (exp <= now) revokedTokens.delete(jti);
+  /* 超量兜底：Map 保持插入序，删最旧的 */
+  while (revokedTokens.size > 10_000) revokedTokens.delete(revokedTokens.keys().next().value);
+}
+const revokedSweeper = setInterval(pruneRevoked, 10 * 60 * 1000);
+if (revokedSweeper.unref) revokedSweeper.unref();
+
 function signToken(payload) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
-  const body = { ...payload, iat: now, exp: now + config.jwt.expiresIn };
+  /* jti：令牌唯一 ID，供登出吊销定位单个令牌 */
+  const body = { ...payload, jti: crypto.randomBytes(9).toString('base64url'), iat: now, exp: now + config.jwt.expiresIn };
   const p1 = b64u(JSON.stringify(header));
   const p2 = b64u(JSON.stringify(body));
   const sig = crypto
@@ -33,13 +47,26 @@ function verifyToken(token) {
     .createHmac('sha256', config.jwt.secret)
     .update(`${p1}.${p2}`)
     .digest('base64url');
-  if (expect !== sig) return null;
+  /* 常量时间比较：普通 !== 在签名前缀相同时存在理论上的时序侧信道 */
+  const a = Buffer.from(expect);
+  const b = Buffer.from(String(sig));
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const body = JSON.parse(Buffer.from(p2, 'base64url').toString('utf8'));
     if (body.exp && body.exp < Math.floor(Date.now() / 1000)) return null;
+    if (body.jti && revokedTokens.has(body.jti)) return null;   // 已吊销
     return body;
   } catch (e) {
     return null;
+  }
+}
+
+/** 吊销一个已签发的 token（登出时调用）。无效/过期的 token 静默忽略。 */
+function revokeToken(token) {
+  const body = verifyToken(token);
+  if (body && body.jti) {
+    revokedTokens.set(body.jti, body.exp || Math.floor(Date.now() / 1000) + 60);
+    pruneRevoked();
   }
 }
 
@@ -48,18 +75,33 @@ function verifyToken(token) {
 /** 必须登录 */
 function authRequired(req, res, next) {
   const h = req.headers.authorization || '';
-  const token = h.startsWith('Bearer ') ? h.slice(7) : (req.query.token || null);
+  /* 只认 Authorization 头。旧版还接受 ?token= 查询参数，但 URL 会进
+   * 访问日志/Referer/代理日志，等于把令牌写进第三方留存——已收紧移除。 */
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
   const user = verifyToken(token);
   if (!user) return res.status(401).json({ code: 401, message: '登录状态已失效，请重新登录' });
   req.user = user;
   next();
 }
 
-/** 角色白名单 */
+/** 角色白名单
+ *
+ * ⚠ 2026-10-29 P1 权限收缩：移除了 ADMIN 的"超级用户"旁路。
+ *
+ * 改造前第 91 行是：
+ *   if (roles.length && !roles.includes(req.user.role) && req.user.role !== 'ADMIN')
+ * 即 **ADMIN 永远通过任何角色检查**——管理员可调用全部业务接口（配额分配、
+ * 核查结论、批量清缴、交易下单…）。这违反内控的基本原则：管理员若同时能
+ * 决定业务结果，审计就变成"自己审自己"；一旦管理员账号被冒用，损失是全域的。
+ *
+ * 现在的规则：ADMIN 只能进入显式列出 'ADMIN' 的接口（配置/运维/审计），
+ * 业务决策类接口必须显式声明角色，不再有隐式旁路。
+ * 若确有管理员需要临时参与业务，应该用业务角色账号，而不是放宽 ADMIN。
+ */
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ code: 401, message: '未登录' });
-    if (roles.length && !roles.includes(req.user.role) && req.user.role !== 'ADMIN') {
+    if (roles.length && !roles.includes(req.user.role)) {
       return res.status(403).json({ code: 403, message: '当前角色无权访问该功能' });
     }
     next();
@@ -124,4 +166,4 @@ function wrap(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-module.exports = { signToken, verifyToken, authRequired, requireRole, writeLog, ok, fail, wrap };
+module.exports = { signToken, verifyToken, revokeToken, authRequired, requireRole, writeLog, ok, fail, wrap };

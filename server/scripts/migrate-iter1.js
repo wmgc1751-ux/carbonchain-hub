@@ -31,6 +31,13 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const config = require('../config');
 
+/* 链上账本 5 表位于独立数据库（见 db/00_schema_ledger.sql）：
+ * 它们的 DDL/DML 必须走账本连接，否则会打到业务库的只读视图上而报错。 */
+const LEDGER_TABLES = new Set(['chain_block', 'chain_tx', 'chain_node', 'chain_node_replica', 'chain_payload_backup']);
+let ledgerConn = null;
+const schemaOf = (t) => (LEDGER_TABLES.has(t) ? config.ledgerDb.database : config.db.database);
+const connForTable = (t) => (LEDGER_TABLES.has(t) ? ledgerConn : connRef);
+
 /** 本批次新增的表（顺序即依赖顺序） */
 const NEW_TABLES = ['anchor_batch', 'batch_leaf', 'device_registry'];
 
@@ -68,10 +75,12 @@ const NEW_INDEXES = [
 
 /* ------------------------------------------------------------------ */
 
+let connRef = null;
+
 async function tableExists(conn, name) {
   const [r] = await conn.query(
     'SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?',
-    [config.db.database, name]
+    [schemaOf(name), name]
   );
   return Number(r[0].n) > 0;
 }
@@ -79,7 +88,7 @@ async function tableExists(conn, name) {
 async function columnExists(conn, table, column) {
   const [r] = await conn.query(
     'SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?',
-    [config.db.database, table, column]
+    [schemaOf(table), table, column]
   );
   return Number(r[0].n) > 0;
 }
@@ -87,7 +96,7 @@ async function columnExists(conn, table, column) {
 async function indexExists(conn, table, index) {
   const [r] = await conn.query(
     'SELECT COUNT(*) AS n FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?',
-    [config.db.database, table, index]
+    [schemaOf(table), table, index]
   );
   return Number(r[0].n) > 0;
 }
@@ -112,6 +121,10 @@ async function main() {
   console.log('─'.repeat(68));
 
   const conn = await mysql.createConnection(config.db);
+  connRef = conn;
+  ledgerConn = config.ledgerDb.database === config.db.database
+    ? conn
+    : await mysql.createConnection(config.ledgerDb);
   let changed = 0;
 
   try {
@@ -138,7 +151,7 @@ async function main() {
       if (existed) {
         console.log(`  · ${(table + '.' + column).padEnd(30)} 已存在（跳过）`);
       } else {
-        await conn.query(ddl);
+        await connForTable(table).query(ddl);
         console.log(`  + ${(table + '.' + column).padEnd(30)} 已添加`);
         changed++;
       }
@@ -153,7 +166,7 @@ async function main() {
         console.log(`  · ${(table + '.' + index).padEnd(34)} 已存在（跳过）`);
       } else {
         const uniq = kind === 'UNIQUE' ? 'UNIQUE ' : '';
-        await conn.query(`ALTER TABLE ${table} ADD ${uniq}INDEX ${index} ${cols}`);
+        await connForTable(table).query(`ALTER TABLE ${table} ADD ${uniq}INDEX ${index} ${cols}`);
         console.log(`  + ${(table + '.' + index).padEnd(34)} 已添加${uniq ? '（唯一）' : ''}`);
         changed++;
       }
@@ -163,11 +176,11 @@ async function main() {
     console.log('\n[四] 数据回填');
     if (await columnExists(conn, 'chain_tx', 'anchor_status')) {
       // 锚点交易自身不可被再次批量锚定，标记为 SELF
-      const [r1] = await conn.query(
+      const [r1] = await ledgerConn.query(
         "UPDATE chain_tx SET anchor_status = 'SELF' WHERE tx_type = 'ANCHOR_BATCH' AND anchor_status <> 'SELF'"
       );
       // 其余已确认交易一律为 PENDING（待锚定）
-      const [r2] = await conn.query(
+      const [r2] = await ledgerConn.query(
         "UPDATE chain_tx SET anchor_status = 'PENDING' WHERE anchor_status IS NULL"
       );
       console.log(`  · chain_tx 锚点交易标 SELF：${r1.affectedRows} 行；回填 PENDING：${r2.affectedRows} 行`);

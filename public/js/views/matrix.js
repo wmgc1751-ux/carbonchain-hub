@@ -1,8 +1,8 @@
 /* =====================================================================
-   碳矩阵工业大盘（page-matrix）
+   碳账本总览（page-matrix）—— 工业碳资产大盘
    ---------------------------------------------------------------------
    面向工业场景的联盟链碳资产动态核算可信存证平台主界面。
-   参考蚂蚁数科"碳矩阵"产品交互规范，采用三栏协同 + 验真抽屉布局。
+   采用三栏协同 + 验真抽屉布局。
 
    数据流（严禁 Math.random）：
      · realDataEngine 60 组工业归档序列驱动瞬时排碳/烟气流量/用电负荷
@@ -83,7 +83,9 @@
           const st = await App.API.request('GET', '/chain/stats', null, { noAuth: true });
           chainStats.value = {
             height: st.height || 0,
-            totalTxs: st.totalTxs || 0,
+            /* ⚠ 存证数用 confirmed（已上链确认），不是 totalTxs（累计打包量）。
+             * 两者不等是正常的：totalTxs 是历史累计打包笔数，不随状态变化。 */
+            confirmed: st.confirmed || 0,
             difficulty: st.difficulty || 0,
             nodes: st.nodeCount || 4,
           };
@@ -148,7 +150,7 @@
           '因子文号': pf.ref,
           '因子数据年度': pf.dataYear,
           '链高度': chainStats.value.height,
-          '链上存证总数': chainStats.value.totalTxs,
+          '链上已确认存证': chainStats.value.confirmed,
           '共识节点数': chainStats.value.nodes,
           '国密算法': 'SM2/SM3',
           'BOM碳分摊': bom,
@@ -296,9 +298,13 @@
               foot: 'Q=' + Math.round(s.flow) + ' m³/h · φ=' + s.co2Pct + '%',
             }),
             h('x-kpi', {
-              label: '今日累计存证总量', value: cumulativeToday.value.toFixed(3), unit: 'tCO₂',
+              /* 原标签"今日累计存证总量"与实现不符：cumulative 是遥测服务
+               * 启动以来逐帧（3s/帧）回放的累计量，与自然日无关
+               * （2026-10-31 巡检 P2-10：0.029 t 与瞬时 34.77 t/h 差 4 个数量级）。
+               * 按实际口径改名，并注明统计方式。 */
+              label: '本场次累计存证碳量', value: cumulativeToday.value.toFixed(3), unit: 'tCO₂',
               icon: 'shield', tone: 'chain',
-              foot: '链高度 #' + (chainStats.value.height || '—') + ' · ' + chainStats.value.totalTxs + ' 笔存证',
+              foot: '自服务启动 · 遥测逐帧累计（3s/帧）· 链高度 #' + (chainStats.value.height || '—'),
             }),
             h('x-kpi', {
               label: '标态烟气流量', value: Math.round(s.flow).toLocaleString(), unit: 'm³/h',
