@@ -60,7 +60,9 @@ async function createBatch(opts = {}) {
   const actor = opts.actor || 'regulator:system';
 
   /* --- ① 事务内：锁定并占位候选存证 --- */
-  const picked = await db.tx(async (conn) => {
+  /* ⚠ 走账本事务：chain_tx 在独立账本库里，业务池只有只读视图。
+   * 视图上 FOR UPDATE 会被 MySQL 拒绝，必须用实体表加锁。 */
+  const picked = await db.ledgerTx(async (conn) => {
     const [rows] = await conn.query(
       `SELECT tx_id, payload_hash, block_index, created_at
          FROM chain_tx
@@ -140,14 +142,14 @@ async function createBatch(opts = {}) {
     );
     for (let i = 0; i < leafTxIds.length; i += CHUNK) {
       const slice = leafTxIds.slice(i, i + CHUNK);
-      await db.query(
+      await db.ledgerQuery(
         `UPDATE chain_tx SET anchor_status = 'ANCHORED', anchor_batch_no = ?
           WHERE tx_id IN (${slice.map(() => '?').join(',')})`,
         [batchNo, ...slice]
       );
     }
     /* 锚点交易自身不参与被锚定，标为 SELF，避免被后续批次重复收编 */
-    await db.query(
+    await db.ledgerQuery(
       "UPDATE chain_tx SET anchor_status = 'SELF', anchor_batch_no = ? WHERE tx_id = ?",
       [batchNo, anchored.txId]
     );
@@ -170,7 +172,7 @@ async function createBatch(opts = {}) {
   } catch (e) {
     /* 上链或写库失败 → 把占位状态回滚为 PENDING，保证存证不被"卡死" */
     try {
-      await db.query(
+      await db.ledgerQuery(
         `UPDATE chain_tx SET anchor_status = 'PENDING'
           WHERE anchor_status = 'BATCHED' AND tx_id IN (${leafTxIds.map(() => '?').join(',')})`,
         leafTxIds
@@ -268,7 +270,8 @@ async function getProof(batchNo, txId) {
 
 /** 锚定统计（供运维与验收使用） */
 async function stats() {
-  const rows = await db.query(
+  /* 链表在账本库（可能是独立实例），必须走 ledgerQuery —— 走业务池会 ER_NO_SUCH_TABLE */
+  const rows = await db.ledgerQuery(
     'SELECT anchor_status, COUNT(*) AS n FROM chain_tx GROUP BY anchor_status'
   );
   const dist = {};

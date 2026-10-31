@@ -150,13 +150,11 @@ async function main() {
     console.error('  ⚠ 补种子失败（表结构可能已存在但列不符，跳过）:', e.message);
   }
 
-  /* ---- 补缺失的演示账号（trader01/trader02 交易端） ---- */
-  // 旧版种子数据未含交易端账号，导致登录页「演示账号一键切换」缺交易端入口。
-  // 这里幂等补齐：仅在 username 不存在时插入，绝不动已有账号。
+  /* ---- 补缺失的演示账号（trader01 交易端） ----
+   * 2026-10-26 精简：演示账号每角色 1 个，trader02 不再补建。 */
   try {
     const demoUsers = [
       { username: 'trader01', real_name: '韩雪梅', role: 'TRADER', org_id: 1, org_name: '碳链通碳资产交易中心' },
-      { username: 'trader02', real_name: '林志远', role: 'TRADER', org_id: 2, org_name: '碳链通碳资产交易中心' },
     ];
     for (const u of demoUsers) {
       const [existing] = await conn.query('SELECT id FROM sys_user WHERE username = ?', [u.username]);

@@ -1,0 +1,368 @@
+{
+  "generatedAt": "2026-10-24T13:11:53.307Z",
+  "tables": 60,
+  "indexes": 167,
+  "viewsSkipped": 5,
+  "detail": [
+    {
+      "table": "chain_block",
+      "columns": 16,
+      "indexes": 4,
+      "from": "db/00_schema_ledger.sql"
+    },
+    {
+      "table": "chain_tx",
+      "columns": 18,
+      "indexes": 6,
+      "from": "db/00_schema_ledger.sql"
+    },
+    {
+      "table": "chain_payload_backup",
+      "columns": 3,
+      "indexes": 0,
+      "from": "db/00_schema_ledger.sql"
+    },
+    {
+      "table": "chain_node",
+      "columns": 18,
+      "indexes": 2,
+      "from": "db/00_schema_ledger.sql"
+    },
+    {
+      "table": "chain_node_replica",
+      "columns": 5,
+      "indexes": 2,
+      "from": "db/00_schema_ledger.sql"
+    },
+    {
+      "table": "sys_user",
+      "columns": 14,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "enterprise",
+      "columns": 18,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "verifier_org",
+      "columns": 16,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "emission_report",
+      "columns": 23,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "emission_item",
+      "columns": 11,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "verify_task",
+      "columns": 14,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "verify_report",
+      "columns": 17,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "carbon_quota",
+      "columns": 10,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "quota_allocation",
+      "columns": 12,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "trade_order",
+      "columns": 10,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "trade_deal",
+      "columns": 14,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "alert_record",
+      "columns": 13,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "audit_log",
+      "columns": 13,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "notice",
+      "columns": 9,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "cems_reading",
+      "columns": 22,
+      "indexes": 6,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "carbon_dynamic_account",
+      "columns": 16,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "credit_asset",
+      "columns": 14,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "credit_offset",
+      "columns": 14,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "emission_factor",
+      "columns": 14,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "factor_version",
+      "columns": 10,
+      "indexes": 1,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "prediction_record",
+      "columns": 9,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "reconciliation",
+      "columns": 6,
+      "indexes": 1,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "anchor_batch",
+      "columns": 10,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "batch_leaf",
+      "columns": 7,
+      "indexes": 4,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "device_registry",
+      "columns": 21,
+      "indexes": 6,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "device_verify_log",
+      "columns": 10,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "source_crosscheck",
+      "columns": 10,
+      "indexes": 1,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "cbam_declaration",
+      "columns": 23,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "green_power_match",
+      "columns": 17,
+      "indexes": 3,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "report_export",
+      "columns": 15,
+      "indexes": 1,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "key_rotation_log",
+      "columns": 17,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "uncertainty_posterior",
+      "columns": 17,
+      "indexes": 1,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "model_eval",
+      "columns": 16,
+      "indexes": 2,
+      "from": "db/01_schema.sql"
+    },
+    {
+      "table": "factor_entry",
+      "columns": 23,
+      "indexes": 3,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "activity_data",
+      "columns": 24,
+      "indexes": 4,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "calc_batch",
+      "columns": 33,
+      "indexes": 4,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "calc_source_detail",
+      "columns": 18,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "settlement_account",
+      "columns": 11,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "settlement_flow",
+      "columns": 13,
+      "indexes": 3,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "quota_surrender",
+      "columns": 21,
+      "indexes": 3,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "credit_retirement",
+      "columns": 14,
+      "indexes": 3,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "cbam_certificate",
+      "columns": 21,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "green_cert",
+      "columns": 16,
+      "indexes": 4,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "verification_finding",
+      "columns": 16,
+      "indexes": 3,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "zk_commitment",
+      "columns": 17,
+      "indexes": 4,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "zk_disclosure_log",
+      "columns": 9,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "zk_formula_proof",
+      "columns": 18,
+      "indexes": 3,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "data_source",
+      "columns": 16,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "data_ingest_log",
+      "columns": 11,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "macro_indicator",
+      "columns": 10,
+      "indexes": 2,
+      "from": "db/04_schema_mrv.sql"
+    },
+    {
+      "table": "real_facility",
+      "columns": 19,
+      "indexes": 6,
+      "from": "db/05_schema_real.sql"
+    },
+    {
+      "table": "real_emission_year",
+      "columns": 14,
+      "indexes": 3,
+      "from": "db/05_schema_real.sql"
+    },
+    {
+      "table": "real_series",
+      "columns": 12,
+      "indexes": 2,
+      "from": "db/05_schema_real.sql"
+    },
+    {
+      "table": "live_rollup",
+      "columns": 10,
+      "indexes": 2,
+      "from": "db/05_schema_real.sql"
+    },
+    {
+      "table": "truth_declaration",
+      "columns": 11,
+      "indexes": 1,
+      "from": "db/05_schema_real.sql"
+    }
+  ]
+}

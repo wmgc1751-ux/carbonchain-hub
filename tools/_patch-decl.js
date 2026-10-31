@@ -1,0 +1,81 @@
+/* 一次性补丁：把 /truth 的声明数组改写为国内口径。
+ * 用完即删（不属于平台运行时依赖）。 */
+'use strict';
+const fs = require('fs');
+
+const p = 'server/routes/real.js';
+const L = fs.readFileSync(p, 'utf8').split('\n');
+
+const repl = [
+  "  const now = async (sql, params = []) => Number(await db.value(sql, params) || 0);",
+  '',
+  '  /* 国内真实数据的四组家底。全部来自国内权威渠道，口径见各条 basis。 */',
+  '  const cemsCnHours = await now(',
+  "    'SELECT COUNT(*) FROM cems_cn_hourly WHERE is_valid = 1');",
+  '  const cemsCnEnts = await now(',
+  "    'SELECT COUNT(DISTINCT ent_name) FROM cems_cn_hourly');",
+  '  const cemsPubRows = await now(',
+  "    'SELECT COUNT(*) FROM cems_public_reading');",
+  '  const cemsPubEnts = await now(',
+  "    'SELECT COUNT(DISTINCT ent_code) FROM cems_public_reading');",
+  '  const emissionCalcs = await now(',
+  `    "SELECT COUNT(*) FROM emission_calc WHERE status <> 'DRAFT'");`,
+  '  const factorRows = await now(',
+  "    'SELECT COUNT(*) FROM factor_entry');",
+  '',
+  '  const D = [',
+  '    {',
+  "      key: 'cn_cems_hourly',",
+  "      subject: '国内企业 CEMS 小时实测读数',",
+  "      layer: 'REAL',",
+  '      claim: `平台存有 ${cemsCnHours.toLocaleString()} 条有效的国内企业小时级自动监测读数，`',
+  '        + `覆盖 ${cemsCnEnts} 家企业`,',
+  "      basis: '河北省污染源自动监控信息公开系统公开发布的小时级自动监测数据；'",
+  "        + '字段含烟气量(m³)、污染物实测/折算浓度(mg/m³) 与排放量(kg)',",
+  "      sql: 'SELECT COUNT(*) FROM cems_cn_hourly WHERE is_valid = 1',",
+  "      expected: cemsCnHours, tol: 'EXACT',",
+  "      note: '这是平台唯一可公开获取的国内企业级实测数据。CO₂ 不在 GB 18485 焚烧 CEMS 监测范围，'",
+  "        + '因此本数据不含 CO₂ —— 平台不据此推算 CO₂ 排放量，CO₂ 走活动水平法单独核算。',",
+  '    },',
+  '    {',
+  "      key: 'cn_cems_public',",
+  "      subject: '国内企业 CEMS 日均浓度（公开平台）',",
+  "      layer: 'REAL',",
+  '      claim: `平台存有 ${cemsPubRows.toLocaleString()} 条生活垃圾焚烧企业污染物日均浓度记录，`',
+  '        + `覆盖 ${cemsPubEnts} 家企业`,',
+  "      basis: '生态环境部生活垃圾焚烧发电厂自动监测数据公开平台（ljgk.envsc.cn）原始报文',",
+  "      sql: 'SELECT COUNT(*) FROM cems_public_reading',",
+  "      expected: cemsPubRows, tol: 'EXACT',",
+  "      note: '只有浓度与标准限值，没有烟气流量。平台不据此编造排放量，'",
+  "        + '只用于达标判定、链上存证与官方统计交叉核验。',",
+  '    },',
+  '    {',
+  "      key: 'cn_emission_calc',",
+  "      subject: '国内企业年度排放核算结果',",
+  "      layer: 'DERIVED',",
+  '      claim: `平台存有 ${emissionCalcs} 条企业年度 CO₂ 核算结果，每条均可按公式当场复算`,',
+  "      basis: '活动水平法：E = 垃圾处理量 × 矿物碳排放因子（DB11/T 1416—2017 附录A）；'",
+  "        + '活动水平取自河北省发展和改革委员会公开统计',",
+  `      sql: "SELECT COUNT(*) FROM emission_calc WHERE status <> 'DRAFT'",`,
+  "      expected: emissionCalcs, tol: 'EXACT',",
+  "      note: '这是**核算值**，不是 CEMS 直测值。接口同时返回公式与输入，'",
+  "        + '第三方可自行复算；平台不把它标为实测。',",
+  '    },',
+  '    {',
+  "      key: 'cn_factors',",
+  "      subject: '官方排放因子台账',",
+  "      layer: 'REAL',",
+  '      claim: `平台内置 ${factorRows} 条官方排放因子，逐条可追溯到发布文号`,',
+  "      basis: '生态环境部 / 国家统计局 / 国家发改委公开发布值；'",
+  "        + '含燃料因子与区域电网因子',",
+  "      sql: 'SELECT COUNT(*) FROM factor_entry',",
+  "      expected: factorRows, tol: 'AT_LEAST',",
+  "      note: '因子随标准修订而更新，故不锁死数量。每条 factor_entry 都带文号与适用年度，'",
+  "        + '平台不使用任何境外机构给出的\"中国默认值\"。',",
+  '    },',
+];
+
+/* 行号 597..731（1-based，含）→ 索引 596..730 */
+L.splice(596, 731 - 597 + 1, ...repl);
+fs.writeFileSync(p, L.join('\n'));
+console.log('lines now', L.length);

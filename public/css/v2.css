@@ -1,0 +1,1003 @@
+/* =====================================================================
+   碳链通 CarbonChain Hub —— 升级设计层 v2（2026-10-25）
+   ---------------------------------------------------------------------
+   【定位】本文件是 app.css 之上的**增量层**，只做三件事：
+     ① 补全没被抽成变量的规范：字号阶梯 / 间距刻度 / 动效时长 / 层级；
+     ② 为新增能力提供样式：侧栏收起、密度档、命令面板、抽屉、骨架屏、
+        表格批量条与导出、分页直达、空态重试、提示操作按钮；
+     ③ 补强响应式断点（1024 / 900 / 375）。
+   它**不覆盖** app.css 中任何既有选择器的语义：所有规则要么是新类名，
+   要么是 `body.xxx` 下的状态修饰，要么是同名变量的追加（不改原值）。
+
+   【回滚方式】在 index.html 里注释掉本文件的一行 <link>，全站立即回到
+   app.css 的原始表现 —— 新增类名没有样式时只是退化为"无装饰"，
+   不会导致布局错乱（所有新增块级容器都自带 display 兜底）。
+   ===================================================================== */
+
+/* =====================================================================
+   一、设计令牌补全
+   ---------------------------------------------------------------------
+   命名沿用 app.css 既有前缀，避免出现第二套体系：
+     --fs-*  字号（原代码里 11.4/12.2/12.6/12.8/13.2 等 20+ 个散落值）
+     --sp-*  间距（原代码里 7/9/11/13/17 等非 4 倍数散落）
+     --dur-* 动效（原 --dur 单一值，短反馈与面板展开不该同速）
+     --z-*   层级（原 20/30/60/100/200/9500 混用）
+   ===================================================================== */
+:root {
+  /* 字号阶梯：4 档主用 + 2 档辅助 */
+  --fs-xl: 22px;     /* 页面标题 */
+  --fs-lg: 18px;     /* 弹窗标题 / 大数值 */
+  --fs-md: 15px;     /* 卡片标题 */
+  --fs-sm: 13px;     /* 正文（表格、按钮） */
+  --fs-xs: 12px;     /* 辅助说明 */
+  --fs-2xs: 11px;    /* 角标 / 表头 */
+
+  /* 字重 */
+  --fw-normal: 400;
+  --fw-med: 500;
+  --fw-bold: 650;
+
+  /* 行高 */
+  --lh-tight: 1.35;
+  --lh-base: 1.6;
+  --lh-loose: 1.75;
+
+  /* 间距刻度（4 的倍数，原 7/9/11/13 归并） */
+  --sp-1: 4px;
+  --sp-2: 6px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 20px;
+  --sp-7: 24px;
+  --sp-8: 32px;
+
+  /* 动效：短反馈要快，面板展开才用长一点 */
+  --dur-fast: .12s;
+  --dur-base: .22s;
+  --dur-slow: .32s;
+
+  /* 层级：集中定义，避免再出现 9500 这类魔法数字
+   *
+   * ⚠⚠ 数值必须按 **app.css 的既有实际值** 排，不能凭"100/200/300 看着舒服"来定。
+   *   app.css 里已有：浮窗 8500 / AI 顾问 9200 / 弹窗 9700 / 遮罩 9800。
+   *   先前 v2 把 drawer 定成 120、cmdk 定成 300，结果：
+   *     · 命令面板被 AI 顾问浮窗**从右侧压住一条边**（截图实测可见）；
+   *     · 设置抽屉打开后整个被浮窗盖住，用户以为"点了没反应"。
+   *   这是"每个文件各自定层级"的典型后果。这里统一收到 9000+ 区间，
+   *   并保证 提示 > 命令面板 > 弹窗 > 抽屉 > 顾问浮窗。 */
+  --z-sticky: 20;
+  --z-side: 30;
+  --z-drawer: 9600;
+  --z-modal: 9800;
+  --z-cmdk: 9950;
+  --z-toast: 9990;
+
+  /* 侧栏宽度（收起/展开由 body 状态切换，动画只动这一个变量） */
+  --side-w: 240px;
+  --side-w-mini: 64px;
+
+  /* ---- 语义文字色收口 ----
+   * 升级前这三个颜色以字面量散落在 28 个视图的注入样式里：
+   *   成功文字 #6ee7b7 / 警告文字 #fcd34d / 危险文字 #fda4af
+   * 它们与 --ok / --warn / --danger（背景色）是同一语义的两个用途，
+   * 但因为没有变量，微调一次要对 28 个文件做全文替换。
+   * 此处只收口"文字色"这一类；带不同透明度的底色（.16/.24/.4…）
+   * 各自表达不同强度，不能合并成一个变量，故保持原样。 */
+  --ok-tx: #6ee7b7;
+  --warn-tx: #fcd34d;
+  --danger-tx: #fda4af;
+}
+
+/* =====================================================================
+   二、侧边栏收起（【新增增强】）
+   ---------------------------------------------------------------------
+   收起后：宽度 240 → 64，只留图标；搜索框与分组标题隐藏（没有文字时
+   它们只是噪音）；节点监视卡隐藏（信息在顶栏 chip 里已有）。
+   展开态由 app.css 原规则负责，这里一行不改。
+   ===================================================================== */
+.sidebar {
+  transition: width var(--dur-base) var(--ease), flex-basis var(--dur-base) var(--ease);
+}
+
+/* 品牌区腾出收起按钮的位置：原来 logo + 文案已经占满 204px，
+   直接塞进一个 24px 按钮会把 "CARBONCHAIN HUB" 顶出侧栏。
+   处理方式：收紧内边距与 logo，并让文字可省略（省略比溢出好）。 */
+.brand { gap: 10px; padding: 19px 14px 17px; }
+.brand-logo { width: 52px; height: 28px; }
+.brand-txt { flex: 1 1 auto; min-width: 0; }
+.brand-txt strong,
+.brand-txt span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 收起/展开按钮：常态是品牌区右上的小方块 */
+.nav-collapse {
+  flex: 0 0 auto;
+  width: 24px; height: 24px; margin-left: auto;
+  display: grid; place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .05);
+  color: var(--tx-3);
+  cursor: pointer;
+  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease),
+    background var(--dur-base) var(--ease);
+}
+.nav-collapse:hover { color: var(--brand-l); border-color: rgba(0, 192, 127, .45); background: rgba(0, 192, 127, .10); }
+.nav-collapse:active { transform: scale(.94); }
+
+body.nav-collapsed .sidebar { width: var(--side-w-mini); flex-basis: var(--side-w-mini); }
+body.nav-collapsed .brand { padding: 16px 0; justify-content: center; position: relative; }
+body.nav-collapsed .brand-txt { display: none; }
+body.nav-collapsed .brand-logo { width: 42px; height: 24px; }
+body.nav-collapsed .nav { padding: 6px 8px 16px; }
+body.nav-collapsed .nav-search,
+body.nav-collapsed .nav-group,
+body.nav-collapsed .side-foot,
+body.nav-collapsed .node-card { display: none; }
+body.nav-collapsed .nav-item { justify-content: center; padding: 10px 0; gap: 0; }
+body.nav-collapsed .nav-item .lbl { display: none; }
+body.nav-collapsed .nav-item.active::after { display: none; }
+body.nav-collapsed .nav-item.active::before { top: 6px; bottom: 6px; }
+/* 收起态下，收起按钮浮到侧栏右缘外侧，像抽屉的拉手 */
+body.nav-collapsed .nav-collapse {
+  position: absolute; top: 22px; right: -12px; margin: 0;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(180deg, rgba(13, 20, 33, .98), rgba(8, 13, 22, .99));
+  border-color: rgba(0, 192, 127, .40);
+  color: var(--brand-l);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .5);
+  z-index: 2;
+}
+
+/* =====================================================================
+   三、信息密度档（【新增增强】）
+   ---------------------------------------------------------------------
+   紧凑档的目标是"一屏多看 4–6 行表格"，因此只压缩纵向留白，
+   不缩字号（缩字号会牺牲可读性，那是换主题不是调密度）。
+   宽松档给答辩投屏 / 大屏演示用。
+   ===================================================================== */
+body.density-compact .content { padding: 18px 20px 36px; }
+body.density-compact .page-head { margin-bottom: 16px; padding-bottom: 10px; }
+body.density-compact .grid { gap: 11px; }
+body.density-compact .card-head { padding: 11px 14px; }
+body.density-compact .card-body { padding: 14px; }
+body.density-compact .card-body.tight { padding: 9px 11px; }
+body.density-compact table.tbl th { padding: 8px 12px; }
+body.density-compact table.tbl td { padding: 8px 12px; }
+body.density-compact .kpi { padding: 13px 14px; }
+body.density-compact .kpi .val { font-size: 27px; margin-top: 6px; }
+body.density-compact .kpi .foot { margin-top: 7px; }
+body.density-compact .pager { padding: 8px 14px; }
+body.density-compact .readout { padding: 7px 10px; }
+body.density-compact .alertbar { padding: 8px 11px; }
+
+body.density-loose .content { padding: 28px 30px 56px; }
+body.density-loose .grid { gap: 18px; }
+body.density-loose .card-head { padding: 16px 19px; }
+body.density-loose .card-body { padding: 22px; }
+body.density-loose table.tbl th { padding: 13px 15px; }
+body.density-loose table.tbl td { padding: 17px 15px; }
+body.density-loose .kpi { padding: 20px 21px; }
+
+/* =====================================================================
+   四、字号档（【新增增强】）
+   ---------------------------------------------------------------------
+   只调"读的字"，不调"看的图"：图表由 ECharts 自己按容器尺寸重排，
+   强行放大反而会截断标签。
+   ===================================================================== */
+body.fs-lg { font-size: 16.5px; }
+body.fs-lg table.tbl { font-size: 14px; }
+body.fs-lg table.tbl td.num,
+body.fs-lg table.tbl th.num { font-size: 13px; }
+body.fs-lg .nav-item { font-size: 14px; }
+body.fs-lg .card-head h3 { font-size: 16px; }
+body.fs-lg .page-head h2 { font-size: 24px; }
+body.fs-lg .kpi .lbl { font-size: 13px; }
+body.fs-lg .tiny { font-size: 13px; }
+body.fs-lg .mono { font-size: 13px; }
+
+body.fs-sm { font-size: 14px; }
+body.fs-sm table.tbl { font-size: 12.2px; }
+body.fs-sm .nav-item { font-size: 12.4px; }
+body.fs-sm .card-head h3 { font-size: 14px; }
+body.fs-sm .kpi .val { font-size: 29px; }
+
+/* =====================================================================
+   五、命令面板（【新增增强】）
+   ===================================================================== */
+.cmdk-mask {
+  position: fixed; inset: 0; z-index: var(--z-cmdk);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 12vh 20px 20px;
+  background: rgba(3, 6, 12, .62);
+  backdrop-filter: blur(6px);
+  animation: cmdkFade var(--dur-fast) ease;
+}
+@keyframes cmdkFade { from { opacity: 0; } to { opacity: 1; } }
+
+.cmdk {
+  width: min(640px, 100%); max-height: 66vh;
+  display: flex; flex-direction: column;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(0, 192, 127, .26);
+  background: linear-gradient(180deg, rgba(14, 21, 36, .985), rgba(8, 13, 23, .995));
+  box-shadow: 0 30px 80px -24px rgba(0, 0, 0, .9), inset 0 1px 0 rgba(255, 255, 255, .07);
+  overflow: hidden;
+  animation: cmdkIn .16s var(--ease);
+}
+@keyframes cmdkIn { from { opacity: 0; transform: translateY(-10px) scale(.99); } to { opacity: 1; transform: none; } }
+
+.cmdk-input {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx-3);
+}
+.cmdk-input input {
+  flex: 1; min-width: 0; height: 26px;
+  border: none; outline: none; background: none;
+  color: var(--tx-0); font-size: var(--fs-md); font-family: inherit;
+}
+.cmdk-input input::placeholder { color: var(--tx-3); }
+.cmdk kbd {
+  font-family: var(--mono); font-size: 11px; line-height: 1.6;
+  color: var(--tx-3); border: 1px solid var(--line);
+  border-radius: 4px; padding: 0 5px; background: rgba(255, 255, 255, .04);
+}
+
+.cmdk-list { flex: 1; overflow-y: auto; padding: 6px; }
+.cmdk-group {
+  padding: 10px 10px 5px; font-size: 11px; letter-spacing: 1.1px;
+  text-transform: uppercase; color: var(--tx-3);
+}
+.cmdk-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 11px; border-radius: var(--radius-sm);
+  cursor: pointer; color: var(--tx-1); font-size: var(--fs-sm);
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.cmdk-item .ic {
+  flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center;
+  border-radius: 6px; color: var(--tx-3);
+  background: rgba(255, 255, 255, .045); border: 1px solid var(--line);
+}
+.cmdk-item .tx { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdk-item .tx mark { background: rgba(0, 192, 127, .22); color: var(--brand-l); border-radius: 3px; padding: 0 1px; }
+.cmdk-item .pt { flex: 0 0 auto; font-size: 11px; color: var(--tx-3); opacity: .8; }
+.cmdk-item .run { flex: 0 0 auto; }
+.cmdk-item.on {
+  background: linear-gradient(90deg, rgba(0, 192, 127, .17), rgba(6, 182, 212, .06) 60%, transparent);
+  color: var(--tx-0);
+}
+.cmdk-item.on .ic { color: var(--brand-l); border-color: rgba(0, 192, 127, .38); background: rgba(0, 192, 127, .12); }
+
+.cmdk-empty { padding: 34px 16px; text-align: center; color: var(--tx-3); font-size: var(--fs-sm); }
+.cmdk-empty svg { margin: 0 auto 10px; opacity: .45; }
+
+.cmdk-foot {
+  display: flex; align-items: center; gap: 16px;
+  padding: 9px 16px; border-top: 1px solid var(--hair);
+  font-size: 11.5px; color: var(--tx-3);
+}
+.cmdk-foot span { display: inline-flex; align-items: center; gap: 5px; }
+.cmdk-foot .right { margin-left: auto; }
+
+/* =====================================================================
+   六、抽屉（【新增增强】）
+   ===================================================================== */
+.drawer-mask {
+  position: fixed; inset: 0; z-index: var(--z-drawer);
+  background: rgba(3, 6, 12, .60);
+  backdrop-filter: blur(4px);
+  display: flex; justify-content: flex-end;
+  animation: cmdkFade var(--dur-fast) ease;
+}
+.drawer {
+  height: 100%; max-width: 92vw;
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, rgba(15, 23, 39, .99), rgba(8, 13, 23, 1));
+  border-left: 1px solid var(--line-2);
+  box-shadow: -24px 0 60px -20px rgba(0, 0, 0, .8);
+  animation: drawerIn var(--dur-base) var(--ease);
+}
+@keyframes drawerIn { from { transform: translateX(28px); opacity: .4; } to { transform: none; opacity: 1; } }
+
+.drawer-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px 18px; border-bottom: 1px solid var(--hair);
+}
+.drawer-head h3 { font-size: var(--fs-lg); }
+.drawer-head .sub { font-size: var(--fs-xs); color: var(--tx-3); margin-top: 3px; }
+.drawer-head .x {
+  margin-left: auto; width: 30px; height: 30px; border-radius: var(--radius-sm);
+  display: grid; place-items: center; cursor: pointer;
+  color: var(--tx-2); border: 1px solid transparent; background: none;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.drawer-head .x:hover { background: var(--panel-2); color: var(--tx-0); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 18px; }
+.drawer-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--hair); }
+
+/* =====================================================================
+   七、骨架屏（【新增增强】）
+   ---------------------------------------------------------------------
+   复用 app.css 的 .skel 流光，只补结构。原各页手写的 div.skel 不受影响。
+   ===================================================================== */
+.skel-table { display: flex; flex-direction: column; gap: 9px; }
+.skel-row { display: flex; gap: 12px; align-items: center; }
+.skel-row > i { display: block; height: 14px; }
+.skel-row > i:first-child { height: 16px; }
+
+/* =====================================================================
+   八、表格增强：工具条 / 批量条 / 复选列（【新增增强】）
+   ===================================================================== */
+.tbl-box { display: block; }
+
+.tbl-tools {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 14px; border-bottom: 1px solid var(--hair);
+  background: rgba(255, 255, 255, .014);
+}
+.tbl-tools-l { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.tbl-tools-r { display: flex; align-items: center; gap: 8px; }
+.tbl-hint { font-size: var(--fs-2xs); color: var(--tx-3); }
+
+/* 紧凑版工具条 —— 自动装配出来的场景：页面没有自己的工具内容，
+   只有一枚导出按钮。此时不占整条高度、不加下边框，贴右上角即可。
+   ⚠ 这张表是"全站 74 张表默认长出导出入口"的视觉收口，
+     去掉它会让每张表头顶都多出一条空横条。 */
+.tbl-tools.compact {
+  padding: 3px 10px 2px;
+  border-bottom: none;
+  background: none;
+  min-height: 0;
+}
+.tbl-tools.compact .tbl-tools-l { flex: 0 1 auto; }
+.tbl-tools.compact .tbl-tools-r { margin-left: auto; }
+.btn.icon {
+  width: 26px; height: 26px; padding: 0; justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.bulk-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px;
+  background: linear-gradient(90deg, rgba(0, 192, 127, .12), rgba(6, 182, 212, .05) 70%, transparent);
+  border-bottom: 1px solid rgba(0, 192, 127, .22);
+  animation: bulkIn var(--dur-fast) var(--ease);
+}
+@keyframes bulkIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.bulk-bar .bulk-n { font-size: var(--fs-xs); color: var(--tx-1); }
+.bulk-bar .bulk-n b { font-family: var(--mono); color: var(--brand-l); font-size: 14px; }
+.bulk-bar .bulk-sep { width: 1px; height: 16px; background: var(--line-2); }
+
+/* 复选列：不参与斑马纹与 hover 指示条，视觉上"贴边" */
+table.tbl th.th-sel,
+table.tbl td.td-sel { width: 40px; padding-left: 14px; padding-right: 0; }
+table.tbl tbody tr.checked { background: rgba(0, 192, 127, .07); }
+table.tbl tbody tr.checked:hover { background: rgba(0, 192, 127, .11); }
+
+.cb {
+  width: 15px; height: 15px; margin: 0; cursor: pointer;
+  accent-color: var(--brand);
+  vertical-align: middle;
+}
+
+/* 表格横向滚动提示：窄屏下内容被截断时，用户往往不知道右边还有列。
+   这里只用"右缘渐隐边框"提示，不用绝对定位遮罩 ——
+   遮罩式做法在 overflow 容器里会参与布局，容易把最后一行顶歪。 */
+@media (max-width: 900px) {
+  .tbl-wrap {
+    box-shadow: inset -14px 0 12px -12px rgba(0, 0, 0, .9);
+  }
+}
+
+/* =====================================================================
+   九、分页增强（【新增增强】）
+   ===================================================================== */
+.pg-size {
+  height: 28px; padding: 0 22px 0 8px; margin-right: 4px;
+  border-radius: var(--radius-sm); font-size: 11.5px; font-family: inherit;
+  color: var(--tx-1); background: var(--panel-2); border: 1px solid var(--line);
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238d9cb5' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 6px center; background-size: 13px;
+}
+.pg-jump { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--tx-3); }
+.pg-input {
+  width: 46px; height: 28px; padding: 0 6px; text-align: center;
+  border-radius: var(--radius-sm); font-family: var(--mono); font-size: 11.5px;
+  color: var(--tx-0); background: var(--panel-2); border: 1px solid var(--line);
+  outline: none;
+}
+.pg-input:focus { border-color: rgba(0, 192, 127, .6); box-shadow: var(--focus-ring); }
+.pg-input::-webkit-outer-spin-button,
+.pg-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* =====================================================================
+   十、空态 / 提示增强（【新增增强】）
+   ===================================================================== */
+.empty-action-tip {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 10px; padding: 6px 10px;
+  font-size: var(--fs-xs); color: var(--tx-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .03);
+  border: 1px solid var(--hair);
+}
+.empty-acts { margin-top: 14px; display: flex; justify-content: center; gap: 8px; }
+
+.toast .toast-act {
+  flex: 0 0 auto; align-self: center;
+  height: 26px; padding: 0 10px; border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 192, 127, .45);
+  background: rgba(0, 192, 127, .14); color: var(--brand-l);
+  font-size: 12px; font-weight: var(--fw-med); cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+}
+.toast .toast-act:hover { background: rgba(0, 192, 127, .26); }
+.toast .toast-act:active { transform: scale(.96); }
+.toast .toast-x {
+  flex: 0 0 auto; width: 24px; height: 24px; margin-top: 0;
+  border: none; background: none; color: var(--tx-3);
+  font-size: 15px; line-height: 1; cursor: pointer; border-radius: 4px;
+}
+/* 20×24 都不到 WCAG 2.2 AA(2.5.8) 的 24×24 最低点击目标，
+   且周围没有留白（实测 gap 0）——审计里仅存的"又小又挤"就是它。 */
+.toast .toast-x:hover { color: var(--tx-0); background: var(--panel-2); }
+
+/* =====================================================================
+   十一、面包屑可点上级（【新增增强】）
+   ===================================================================== */
+.crumb .crumb-up {
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; color: var(--tx-3);
+  transition: color var(--dur-fast) var(--ease);
+}
+.crumb .crumb-up:hover { color: var(--brand-l); }
+.crumb .crumb-up.hide { display: none; }
+
+/* =====================================================================
+   十二、路由过渡（【新增增强】）
+   ===================================================================== */
+.view-fade { animation: viewFade var(--dur-fast) var(--ease); }
+@keyframes viewFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+/* 动画保险丝落定类：动画时钟被冻结（后台节流/内嵌 webview）时由 core.js 兜底，
+ * 强制进入可见终态，避免"切页后整页空白"（2026-10-29） */
+.view-fade.view-done { animation: none; opacity: 1; transform: none; }
+
+/* =====================================================================
+   十三、响应式补强
+   ---------------------------------------------------------------------
+   app.css 只有 1400 / 1180 / 760 三档；1024–1180 与 375–520 之间
+   存在"卡片挤成一列但表格还横着"的中间态。
+   ===================================================================== */
+@media (max-width: 1024px) {
+  :root { --side-w: 208px; }
+  .content { padding: 20px 18px 44px; }
+  .page-head { gap: 12px; }
+  .page-head .acts { margin-left: 0; width: 100%; }
+  .topbar { gap: 10px; padding: 0 16px; }
+  .topbar-right { gap: 8px; }
+}
+
+@media (max-width: 900px) {
+  .g3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi .val { font-size: 28px; }
+  .modal { max-width: none !important; }
+  .drawer { width: 100% !important; max-width: 100%; }
+  .cmdk-mask { padding: 8vh 12px 12px; }
+  .cmdk { max-height: 76vh; }
+  /* 顶栏在中等宽度下只留最关键的三项：通知 / 用户 / 退出 */
+  .topbar-right .chip.mono { display: none; }
+}
+
+@media (max-width: 760px) {
+  .nav-collapse { display: none; }
+  body.nav-collapsed .sidebar { width: var(--side-w); flex-basis: var(--side-w); }
+  .page-head .acts .btn { height: 32px; }
+  .tbl-tools, .bulk-bar { padding: 8px 10px; }
+  .pager { gap: 6px; }
+  .pager .info { width: 100%; margin-bottom: 4px; }
+  .pg-jump { display: none; }
+}
+
+@media (max-width: 520px) {
+  .content { padding: 14px 12px 36px; }
+  .g2, .g3, .g4, .g5, .g6 { grid-template-columns: 1fr; }
+  .kpi .val { font-size: 25px; }
+  .card-body { padding: 14px; }
+  .card-head { padding: 11px 13px; flex-wrap: wrap; }
+  .page-head h2 { font-size: 19px; }
+  .page-head .desc { font-size: 12.4px; }
+  .cmdk-item .pt { display: none; }
+  .toasts { left: 12px; right: 12px; top: 10px; }
+  .toast { max-width: none; width: 100%; }
+  /* 弹窗宽度多半是调用处写的行内 width:420px 之类，max-width 拦不住行内值，
+     窄屏下会把表单顶出视口（实测 406px > 390px，右侧一列点不到）。
+     这里用 !important 直接覆盖行内宽度（行内样式无 !important，优先级低于它）。 */
+  .modal { width: calc(100vw - 24px) !important; max-width: calc(100vw - 24px) !important; }
+  .modal .field, .modal .input, .modal .select, .modal textarea { max-width: 100%; }
+}
+
+/* =====================================================================
+   十三之二、窄屏横滚守卫（2026-10-26）
+   ---------------------------------------------------------------------
+   实测：390px 视口下每一页的 document.scrollWidth 都比视口多 88px。
+   根因是顶栏右侧控件组（通知 + 用户 + 5 个图标按钮，合计 304px）
+   作为 flex 项不会缩到内容宽度以下，把整个文档顶宽；抽屉遮罩
+   .mnav-mask 又是 position:fixed + inset:0，跟着文档尺寸一起被算成
+   478×1035。表现就是"手机页面能左右晃，右边一截点不到"。
+
+   处理原则：顶栏允许收缩，控件组自身横向滚动（功能一个不丢），
+   遮罩钉死视口，body 兜底不横滚（用 clip 而非 hidden，避免
+   overflow 变成滚动容器后把 position:sticky 的表头搞失效）。
+   ===================================================================== */
+html, body { max-width: 100%; }
+body { overflow-x: clip; }
+.mnav-mask { width: 100vw; height: 100vh; top: 0; left: 0; right: auto; bottom: auto; }
+
+@media (max-width: 760px) {
+  .topbar { min-width: 0; }
+  .topbar > .crumb { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  .topbar-right {
+    min-width: 0; flex: 1 1 auto; justify-content: flex-end;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  }
+  .topbar-right::-webkit-scrollbar { display: none; }
+  .topbar-right > * { flex: 0 0 auto; }
+  /* 抽屉里的分组标题是按钮，原来只有 19px 高，手指点不准 */
+  .nav-group { min-height: 28px; padding-top: 4px; padding-bottom: 4px; }
+}
+
+/* 大屏看板（/matrix 等）是给投影仪/宽屏设计的固定布局，窄屏下会把
+   整个文档顶到 1216px。这里让内容区自己横滚，文档本身不再变宽——
+   既不"页面左右晃"，右边的内容也仍然够得到（被 body 的 clip 吃掉才是最糟的）。 */
+@media (max-width: 900px) {
+  .content { overflow-x: auto; overscroll-behavior-x: contain; }
+  /* ⚠ 2026-10-26 修：只给 min-width:0 会把两栏一起压成 0 宽，
+     里面的 .matrix-leds（152px 且不换行）就整体溢出到卡片外 ⇒ 文档被顶宽 111px。
+     窄屏正确做法是"换行分行"，不是"硬挤"。 */
+  .matrix-head { flex-wrap: wrap; gap: 10px 14px; padding: 12px 14px; }
+  .matrix-head-left { flex: 1 1 100%; min-width: 0; }
+  .matrix-head-mid { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; gap: 12px; }
+  .matrix-head-right { flex: 1 1 100%; min-width: 0; justify-content: flex-start; flex-wrap: wrap; }
+  .matrix-leds { flex-wrap: wrap; gap: 8px; }
+  .matrix-title { font-size: 18px; line-height: 1.35; }
+  .matrix-chain-info { min-width: 0; }
+  .matrix-chain-sub { word-break: break-word; }
+}
+
+/* =====================================================================
+   十三之三、次级文字对比度达标（2026-10-26）
+   ---------------------------------------------------------------------
+   WCAG AA 对小字（<18.66px）要求 4.5:1。实测两台视口下：
+     --tx-3 #71829b 落在卡片面 rgb(14,33,47) 上 = 4.22:1
+     --tx-2 #8d9cb5 落在 .tag.t-mute 的药丸底上 = 4.30:1
+   都差一点点 —— 这种"差一点点"最容易被"看着还行"放过去，
+   但在投影仪、低亮度屏与老花眼下就是读不清。
+   只把两个辅助灰各上调约 6%，色相一致、明度顺序（tx-1 > tx-2 > tx-3）不变：
+     --tx-3 现为 4.83:1（卡片面）/ 5.37:1（页面底）
+     --tx-2 现为 4.61:1（药丸底）
+   ===================================================================== */
+:root {
+  --tx-2: #93a2bb;
+  --tx-3: #8295b0;
+}
+
+/* 表格里的省略号单元：max-width 一旦超过单元格宽度，文字会从列里溢出来，
+   既不省略也把邻列挤歪。统一收到 100%。 */
+.tbl td .ellipsis { display: inline-block; max-width: 100%; vertical-align: bottom; }
+
+/* 中文在窄列里会被逐字折断（"河北/省"、"有色金/属"），一行数据占两行高，
+   表格看起来参差不齐。keep-all 只禁止"汉字与汉字之间"断行，
+   英文与数字仍按单词断，长文本照旧交给 .ellipsis 截断。 */
+.tbl td, .tbl th { word-break: keep-all; }
+
+/* =====================================================================
+   十三之四、主操作按钮的深色端要够亮（2026-10-26）
+   ---------------------------------------------------------------------
+   .btn.primary 文字是 #03130c（近黑），底色是三段翡翠渐变。
+   末段 #047857 相对亮度只有 0.14，实测对比度 3.21:1 —— 在按钮下半部
+   文字已经糊进底色里（/mrv/calc 与 /trade/orders 都被判红）。
+   把末段换成 #059669（相对亮度 0.23）后实测 5.06:1，
+   渐变方向、品牌绿、玻璃高光层全部保留，肉眼只差一点点深度。
+   ===================================================================== */
+.btn.primary {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .20), transparent 54%),
+    linear-gradient(160deg, #12d18f 0%, var(--brand) 44%, #059669 100%);
+}
+
+/* 面包屑上一层可点，但只有 23px 宽（"运维 /"），差 1px 不够 24 的点击下限 */
+.crumb .crumb-up { padding: 0 3px; min-width: 24px; }
+
+/* =====================================================================
+   十四、可访问性与降级
+   ===================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .cmdk, .cmdk-mask, .drawer, .drawer-mask, .view-fade, .bulk-bar {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* 强制高对比（系统偏好）：把最弱的辅助文字提一档，避免投影/阳光下看不清 */
+@media (prefers-contrast: more) {
+  :root {
+    --tx-2: #a7b6cc;
+    --tx-3: #93a4bd;
+    --hair: rgba(255, 255, 255, .13);
+    --line: rgba(255, 255, 255, .18);
+  }
+}
+
+/* 打印：导出对账用。隐藏导航与浮动层，表格完整铺开 */
+@media print {
+  .sidebar, .topbar, .nav, .backtop, .toasts, .cmdk-mask, .drawer-mask,
+  .toast, .nc-toast, .mnav-mask, .tbl-tools, .bulk-bar { display: none !important; }
+  body { background: #fff !important; color: #111 !important; }
+  .card { border-color: #ddd !important; box-shadow: none !important; background: #fff !important; }
+  .content { padding: 0 !important; max-width: none !important; }
+  table.tbl th, table.tbl td { color: #111 !important; border-color: #ddd !important; background: #fff !important; }
+}
+
+/* =====================================================================
+   十五、错误态与筛选条（【新增增强】2026-10-25）
+   ===================================================================== */
+/* 错误态：横向三段（图标 / 正文 / 操作），正文里"建议"必须比"错误"更显眼，
+   因为用户真正需要的是下一步动作，而不是堆栈信息。 */
+.err-state {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 16px 18px; border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(244, 63, 94, .07), rgba(244, 63, 94, .02));
+  border: 1px solid rgba(244, 63, 94, .26);
+}
+.err-state .err-ico { color: #f43f5e; flex: none; margin-top: 1px; }
+.err-state .err-body { flex: 1; min-width: 0; }
+.err-state .err-title { font-size: var(--fs-sm); color: var(--tx-0); font-weight: 600; }
+.err-state .err-hint { font-size: var(--fs-xs); color: var(--tx-2); margin-top: 5px; line-height: 1.65; }
+.err-state .err-detail { margin-top: 8px; }
+.err-state .err-detail summary {
+  font-size: var(--fs-2xs); color: var(--tx-3); cursor: pointer; user-select: none;
+}
+.err-state .err-detail pre {
+  margin: 6px 0 0; padding: 9px 11px; border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, .34); border: 1px solid var(--hair);
+  font-family: var(--mono); font-size: var(--fs-2xs); color: var(--tx-2);
+  white-space: pre-wrap; word-break: break-all; max-height: 190px; overflow: auto;
+}
+.err-state .err-retry { flex: none; align-self: center; }
+.err-state.compact { padding: 10px 12px; gap: 9px; border-radius: var(--radius-sm); }
+.err-state.compact .err-title { font-size: var(--fs-xs); }
+
+/* 筛选条 */
+.filter-bar {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; margin-bottom: 12px;
+  border-radius: var(--radius); border: 1px solid var(--hair);
+  background: rgba(255, 255, 255, .018);
+}
+.fb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fb-search {
+  display: flex; align-items: center; gap: 7px; flex: 1 1 220px; min-width: 180px;
+  height: 32px; padding: 0 9px; border-radius: var(--radius-sm);
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--tx-3);
+  transition: border-color var(--dur-base) var(--ease), box-shadow var(--dur-base) var(--ease);
+}
+.fb-search:focus-within { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(0, 192, 127, .13); }
+.fb-search input {
+  flex: 1; min-width: 0; height: 100%; border: none; background: none; outline: none;
+  color: var(--tx-0); font-size: var(--fs-xs); font-family: inherit;
+}
+.fb-search .fb-x {
+  flex: none; width: 18px; height: 18px; display: grid; place-items: center;
+  border: none; background: none; color: var(--tx-3); cursor: pointer; border-radius: 4px;
+}
+.fb-search .fb-x:hover { background: rgba(255, 255, 255, .08); color: var(--tx-0); }
+.fb-date { display: flex; align-items: center; gap: 6px; color: var(--tx-3); font-size: var(--fs-2xs); }
+.fb-date input {
+  height: 30px; padding: 0 8px; border-radius: var(--radius-sm);
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--tx-1); font-size: var(--fs-2xs); font-family: var(--mono);
+}
+.fb-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fb-chip {
+  height: 26px; padding: 0 10px; border-radius: 999px; cursor: pointer;
+  font-size: var(--fs-2xs); font-family: inherit;
+  color: var(--tx-2); background: var(--panel-2); border: 1px solid var(--line);
+  transition: color var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
+}
+.fb-chip:hover { color: var(--tx-0); border-color: var(--line-2); }
+.fb-chip.on {
+  color: var(--brand-l); border-color: rgba(0, 192, 127, .45);
+  background: rgba(0, 192, 127, .12);
+}
+.fb-count { font-size: var(--fs-2xs); margin-left: auto; white-space: nowrap; }
+.fb-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fb-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 22px; padding: 0 4px 0 9px; border-radius: 999px;
+  font-size: var(--fs-2xs); color: var(--tx-1);
+  background: rgba(6, 182, 212, .10); border: 1px solid rgba(6, 182, 212, .28);
+}
+.fb-tag .x {
+  display: grid; place-items: center; width: 15px; height: 15px;
+  border: none; background: none; color: var(--tx-3); cursor: pointer; border-radius: 50%;
+}
+.fb-tag .x:hover { background: rgba(255, 255, 255, .1); color: var(--tx-0); }
+
+/* 表单错误态：只有 .is-err 的输入框才变红，避免整页染红 */
+input.is-err, select.is-err, textarea.is-err {
+  border-color: rgba(244, 63, 94, .62) !important;
+  box-shadow: 0 0 0 3px rgba(244, 63, 94, .10);
+}
+
+/* =====================================================================
+   十六、快捷键说明浮层（【新增增强】2026-10-25）
+   ---------------------------------------------------------------------
+   复用命令面板的遮罩与容器样式，只补"键位列 / 说明列"两栏结构。
+   ===================================================================== */
+.cmdk.help-card { max-width: 560px; max-height: 74vh; }
+.help-title { font-size: var(--fs-sm); color: var(--tx-0); font-weight: 600; }
+.ml-auto { margin-left: auto; }
+.help-list { padding: 8px 6px 10px; }
+.help-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 12px; border-radius: var(--radius-sm);
+}
+.help-row:hover { background: rgba(255, 255, 255, .03); }
+.help-keys { display: flex; gap: 4px; flex: none; min-width: 112px; }
+.help-tx { font-size: var(--fs-xs); color: var(--tx-1); line-height: 1.6; }
+.cmdk-foot .help-link {
+  cursor: pointer; border-radius: 5px; padding: 1px 5px; margin: 0 -5px;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.cmdk-foot .help-link:hover,
+.cmdk-foot .help-link:focus-visible { background: rgba(255, 255, 255, .08); color: var(--tx-0); outline: none; }
+
+/* =====================================================================
+   十七、设置抽屉（【新增增强】2026-10-25）
+   ===================================================================== */
+.set-tabs {
+  display: flex; gap: 4px; padding: 4px; margin-bottom: 16px;
+  border-radius: var(--radius-sm); background: rgba(255, 255, 255, .035);
+  border: 1px solid var(--hair);
+}
+.set-tab {
+  flex: 1; height: 30px; border: none; background: none; cursor: pointer;
+  border-radius: 6px; font-family: inherit; font-size: var(--fs-xs);
+  color: var(--tx-2);
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
+}
+.set-tab:hover { color: var(--tx-0); }
+.set-tab.on { background: rgba(0, 192, 127, .16); color: var(--brand-l); font-weight: 600; }
+
+.set-group { margin-bottom: 20px; }
+.set-group-head {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 10px; padding-bottom: 7px; border-bottom: 1px solid var(--hair);
+}
+.set-group-head h4 { font-size: var(--fs-xs); color: var(--tx-0); font-weight: 600; letter-spacing: .3px; }
+
+.set-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 0; min-height: 38px;
+}
+.set-lbl { flex: 1; font-size: var(--fs-xs); color: var(--tx-1); }
+
+.seg {
+  display: flex; gap: 2px; padding: 2px;
+  border-radius: var(--radius-sm); background: rgba(0, 0, 0, .28);
+  border: 1px solid var(--hair);
+}
+.seg-i {
+  min-width: 46px; height: 26px; padding: 0 10px; border: none; background: none;
+  cursor: pointer; border-radius: 5px; font-family: inherit; font-size: var(--fs-2xs);
+  color: var(--tx-2);
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.seg-i:hover { color: var(--tx-0); }
+.seg-i.on {
+  background: linear-gradient(180deg, rgba(0, 192, 127, .24), rgba(0, 192, 127, .14));
+  color: var(--brand-l); font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+/* 开关 */
+.sw {
+  position: relative; width: 40px; height: 22px; flex: none;
+  border-radius: 999px; cursor: pointer; padding: 0;
+  background: rgba(255, 255, 255, .10); border: 1px solid var(--line);
+  transition: background var(--dur-base) var(--ease), border-color var(--dur-base) var(--ease);
+}
+.sw > i {
+  position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--tx-2);
+  transition: transform var(--dur-base) var(--ease), background var(--dur-base) var(--ease);
+}
+.sw.on { background: rgba(0, 192, 127, .30); border-color: rgba(0, 192, 127, .5); }
+.sw.on > i { transform: translateX(18px); background: var(--brand-l); }
+
+.set-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.set-note {
+  font-size: var(--fs-2xs); color: var(--tx-3); line-height: 1.7;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .022); border: 1px dashed var(--hair);
+}
+
+.ext-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 10px; border-radius: var(--radius-sm);
+  border: 1px solid var(--hair); margin-bottom: 7px;
+  background: rgba(255, 255, 255, .016);
+  opacity: .86;
+}
+.ext-ico {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border-radius: 7px; color: var(--tx-3);
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line);
+}
+.ext-tx { flex: 1; min-width: 0; }
+.ext-nm { font-size: var(--fs-xs); color: var(--tx-1); margin-bottom: 2px; }
+
+/* ---------------------------------------------------------------------
+   十八、偏好档对应的 body class（【新增增强】）
+   ---------------------------------------------------------------------
+   ⚠ 这三个 class 由 core.js 的 applyPrefs() 挂到 <body> 上，
+     与既有的 density-compact / nav-collapsed 同一机制，不能改名。
+   --------------------------------------------------------------------- */
+.contrast-more {
+  --tx-2: #a7b6cc;
+  --tx-3: #93a4bd;
+  --hair: rgba(255, 255, 255, .13);
+  --line: rgba(255, 255, 255, .18);
+}
+/* 关闭动效：只压到 1ms 而不是 0 —— 部分浏览器对 0 时长的 transitionend
+   不派发，会让依赖该事件的组件（如路由过渡）卡住 */
+.motion-off *,
+.motion-off *::before,
+.motion-off *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* =====================================================================
+   十九、空态语义补全（【新增增强】2026-10-25）
+   ---------------------------------------------------------------------
+   升级前只有 data（无数据）/ safe（安全）/ error（出错）三种。
+   缺的两种恰恰是最容易让用户误会成"系统坏了"的：
+     · nofound —— 筛选之后为空。用户需要知道"是筛掉了，不是没有"，
+       否则会以为数据丢了，然后反复刷新；
+     · denied  —— 无权限。用户需要知道"不是坏了，是你看不到"，
+       否则会去报故障。
+   靠颜色区分而不是靠图标区分：琥珀 = 你还能做点什么；灰 = 就是没有。
+   ===================================================================== */
+.empty-tone-nofound .empty-mark {
+  border-color: rgba(245, 165, 36, .30);
+  background: radial-gradient(circle, rgba(245, 165, 36, .12), transparent 68%);
+}
+.empty-tone-nofound .empty-mark svg { color: #fbbf24; }
+.empty-tone-nofound .empty-mark::after { border-color: rgba(245, 165, 36, .40); }
+
+.empty-tone-denied .empty-mark {
+  border-color: rgba(167, 139, 250, .30);
+  background: radial-gradient(circle, rgba(167, 139, 250, .12), transparent 68%);
+}
+.empty-tone-denied .empty-mark svg { color: #c4b5fd; }
+.empty-tone-denied .empty-mark::after { border-color: rgba(167, 139, 250, .40); }
+
+/* 空态里的"可执行建议"：比副标题更重要，所以给一层浅底把它托起来 */
+.empty .empty-action-tip {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 12px; padding: 6px 12px; border-radius: 999px;
+  font-size: var(--fs-2xs); color: var(--tx-1);
+  background: rgba(255, 255, 255, .045);
+  border: 1px solid var(--hair);
+}
+
+/* =====================================================================
+   二十、窄屏补强（≤520px）（【新增增强】2026-10-25）
+   ---------------------------------------------------------------------
+   app.css 最低只到 760px。手机竖屏（375–430）下：
+   筛选条会挤成两行错位、设置抽屉的分段选择器会被压扁。
+   ===================================================================== */
+@media (max-width: 520px) {
+  .fb-row { gap: 8px; }
+  .fb-search { flex: 1 1 100%; }
+  .fb-date { width: 100%; }
+  .fb-date input { flex: 1; min-width: 0; }
+  .fb-count { margin-left: 0; }
+  .set-row { flex-wrap: wrap; gap: 8px; }
+  .set-row .set-lbl { flex: 1 1 100%; }
+  .seg { width: 100%; }
+  .seg-i { flex: 1; min-width: 0; }
+  .err-state { flex-wrap: wrap; gap: 8px; padding: 12px; }
+  .err-state .err-body { flex: 1 1 100%; order: 2; }
+  .err-state .err-retry { order: 3; margin-left: auto; }
+  .help-keys { min-width: 88px; }
+  .help-row { gap: 10px; padding: 7px 8px; }
+  .tbl-tools.compact { padding: 2px 8px; }
+}
+
+/* =====================================================================
+   二十一、层级对齐（【优化重构】2026-10-25）
+   ---------------------------------------------------------------------
+   背景：app.css 里 `.mask`（弹窗遮罩）只给了 100，而 AI 顾问浮窗给了 9001、
+   回到顶部给了 9200。结果三种真实的错位：
+     · 开着 AI 顾问时打开"数字护照"弹窗 → 弹窗被浮窗压住一角；
+     · 弹窗打开后"回到顶部"按钮还浮在上面，点得到、还能把遮罩滚走；
+     · 这次新增的命令面板与设置抽屉若按 100/200 排，会被整块盖死。
+   这里只覆写"层级"这一个属性，不改任何几何与配色 ——
+   风险为零，删掉本节即回到原样。
+   ===================================================================== */
+.mask { z-index: var(--z-modal); }
+.toasts { z-index: var(--z-toast); }
+
+/* =====================================================================
+   二十二、网格子项收缩（2026-10-26）
+   ---------------------------------------------------------------------
+   症状：手机上"核算参数"卡片右侧被裁掉一条（表单选不到、也点不到）。
+   根因不在移动端样式，而在 CSS 网格的默认最小尺寸：
+     1. 网格/弹性子项的 `min-width` 默认是 `auto`，也就是"不许小于 min-content"；
+     2. `<select>` 的 min-content 约等于"最长那条选项的文字宽度"；
+     3. 本页一个批次下拉里最长选项约 400px ⇒ 子项 406px ⇒ 父级网格 406px，
+        而可用宽度只有 336px ⇒ 超出 70px，被 `.card{overflow:hidden}` 裁掉。
+   注意：`.g-2-1` 在 ≤1180px 已经改成单列了，所以这不是"没做响应式"，
+   而是"响应式做了，但轨道被 min-content 顶住"。只加断点治不了。
+   修法两件必须同时做：子项 `min-width:0`（放开轨道）+ 控件 `max-width:100%`
+   （放开自身）。只做前者，控件仍会溢出到卡片外。
+   ===================================================================== */
+.grid > *,
+.row > *,
+.col > * { min-width: 0; }
+.grid select,
+.grid input,
+.grid textarea,
+.grid .select { max-width: 100%; }
+@media (max-width: 1180px) {
+  /* 只修三条"比例列"（2fr 1fr / 1fr 2fr / 3fr 2fr）：
+     app.css 在 ≤1180px 把它们改成裸 `1fr`，而裸 1fr 的最小值是 min-content，
+     长下拉选项一到 400px 就把轨道顶开 —— 换成 minmax(0,1fr) 即可。
+     ⚠ 不要顺手动 .g4/.g5/.g6：它们本来就是 minmax(0,1fr)，
+       在这里重写会盖掉 app.css 更小断点的"降列"规则（手机上反而变两列）。 */
+  .g2, .g3, .g-2-1, .g-1-2, .g-3-2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* 兜底：视图里偶尔有表格没包 `.tbl-wrap`（`h('div',{},[h('table',{class:'tbl'})])`），
+   宽表在窄屏就被 `.card{overflow:hidden}` 裁掉、右侧列既看不到也滚不到。
+   这里给"直接装着表格的容器"补上横向滚动，避免再靠人工逐页找。
+   ⚠ 不能写成 `.card-body > :has(...)`（限定直接子级会漏掉再包一层的容器），
+     也不能只认 `.tbl`（各视图还有 .rl-table / .th-table 等自命名的表）——
+     所以放宽为 `.content 内任何直接含 <table> 的元素`。
+   `:has()` 在 Edge/Chrome 105+、Safari 15.4+、Firefox 121+ 均可用；
+   老浏览器只是失去这层兜底，不影响正常渲染。 */
+.content :has(> table) { overflow-x: auto; }
+
+/* 长哈希/长单号不可断行 ⇒ min-content 等于整串宽度（实测 458px），
+   在手机上会把**整页**布局宽度顶大（Chrome 移动端 shrink-to-fit 把
+   视口按内容宽度重排，125 页里 /explorer 因此整体缩放 0.74 倍）。
+   `overflow-wrap:anywhere` 与 `break-word` 的关键差异：前者会参与
+   min-content 计算，字符串可以被断，布局宽度自然回落到视口宽。 */
+.mono { overflow-wrap: anywhere; }
+.alertbar { min-width: 0; }
+.alertbar .flex-1 { min-width: 0; }
+
+/* 视图里大量**内联**双列网格（gov.js 等：`grid-template-columns:1fr 320px`、
+   `1.35fr .65fr`…）。手机上 320px 固定列会把 1fr 主列挤到 114px，
+   里面的键值对（dl.kv 的 104px 标签列）全部被 `.card{overflow:hidden}` 裁掉。
+   内联样式优先级高，普通规则压不住 ⇒ 必须 !important 降单列。 */
+@media (max-width: 760px) {
+  .grid.mt-16 { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
+/* 画布兜底：three.js/echarts 之外偶有画布按初始化尺寸硬排（.tw-* 等），
+   允许布局盒收缩到容器内；带 ResizeObserver 的图表会随即 resize 到正确尺寸。 */
+canvas { max-width: 100%; }

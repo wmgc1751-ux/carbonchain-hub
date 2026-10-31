@@ -13,6 +13,8 @@
  *   · 清：`device_did IS NULL` 的行 —— 这些是平台自举生成的（可复现的模拟工况）；
  *   · 留：`device_did IS NOT NULL` 的行 —— 这些是真实设备通过 HJ 212 报文上报的，
  *         带着 CRC / SM3 / 报文原始时间，属于"源端证据"，绝不因重建自举数据而被抹掉。
+ *         （唯一例外见下：这些行的 `cum_value` 会被按当前唯一口径回填 ——
+ *          因为该列对设备行而言是**平台推导值**，不是设备上报内容。见 main() 内注释。）
  * 默认按 --all 语义重建 30 天窗口（与 init-db 的 bootstrap 一致）。
  *
  * 对联盟链有无影响
@@ -60,6 +62,29 @@ async function main() {
   }
 
   console.log('\n重新滚动核算 …');
+
+  /* ── 设备直报行的 cum 刷新（口径统一的回溯应用）────────────────────
+     `cems_reading.cum_value` 对**设备直报行**而言并不是设备上报的内容：
+     HJ 212 的 CN=2011 帧只带实测项（流速/浓度/温压/含氧），年度累计是
+     **平台按统一口径推导**后写入的（见 hj212Server 的 annualCum）。
+     因此历史行若由旧版口径写成，就会出现"库里混着两种尺度"——正是来源 ①。
+     这里按当前唯一口径 `dynamic.annualCumAt` 逐行回填，使库值与推导一致；
+     读数的**源端证据**（原始帧、CRC、SM3 摘要、报文时间）一律不动。
+     默认执行；`--no-refresh-device` 可跳过。 */
+  if (!process.argv.includes('--no-refresh-device')) {
+    const drows = await db.query(
+      `SELECT id, ent_id, reading_time FROM cems_reading
+        WHERE device_did IS NOT NULL AND source <> 'WATCHDOG'
+        ORDER BY ent_id, reading_time`);
+    let n = 0;
+    for (const row of drows) {
+      const cum = await dyn.annualCumAt(row.ent_id, new Date(row.reading_time));
+      await db.query('UPDATE cems_reading SET cum_value = ? WHERE id = ? AND cum_value <> ?', [cum, row.id, cum]);
+      n++;
+    }
+    console.log(`设备直报行 cum 已按唯一口径回填：${n} 行（--no-refresh-device 可跳过）`);
+  }
+
   await dyn.recompute();
   const ov = await dyn.overview();
   console.log(`核算就绪：企业 ${ov.summary.enterprises} 家 · 风险 高 ${ov.summary.highRisk} / 中 ${ov.summary.mediumRisk} / 低 ${ov.summary.lowRisk}`);

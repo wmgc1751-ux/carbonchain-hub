@@ -40,7 +40,7 @@
 .unc-note{font-size:12.2px;line-height:1.7;color:var(--tx-2)}
 .unc-gate{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--hair)}
 .unc-gate:last-child{border-bottom:none}
-.unc-gate .ord{flex:none;font-family:var(--mono);font-size:10.6px;padding:2px 6px;border-radius:5px;
+.unc-gate .ord{flex:none;font-family:var(--mono);font-size:11px;padding:2px 6px;border-radius:5px;
   background:rgba(167,139,250,.16);color:#c4b5fd}
 .unc-gate .n{flex:1;font-size:12.4px}
 .unc-gate .v{font-family:var(--mono);font-size:12.6px;color:var(--tx-0)}
@@ -95,7 +95,8 @@
       async function loadEnts() {
         if (isEnt) return;
         try {
-          const d = await App.API.get('/regulator/enterprises', { page: 1, size: 200 });
+          /* 公开名录接口：核查端无 REGULATOR 权限，用 /regulator/enterprises 会 403 */
+          const d = await App.API.get('/public/enterprises', { page: 1, size: 200 });
           ents.value = ((d && (d.rows || d)) || []).map((x) => ({ id: x.id, entName: x.ent_name }));
           if (!entId.value && ents.value.length) entId.value = ents.value[0].id;
         } catch (e) { ents.value = []; }
@@ -119,7 +120,7 @@
 
       async function anchor() {
         if (!entId.value) return;
-        if (!confirm('将本企业的核算不确定度报告摘要写入联盟链存证？\n\n该动作会在链上留下不可篡改的记录（区块 +1），并写入操作审计日志。')) return;
+        if (!(await App.confirm('将本企业的核算不确定度报告摘要写入联盟链存证？\n\n该动作会在链上留下不可篡改的记录（区块 +1），并写入操作审计日志。'))) return;
         anchoring.value = true;
         try {
           const r = await App.API.post('/uncertainty/report/' + entId.value + '/anchor', {});
@@ -185,6 +186,20 @@
 
             return [
               App.staticNote('当前为静态演示模式：不确定度报告为快照时点计算结果（非实时重算）；报告上链仅在本页会话内可见。'),
+              /* ── 观测不足提示 ──
+               * 后端在有效日均观测点 < 3 时返回 available:false + reason（区间估计至少要 3 个点）。
+               * 此前前端从不渲染该状态：页面摆满裸 "-"、先验扫描显示"无扫描结果"，
+               * 用户无从得知为什么统计栏全空。这里把后端原因如实前置披露。 */
+              p.available === false && p.reason
+                ? h('div', { class: 'alertbar warn mt-16' }, [
+                  h('x-icon', { name: 'alert', size: 15 }),
+                  h('span', {}, [
+                    h('b', {}, '区间估计暂不可用：'),
+                    p.reason,
+                    ' 下方门控、覆盖度等数据准入事实仍如实展示；观测累积到 3 天以上后自动恢复完整区间估计。',
+                  ]),
+                ])
+                : null,
               /* ── 概览 KPI ── */
               kpiGrid([
                 { label: '年度排放（后验均值）', value: an ? App.fmt.num(an.mean, 0) : '-', unit: 'tCO2e', tone: 'carbon', icon: 'leaf', foot: an ? `95% 区间 ${App.fmt.num(an.low, 0)} ~ ${App.fmt.num(an.high, 0)}` : '' },
@@ -194,7 +209,7 @@
                 { label: '时间覆盖度', value: cov.ratio != null ? (cov.ratio * 100).toFixed(2) : '-', unit: '%', tone: covTone, icon: 'shield', foot: `缺口 ${App.fmt.num(cov.gapMinutes || 0, 0)} 分钟 · 最大连续缺口 ${App.fmt.num(cov.maxGapMinutes || 0, 0)} 分钟` },
                 { label: '数据剔除率', value: g.excludeRate != null ? (g.excludeRate * 100).toFixed(2) : '-', unit: '%', tone: (g.excludeRate || 0) > 0.15 ? 'rose' : 'carbon', icon: 'filter', foot: `原始 ${App.fmt.num(g.raw || 0)} 条 → 保留 ${App.fmt.num(g.kept || 0)} 条` },
                 { label: '配额年化', value: p.quotaAnnual ? App.fmt.num(p.quotaAnnual, 0) : '-', unit: 'tCO2e', tone: 'chain', icon: 'coin', foot: p.quotaRatio ? `排放/配额 = ${(p.quotaRatio * 100).toFixed(1)}%` : '' },
-                { label: '结论口径', value: p.priorSafe ? '数据主导' : '先验敏感', unit: '', tone: p.priorSafe ? 'carbon' : 'amber', icon: 'check', foot: p.priorSafe ? '弱先验自证通过' : '须复核先验取值' },
+                { label: '结论口径', value: p.available === false ? '数据不足' : (p.priorSafe ? '数据主导' : '先验敏感'), unit: '', tone: p.available === false ? 'amber' : (p.priorSafe ? 'carbon' : 'amber'), icon: 'check', foot: p.available === false ? '观测点不足，无法评估' : (p.priorSafe ? '弱先验自证通过' : '须复核先验取值') },
               ]),
 
               /* ── 门控 + 覆盖度 ── */
@@ -315,7 +330,11 @@
                     }),
                     h('div', { class: ['readout', p.priorSafe ? 'pass' : 'fail'], style: 'margin-top:14px' }, [
                       h('span', { class: 'flag' }, p.priorSafe ? 'PASS' : 'FAIL'),
-                      h('span', { class: 'k' }, '弱先验档（κ₀ ≤ 1）结论稳定'),
+                      /* 标签与结论必须同向：此前无论 PASS/FAIL 都写死"结论稳定"，
+                       * 出现"FAIL · 结论稳定"的自相矛盾展示。 */
+                      h('span', { class: 'k' }, p.priorSafe
+                        ? '弱先验档（κ₀ ≤ 1）结论稳定'
+                        : (p.maxShift == null ? '弱先验档（κ₀ ≤ 1）· 观测不足，暂无法自证' : '弱先验档（κ₀ ≤ 1）· 结论受先验牵引，须复核')),
                       h('span', { class: 'mono', style: 'margin-left:auto;color:var(--tx-3)' }, '最大偏移 ' + num(p.maxShift, 2) + '%'),
                     ]),
                     p.priorVerdict ? h('div', { class: 'unc-note mt-12' }, App.fmt.md(p.priorVerdict)) : null,
@@ -419,7 +438,7 @@
                 ? h('x-card', { title: '两口径交叉校验（这是本模块最该被追问的一处）', sub: '贝叶斯区间刻画「抽样随机性」，GUM 合成刻画「报告值误差」，两者量的不是同一件事', class: 'mt-16' }, {
                   default: () => {
                     const cc = crossCheckLocal();
-                    if (!cc) return h('div', { class: 'card-body' }, '暂无对照数据');
+                    if (!cc) return h('div', { class: 'card-body' }, [h('x-empty', { title: '暂无对照数据', sub: '完成一次全平台重算后即可生成对照', icon: 'target', tone: 'data' })]);
                     return h('div', { class: 'card-body' }, [
                       h('div', { class: 'grid g2' }, [
                         h('div', { class: 'card', style: 'padding:13px 15px' }, [
@@ -539,7 +558,7 @@
         try { models.value = (await App.API.get('/uncertainty/models')) || []; } catch (e) { models.value = []; }
       }
       async function recompute() {
-        if (!confirm('对全平台 60 家控排企业重算后验区间并落库？\n\n该操作会遍历各企业的实测读数序列，耗时较长，结果写入 uncertainty_posterior 表。')) return;
+        if (!(await App.confirm('对全平台 60 家控排企业重算后验区间并落库？\n\n该操作会遍历各企业的实测读数序列，耗时较长，结果写入 uncertainty_posterior 表。'))) return;
         busy.value = true;
         try {
           const r = await App.API.post('/uncertainty/recompute', {});
@@ -561,6 +580,7 @@
           actions: () => [
             h('select', {
               class: 'input', style: 'width:110px;height:30px', value: limit.value,
+              'aria-label': '榜单企业数',
               onChange: (e) => { limit.value = Number(e.target.value); loadIndustry(); },
             }, [10, 20, 40, 60].map((n) => h('option', { value: n }, '前 ' + n + ' 家'))),
             h('button', { class: 'btn sm ghost', onClick: () => { loadIndustry(); loadList(); } }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),

@@ -6,7 +6,7 @@
    设计原则：把评委最会追问的两个问题变成**可点、可验**的界面。
      ① "你用的是真国密吗，还是拿 SHA-256 冒充 SM3？"
         → 能力清单明示算法套件与签名方案；「签名取证」面板现场签、现场验，
-          并用"同一载荷两次签名不同但都能验通过"证明随机数 k 非同定
+          并用"同一载荷两次签名不同但都能验通过"证明随机数 k 非固定
           （这正是 SM2 而非哈希冒充签名的特征）。
      ② "私钥怎么管的？能轮换吗？轮换后历史签名的验签怎么办？"
         → 密钥清单**不含任何私钥字段**；「轮换安全性举证」现场跑完五项断言，
@@ -29,7 +29,7 @@
     el.textContent = `
 .keys-demo{display:flex;gap:11px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--hair)}
 .keys-demo:last-child{border-bottom:none}
-.keys-demo .flag{flex:none;font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:5px;margin-top:1px}
+.keys-demo .flag{flex:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px;margin-top:1px}
 .keys-demo .flag.ok{background:rgba(16,185,129,.16);color:#6ee7b7}
 .keys-demo .flag.no{background:rgba(244,63,94,.16);color:#fda4af}
 .keys-demo .tt{font-size:12.5px;color:var(--tx-1)}
@@ -67,6 +67,20 @@
       const status = ref(null);
       const inv = ref([]);
       const logs = ref([]);
+      /* 台账与轮换申请都在几十行量级（密钥台账 46 个主体标签、轮换申请更多），
+       * 一屏铺完会把页面拉到 3000px 以上（2026-10-29 巡检 P2-35）。
+       * 这里做前端分页：接口一次给全量，切片展示，翻页不需要重新请求。 */
+      const KEY_PAGE_SIZE = 12;
+      const invPage = ref(1);
+      const logPage = ref(1);
+      const pagedSlice = (list, page) => {
+        const arr = list || [];
+        const pages = Math.max(1, Math.ceil(arr.length / KEY_PAGE_SIZE));
+        const p = Math.min(Math.max(page, 1), pages);
+        return { rows: arr.slice((p - 1) * KEY_PAGE_SIZE, p * KEY_PAGE_SIZE), pages, total: arr.length, page: p };
+      };
+      const invPaged = computed(() => pagedSlice(inv.value, invPage.value));
+      const logPaged = computed(() => pagedSlice(logs.value, logPage.value));
       const labels = ref([]);
 
       /* 签名取证 */
@@ -158,7 +172,7 @@
       }
 
       async function approve(row) {
-        if (!confirm(`复核通过 #${row.id}（${row.key_label}）？\n\n复核通过后才会生成下一代密钥，并把轮换动作上链留痕。`)) return;
+        if (!(await App.confirm(`复核通过 #${row.id}（${row.key_label}）？\n\n复核通过后才会生成下一代密钥，并把轮换动作上链留痕。`))) return;
         try {
           const r = await App.API.post(`/keys/rotations/${row.id}/approve`, { approvedBy: rotForm.approvedBy, note: '管理端复核通过' });
           App.notify.ok(r.chain && r.chain.blockIndex ? `轮换已生效并上链（区块 #${r.chain.blockIndex}）` : '轮换已生效');
@@ -167,7 +181,7 @@
       }
 
       async function reject(row) {
-        if (!confirm(`驳回 #${row.id}（${row.key_label}）？`)) return;
+        if (!(await App.confirm(`驳回 #${row.id}（${row.key_label}）？`))) return;
         try {
           await App.API.post(`/keys/rotations/${row.id}/reject`, { approvedBy: rotForm.approvedBy, note: '管理端驳回' });
           App.notify.ok('已驳回');
@@ -213,7 +227,13 @@
             h('div', { class: 'grid mt-16', style: 'grid-template-columns:1fr 1fr' }, [
               h('x-card', { title: '密码学能力清单（含如实声明的局限）', sub: '把"没做什么"写在前面，比让评审自己发现更可信' }, {
                 default: () => h('div', { class: 'card-body' }, [
-                  h('div', { class: 'keys-rule mb-16' }, `签名方案：${c.signing || '—'}\n密钥库文件：${c.storeFile || '—'}\n提供商：${c.provider || '—'}`),
+                  /* 【缺陷 P1-26】原来这里打印「密钥库文件：server/sm2-keystore.json」，
+                   * 把服务端目录结构摆到了页面上。改为说明"存储形态 + 是否静态加密"，
+                   * 这才是审计关心的信息；具体路径属部署细节，任何角色都不需要知道。 */
+                  h('div', { class: 'keys-rule mb-16' },
+                    `签名方案：${c.signing || '—'}\n`
+                    + `密钥库：${c.storeRef || '平台内置密钥库（服务端本地）'}${c.storeEncrypted ? '（静态加密存储）' : ''}\n`
+                    + `提供商：${c.provider || '—'}`),
                   h('div', { class: 'keys-quote mb-16' }, [h('b', {}, 'HSM 局限：'), c.hsmNote || '—']),
                   h('div', { class: 'tiny dim mb-8' }, '双人复核规则'),
                   h('div', { class: 'keys-rule mb-16' }, dc.rule || '—'),
@@ -233,7 +253,7 @@
                       { key: 'address', title: '当前地址' },
                       { key: 'fingerprint', title: '公钥指纹' },
                     ],
-                    rows: inv.value,
+                    rows: invPaged.value.rows,
                     rowKey: 'label',
                     empty: '暂无密钥台账',
                   }, {
@@ -245,6 +265,11 @@
                     'col-address': ({ row }) => h('x-hash', { value: row.current.address, len: 16 }),
                     'col-fingerprint': ({ row }) => h('x-hash', { value: row.current.fingerprint, len: 12 }),
                   }),
+                  invPaged.value.pages > 1 ? h('x-pager', {
+                    page: invPaged.value.page, pages: invPaged.value.pages,
+                    total: invPaged.value.total, size: KEY_PAGE_SIZE,
+                    onChange: (p) => { invPage.value = p; },
+                  }) : null,
                   h('div', { class: 'alertbar info mt-12', style: 'margin:12px 0 0' }, [
                     h('x-icon', { name: 'shield', size: 15 }),
                     '台账只含公钥与指纹。可用下方「签名取证」验证私钥确实持有且能产生可验签的国密签名。',
@@ -256,7 +281,7 @@
             /* ── 签名取证 ── */
             h('x-card', {
               title: '签名取证：现场签、现场验',
-              sub: '同一载荷两次签名结果不同，但都能验通过 —— 这是 SM2（随机数 k 非同定）而非哈希冒充签名的特征',
+              sub: '同一载荷两次签名结果不同，但都能验通过 —— 这是 SM2（随机数 k 非固定）而非哈希冒充签名的特征',
               class: 'mt-16',
             }, {
               default: () => h('div', { class: 'card-body' }, [
@@ -265,7 +290,7 @@
                     h('div', {}, [
                       h('div', { class: 'tiny dim mb-6' }, '主体标签 keyLabel'),
                       h('select', {
-                        class: 'input', style: 'height:31px', value: sigLabel.value,
+                        class: 'input', 'aria-label': '签名主体标签', style: 'height:31px', value: sigLabel.value,
                         onChange: (e) => { sigLabel.value = e.target.value; sigResult.value = null; verifyResult.value = null; },
                       }, labelOptions.value.map((x) => h('option', { value: x }, x))),
                     ]),
@@ -311,8 +336,24 @@
               ]),
             }),
 
-            /* ── 轮换安全性举证 ── */
-            h('x-card', {
+            /* ── 轮换安全性举证 ──
+             * 后端 /keys/rotation-safety-demo 是 requireRole('ADMIN')。
+             * 此前所有角色都渲染这个卡片，监管/核查端点一下只得到
+             * "当前角色无权访问该功能" —— 看得见却点不动，属交互缺陷
+             * （2026-10-28 深度实操发现）。改为按角色渲染。 */
+            !isAdmin && h('x-card', {
+              title: '轮换安全性举证',
+              sub: '该功能需要管理员角色（会真实轮换演示主体的密钥）',
+              class: 'mt-16',
+            }, {
+              default: () => h('div', { class: 'card-body' }, [
+                h('div', { class: 'alertbar info' }, [
+                  h('x-icon', { name: 'info', size: 15 }),
+                  h('span', {}, '当前角色为只读视图。轮换安全性举证涉及密钥代际切换，仅平台管理员可执行。'),
+                ]),
+              ]),
+            }),
+            isAdmin && h('x-card', {
               title: '轮换安全性举证（WP2 最该被评审看到的一段）',
               sub: '步骤：用第 N 代签名 → 验签通过 → 轮换到第 N+1 代 → 再用旧签名验签 → 期望仍通过，且 generation 显示 HISTORICAL',
               class: 'mt-16',
@@ -321,11 +362,11 @@
                 h('div', { class: 'flex gap-10 wrap mb-16', style: 'align-items:flex-end' }, [
                   h('div', { style: 'width:200px' }, [
                     h('div', { class: 'tiny dim mb-6' }, '主体标签（建议用演示主体）'),
-                    h('input', { class: 'input', style: 'height:31px', value: demoLabel.value, onInput: (e) => { demoLabel.value = e.target.value; } }),
+                    h('input', { class: 'input', 'aria-label': '签名主体标签', style: 'height:31px', value: demoLabel.value, onInput: (e) => { demoLabel.value = e.target.value; } }),
                   ]),
                   h('button', { class: 'btn primary', disabled: demoBusy.value, onClick: doDemo },
                     [h('x-icon', { name: 'shield', size: 15 }), demoBusy.value ? '举证中…' : '运行轮换安全举证']),
-                  h('span', { class: 'tiny dim' }, '注意：该动作**真的会轮换该主体的密钥**，请对演示主体执行'),
+                  h('span', { class: 'tiny dim' }, App.fmt.md('注意：该动作**真的会轮换该主体的密钥**，请对演示主体执行')),
                 ]),
                 demo.value
                   ? h('div', {}, [
@@ -366,21 +407,21 @@
                   h('div', { style: 'width:170px' }, [
                     h('div', { class: 'tiny dim mb-6' }, '轮换主体'),
                     h('select', {
-                      class: 'input', style: 'height:31px', value: rotForm.keyLabel,
+                      class: 'input', 'aria-label': '轮换主体', style: 'height:31px', value: rotForm.keyLabel,
                       onChange: (e) => { rotForm.keyLabel = e.target.value; },
                     }, [h('option', { value: '' }, '请选择…')].concat(labelOptions.value.map((x) => h('option', { value: x }, x)))),
                   ]),
                   h('div', { style: 'flex:1;min-width:180px' }, [
                     h('div', { class: 'tiny dim mb-6' }, '轮换原因'),
-                    h('input', { class: 'input', style: 'height:31px', placeholder: '如：年度例行轮换 / 疑似泄露', value: rotForm.reason, onInput: (e) => { rotForm.reason = e.target.value; } }),
+                    h('input', { class: 'input', 'aria-label': '轮换原因', style: 'height:31px', placeholder: '如：年度例行轮换 / 疑似泄露', value: rotForm.reason, onInput: (e) => { rotForm.reason = e.target.value; } }),
                   ]),
                   h('div', { style: 'width:170px' }, [
                     h('div', { class: 'tiny dim mb-6' }, '申请人'),
-                    h('input', { class: 'input', style: 'height:31px', value: rotForm.requestedBy, onInput: (e) => { rotForm.requestedBy = e.target.value; } }),
+                    h('input', { class: 'input', 'aria-label': '发起人', style: 'height:31px', value: rotForm.requestedBy, onInput: (e) => { rotForm.requestedBy = e.target.value; } }),
                   ]),
                   h('div', { style: 'width:170px' }, [
                     h('div', { class: 'tiny dim mb-6' }, '本次复核人'),
-                    h('input', { class: 'input', style: 'height:31px', value: rotForm.approvedBy, onInput: (e) => { rotForm.approvedBy = e.target.value; } }),
+                    h('input', { class: 'input', 'aria-label': '审批人', style: 'height:31px', value: rotForm.approvedBy, onInput: (e) => { rotForm.approvedBy = e.target.value; } }),
                   ]),
                   h('button', { class: 'btn primary', disabled: rotBusy.value, onClick: requestRotate },
                     [h('x-icon', { name: 'refresh', size: 14 }), '提交轮换申请']),
@@ -399,13 +440,13 @@
                     { key: 'created_at', title: '申请时间', width: '146px' },
                     { key: '_ops', title: '复核操作', width: '140px' },
                   ],
-                  rows: logs.value,
+                  rows: logPaged.value.rows,
                   rowKey: 'id',
                   empty: '暂无轮换申请',
                 }, {
                   'col-action': ({ row }) => h('span', { class: 'tag t-info plain' }, row.action),
                   'col-dualControlOk': ({ row }) => row.dualControlOk
-                    ? h('span', { class: 'tag t-ok' }, '已双人')
+                    ? h('span', { class: 'tag t-ok' }, '双人通过')
                     : h('span', { class: 'tag t-mute' }, '未复核'),
                   'col-approval_status': ({ row }) => h('x-tag', {
                     text: { PENDING: '待复核', APPROVED: '已批准', REJECTED: '已驳回' }[row.approval_status] || row.approval_status,
@@ -420,6 +461,11 @@
                     ])
                     : h('span', { class: 'dim' }, '—'),
                 }),
+                logPaged.value.pages > 1 ? h('x-pager', {
+                  page: logPaged.value.page, pages: logPaged.value.pages,
+                  total: logPaged.value.total, size: KEY_PAGE_SIZE,
+                  onChange: (p) => { logPage.value = p; },
+                }) : null,
               ]),
             }),
           ],

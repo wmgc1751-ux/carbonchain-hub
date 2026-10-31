@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+  <!-- 平台介绍 · 工业排口与 CEMS 监测（品牌插画：夜空蓝 + 翡翠/青） -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#081020"/><stop offset=".6" stop-color="#0a1428"/><stop offset="1" stop-color="#0b1526"/>
+    </linearGradient>
+    <radialGradient id="gG" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#10b981" stop-opacity=".3"/><stop offset="1" stop-color="#10b981" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gC" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity=".25"/><stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="plume" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#9be8d8" stop-opacity=".32"/><stop offset="1" stop-color="#9be8d8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="beam" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#22d3ee" stop-opacity=".5"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bld" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#13233c"/><stop offset="1" stop-color="#0d1830"/>
+    </linearGradient>
+    <pattern id="dots" width="34" height="34" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="1.2" fill="#ffffff" opacity=".05"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#sky)"/>
+  <rect width="1200" height="800" fill="url(#dots)"/>
+  <ellipse cx="850" cy="300" rx="460" ry="300" fill="url(#gG)"/>
+  <ellipse cx="240" cy="560" rx="380" ry="260" fill="url(#gC)"/>
+
+  <!-- 地平线 -->
+  <rect y="636" width="1200" height="164" fill="#0a1322"/>
+  <rect y="632" width="1200" height="2" fill="#1b2c47"/>
+
+  <!-- 远景厂房 -->
+  <g fill="#101d33">
+    <rect x="80" y="560" width="220" height="76"/>
+    <rect x="330" y="588" width="150" height="48"/>
+    <rect x="950" y="576" width="190" height="60"/>
+  </g>
+  <g fill="#16283f">
+    <rect x="112" y="520" width="16" height="44"/><rect x="152" y="508" width="16" height="56"/>
+  </g>
+
+  <!-- 主厂区 -->
+  <g>
+    <rect x="470" y="500" width="300" height="136" fill="url(#bld)"/>
+    <rect x="470" y="500" width="300" height="3" fill="#22d3ee" opacity=".35"/>
+    <g fill="#0b1426">
+      <rect x="500" y="532" width="26" height="30"/><rect x="546" y="532" width="26" height="30"/>
+      <rect x="592" y="532" width="26" height="30"/><rect x="638" y="532" width="26" height="30"/>
+      <rect x="684" y="532" width="26" height="30"/><rect x="730" y="532" width="26" height="30"/>
+    </g>
+    <g fill="#2ee6c8" opacity=".5">
+      <rect x="505" y="537" width="16" height="20"/><rect x="597" y="537" width="16" height="20"/><rect x="689" y="537" width="16" height="20"/>
+    </g>
+  </g>
+
+  <!-- 主烟囱 + 监测波纹 -->
+  <g>
+    <rect x="800" y="330" width="44" height="306" fill="url(#bld)"/>
+    <rect x="794" y="322" width="56" height="14" rx="4" fill="#16283f"/>
+    <rect x="806" y="342" width="8" height="20" fill="#22d3ee" opacity=".8"/>
+    <!-- 上升气流 -->
+    <path d="M822 322 C 800 260 852 210 826 140 C 812 96 838 62 830 26 L 866 26 C 872 70 848 104 860 148 C 872 196 826 236 848 322 Z" fill="url(#plume)"/>
+    <circle cx="838" cy="120" r="26" fill="#9be8d8" opacity=".08"/>
+    <circle cx="846" cy="66" r="18" fill="#9be8d8" opacity=".1"/>
+    <!-- CEMS 传感箍 + 波纹 -->
+    <rect x="794" y="430" width="56" height="10" rx="3" fill="#10b981" opacity=".85"/>
+    <g fill="none" stroke="#2ee6c8">
+      <path d="M822 435 m-64 0 a64 64 0 0 1 128 0" opacity=".28" transform="translate(0,0)"/>
+      <path d="M822 435 m-110 0 a110 110 0 0 1 220 0" opacity=".16"/>
+      <path d="M822 435 m-156 0 a156 156 0 0 1 312 0" opacity=".08"/>
+    </g>
+    <!-- 监测光束 -->
+    <path d="M822 440 L 822 636 L 806 636 L 806 440 Z" fill="url(#beam)" opacity=".6"/>
+  </g>
+
+  <!-- 副烟囱 -->
+  <g>
+    <rect x="392" y="420" width="34" height="216" fill="#101d33"/>
+    <rect x="388" y="412" width="42" height="12" rx="4" fill="#16283f"/>
+    <path d="M409 412 C 396 372 424 340 410 300 C 402 272 420 248 414 224 L 436 224 C 440 254 424 280 434 312 C 442 344 412 372 424 412 Z" fill="url(#plume)" opacity=".7"/>
+  </g>
+
+  <!-- 前景管线 -->
+  <g stroke="#1c2f4a" stroke-width="6" fill="none" opacity=".9">
+    <path d="M60 700 H 520"/>
+    <path d="M660 700 H 1150"/>
+    <path d="M60 726 H 420"/>
+    <path d="M700 726 H 1150"/>
+  </g>
+  <circle cx="560" cy="700" r="9" fill="#0d1830" stroke="#2ee6c8" stroke-width="2" opacity=".8"/>
+  <circle cx="660" cy="700" r="9" fill="#0d1830" stroke="#2ee6c8" stroke-width="2" opacity=".55"/>
+
+  <!-- 数据流点缀 -->
+  <g fill="#2ee6c8">
+    <circle cx="770" cy="360" r="3" opacity=".9"/>
+    <circle cx="740" cy="300" r="2.4" opacity=".6"/>
+    <circle cx="706" cy="252" r="2" opacity=".4"/>
+  </g>
+  <g stroke="#2ee6c8" stroke-width="1.4" fill="none" opacity=".5">
+    <path d="M770 360 C 720 330 700 300 706 252" stroke-dasharray="1 7" stroke-linecap="round"/>
+  </g>
+</svg>

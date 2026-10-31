@@ -187,8 +187,30 @@ function digestOf(obj) {
   return { algorithm: gm.available ? 'SM3' : 'SHA-256', digest: sm3hex(s) };
 }
 
+/* 城市别名：企业的 region 字段常是「保定市清苑区」这类区县级地址，
+ * 不含省名 —— 原实现去"市"字后（"保定清苑区"）查不到省表就一路兜底到
+ * 华东，导致河北企业用上华东因子 0.7035（台账华北明明是 0.9419），
+ * 绿电减碳量随之失真（2026-10-31 巡检 P2-11）。地级市别名兜底到所属区域。 */
+const CITY_REGION = Object.freeze({
+  保定: '华北', 石家庄: '华北', 唐山: '华北', 秦皇岛: '华北', 邯郸: '华北',
+  邢台: '华北', 张家口: '华北', 承德: '华北', 沧州: '华北', 廊坊: '华北', 衡水: '华北',
+  北京: '华北', 天津: '华北', 太原: '华北', 呼和浩特: '华北',
+  沈阳: '东北', 大连: '东北', 长春: '东北', 哈尔滨: '东北',
+  南京: '华东', 杭州: '华东', 合肥: '华东', 福州: '华东', 南昌: '华东', 山东: '华东', 济南: '华东', 青岛: '华东',
+  郑州: '华中', 武汉: '华中', 长沙: '华中',
+  南宁: '南方', 广州: '南方', 深圳: '南方', 海口: '南方', 贵州: '南方', 云南: '南方', 昆明: '南方',
+  成都: '华中', 重庆: '华中', 西藏: '华中',
+  西安: '西北', 兰州: '西北', 西宁: '西北', 银川: '西北', 乌鲁木齐: '西北',
+});
+
 function regionOf(region) {
-  return PROVINCE_REGION[String(region || '').replace(/省|市|自治区|维吾尔|回族|壮族|特别行政区/g, '')] || '华东';
+  const p = String(region || '');
+  if (!p) return '华东';
+  const bare = p.replace(/省|市|自治区|维吾尔|回族|壮族|特别行政区/g, '');
+  if (PROVINCE_REGION[bare]) return PROVINCE_REGION[bare];
+  for (const k of Object.keys(PROVINCE_REGION)) if (p.includes(k)) return PROVINCE_REGION[k];
+  for (const k of Object.keys(CITY_REGION)) if (p.includes(k)) return CITY_REGION[k];
+  return '华东';
 }
 
 function gridFactorOf(region) {
@@ -537,7 +559,7 @@ async function getDeclaration(idOrNo) {
 
   /* 溯源附件：把这份申报包能追到的东西全部列出来 */
   const chain = row.chain_tx_id
-    ? await db.one(
+    ? await db.ledgerOne(
       `SELECT tx_id, tx_type, payload_hash, signature, block_index,
               DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') AS created_at
          FROM chain_tx WHERE tx_id = ? LIMIT 1`, [row.chain_tx_id]
@@ -545,7 +567,7 @@ async function getDeclaration(idOrNo) {
     : null;
 
   const derivations = row.ent_id
-    ? await db.query(
+    ? await db.ledgerQuery(
       `SELECT tx_id, tx_type, biz_no, block_index, DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s') AS created_at
          FROM chain_tx
         WHERE tx_type IN ('CEMS_READING','EMISSION_REPORT','ANCHOR_BATCH')
@@ -939,7 +961,7 @@ async function costComparison(entId) {
   const verifyBaselineMid = (verifyBaselineLow + verifyBaselineHigh) / 2;
 
   /* 平台侧成本的口径必须说清楚：不宣称"零成本"，而是"人工现场工时被替代的部分" */
-  const chainEvidence = n0(await db.value(
+  const chainEvidence = n0(await db.ledgerValue(
     `SELECT COUNT(*) AS n FROM chain_tx WHERE tx_type IN ('CEMS_READING','EMISSION_REPORT','ANCHOR_BATCH','VERIFY_REPORT')`
   ));
   const evidenceRate = 5000;    // 每条人工核验的存证，传统方式约需 5000 元人工工时（保守假设，可在文档中说明）

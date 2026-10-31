@@ -55,14 +55,27 @@ const dbCfg = {
   database: args['db-name'] || process.env.DB_NAME || envFile.DB_NAME || 'carbon_chain',
 };
 
+/* 账本库可能位于**独立实例**（院审意见①的整改：链库与业务库物理分离）。
+ * 因此导出器必须能单独连账本侧，不能假设"账本表就在业务库里"。 */
+const ledgerCfg = {
+  host: args['ledger-host'] || process.env.LEDGER_DB_HOST || envFile.LEDGER_DB_HOST || dbCfg.host,
+  port: Number(args['ledger-port'] || process.env.LEDGER_DB_PORT || envFile.LEDGER_DB_PORT || dbCfg.port),
+  user: args['ledger-user'] || process.env.LEDGER_DB_USER || envFile.LEDGER_DB_USER || dbCfg.user,
+  password: args['ledger-password'] || process.env.LEDGER_DB_PASSWORD || envFile.LEDGER_DB_PASSWORD || dbCfg.password,
+  database: args['ledger-name'] || process.env.LEDGER_DB_NAME || envFile.LEDGER_DB_NAME || 'carbon_chain_ledger',
+};
+const ledgerSeparate = ledgerCfg.host !== dbCfg.host || ledgerCfg.port !== dbCfg.port
+  || ledgerCfg.database !== dbCfg.database;
+
 const outPath = path.resolve(args.out || path.join(root, 'tools', 'out', 'chain-export.json'));
 
 /* ---------- 导出 ---------- */
 async function main() {
   console.log('▶ 联盟链数据导出（哑管道：仅搬运，不做任何校验）');
-  console.log(`  数据源：${dbCfg.user}@${dbCfg.host}:${dbCfg.port}/${dbCfg.database}`);
+  console.log(`  账本源：${ledgerCfg.user}@${ledgerCfg.host}:${ledgerCfg.port}/${ledgerCfg.database}`
+    + (ledgerSeparate ? '　（独立实例，与业务库物理分离）' : ''));
 
-  const conn = await mysql.createConnection({ ...dbCfg, timezone: 'Z', dateStrings: true });
+  const conn = await mysql.createConnection({ ...ledgerCfg, timezone: 'Z', dateStrings: true });
   try {
     /* ⚠ 会话时区必须钉死为 UTC —— 这是本导出器唯一"非搬运"的动作，但必须做。
      *

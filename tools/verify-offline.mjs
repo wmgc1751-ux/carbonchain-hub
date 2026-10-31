@@ -199,6 +199,8 @@ const coverage = {
 };
 
 const E = (type, message, extra = {}) => errors.push({ type, message, ...extra });
+/* 治理告警：与 errors 分开收集 —— 它影响"要不要人去处理"，不影响"数据是否被改"。 */
+const W = (type, message) => warns.push(`[${type}] ${message}`);
 
 /* ---------- 0. 入参自检与外部锚定 ---------- */
 let tzDriftBlocks = 0;      // 导出 ts 与自推导 ts 不一致的区块数
@@ -320,9 +322,18 @@ for (let i = 0; i < blocks.length; i++) {
         E('POA_SIGNATURE_INVALID', `区块 #${b.index} 的 PoA 出块签名无效（出块节点 ${b.proposer}）`);
       }
     }
+    /* ⚠⚠ 出块资格必须按「出块当时」判，不能按「此刻」判 —— 与 chain.js#validateChain
+     * 同一分档（这里原先是 PROPOSER_UNAUTHORIZED 一律记错的旧实现，属于同一判据的
+     * 第二份副本；两份不一致会让"线上说通过、离线复核说 271 处异常"同时成立）。
+     *   · 出块者不在节点表里 ⇒ 硬错误（身份不可识别，也就是签名无从归属）
+     *   · 出块者在册但事后被撤销/停用 ⇒ 治理告警，不反溯历史区块
+     * 撤销节点不能反溯撤销它签过的历史共识，否则每次联盟治理都会让整条链"变红"。 */
     const st = nodeAuth.get(b.proposer);
-    if (st && (st.status !== 'ACTIVE' || !st.auth)) {
-      E('PROPOSER_UNAUTHORIZED', `区块 #${b.index} 由未获授权的节点 ${b.proposer} 出块（状态 ${st.status}）`);
+    if (!pub && !st) {
+      E('PROPOSER_UNREGISTERED', `区块 #${b.index} 的出块节点 ${b.proposer} 不在联盟节点表中（身份不可识别）`);
+    } else if (st && (st.status !== 'ACTIVE' || !st.auth)) {
+      coverage.proposerRevokedLater = (coverage.proposerRevokedLater || 0) + 1;
+      W('PROPOSER_REVOKED_LATER', `区块 #${b.index} 由 ${b.proposer} 出块；该节点现为 ${st.status}（历史区块不因事后撤销而失效）`);
     }
   } else if (!String(b.hash).startsWith('0'.repeat(b.difficulty))) {
     E('POW_INVALID', `区块 #${b.index} 不满足难度 ${b.difficulty} 的工作量证明`);

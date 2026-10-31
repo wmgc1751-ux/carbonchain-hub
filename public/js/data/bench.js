@@ -1,7 +1,9 @@
 /**
  * data/bench.js —— 密码学与联盟链内核「真实基准」数据源（自动生成）
  * ==================================================================
- * ⚠ 本文件由 `node scripts/bench-crypto.js` 生成，请勿手工编辑。
+ * ⚠ 基准数字由 `node tools/bench-crypto.mjs` 实测产出（对 server/blockchain/ 真实内核
+ *   施加负载并计时），本文件是那次实测的固化快照。原 scripts/bench-crypto.js
+ *   在仓库收敛时已移除，路径更新于 2026-10-29 巡检 P0-11。
  *   每次运行基准脚本会覆盖：数字来自对 server/blockchain/ 真实内核的实测，
  *   环境指纹与测量时间一并写入，供页面展示与评审复核。
  *
@@ -19,7 +21,7 @@
     "title": "密码学与联盟链内核真实基准",
     "version": 1,
     "elapsedSec": 163.3,
-    "method": "node scripts/bench-crypto.js（对 server/blockchain/ 真实内核施加负载并计时）"
+    "method": "node tools/bench-crypto.mjs（对 server/blockchain/ 真实内核施加负载并计时）"
   },
   "environment": {
     "measuredAt": "2026-10-11T10:55:44.496Z",

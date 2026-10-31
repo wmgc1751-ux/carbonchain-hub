@@ -81,7 +81,11 @@
             h('div', { class: 'grid g4 mb-16' }, [
               h('x-kpi', { label: '共识机制', value: 'PoA', icon: 'shield', tone: 'violet', foot: '授权证明·无挖矿·即出即确认' }),
               h('x-kpi', { label: '联盟节点总数', value: ts.total, unit: '个', icon: 'layers', tone: 'carbon', foot: `四类参与方 · 已授权 ${ts.active} 个` }),
-              h('x-kpi', { label: '副本一致节点', value: `${rep.consistentNodes}/${rep.totalNodes}`, icon: 'chain', tone: 'chain', foot: rep.laggingNodes ? `落后 ${rep.laggingNodes} 个` : '全部追平主链' }),
+              h('x-kpi', {
+                label: '副本一致节点', value: `${rep.consistentNodes}/${rep.totalNodes}`, icon: 'chain', tone: 'chain',
+                foot: (rep.laggingNodes ? `落后 ${rep.laggingNodes} 个` : '全部追平主链')
+                  + (rep.revokedNodes ? ` · 另 ${rep.revokedNodes} 个已吊销停止同步` : ''),
+              }),
               h('x-kpi', { label: '主链高度', value: App.fmt.num(rep.mainHeight), icon: 'block', tone: 'sky', foot: App.fmt.short(rep.mainTip || '-', 10) }),
             ]),
 
@@ -136,7 +140,11 @@
                         : h('span', { class: 'tag warn', style: 'flex:0 0 auto' }, '待审批'),
                     ]),
                     h('div', { class: 'nc-meta mono' }, [
-                      'H=' + n.height,
+                      /* 拓扑是示意数据（industry.js 静态高度 313），而同一卡片的
+                       * PoA 共识核心展示真实主链高度（/api/consortium/replica）。
+                       * 两者并存会出现「H = 1,138」与「H=313」同屏矛盾 ——
+                       * 这里把示意节点的副本高度折算到真实主链高度，保持各自落后量不变。 */
+                      'H=' + App.fmt.num(rep.mainHeight > 0 ? rep.mainHeight - (n.lag || 0) : n.height),
                       n.lag > 0 ? ' (落后' + n.lag + ')' : '',
                       ' · 权重 ' + n.weight,
                       ' · 出块 ' + n.proposed,
@@ -156,7 +164,8 @@
             h('div', { class: ['alertbar', rep.consistentNodes === rep.totalNodes ? 'ok' : 'warn', 'mb-16'] }, [
               h('x-icon', { name: rep.consistentNodes === rep.totalNodes ? 'check' : 'alert', size: 16 }),
               rep.consistentNodes === rep.totalNodes
-                ? `全部 ${rep.totalNodes} 个成员节点的链副本与主链完全一致（链顶哈希相同）—— 任意单一节点数据库被篡改，其它节点都能凭各自副本立即发现。`
+                ? `全部 ${rep.totalNodes} 个在共识内的成员节点，其链副本与主链完全一致（链顶哈希相同）—— 任意单一节点数据库被篡改，其他节点都能凭各自副本立即发现。`
+                  + (rep.revokedNodes ? `另有 ${rep.revokedNodes} 个已吊销节点仅保留只读副本，不再参与一致性比对。` : '')
                 : `有 ${rep.laggingNodes} 个节点副本落后于主链，请执行同步；落后的副本不代表链被篡改，但同步前无法参与一致性比对。`,
             ]),
 
@@ -172,8 +181,14 @@
                     h('td', {}, n.isAuthorized ? h('span', { class: 'tag ok' }, '有') : h('span', { class: 'tag err' }, '无')),
                     h('td', { class: 'mono' }, String(n.voteWeight)),
                     h('td', { class: 'mono' }, String(n.proposedBlocks)),
-                    h('td', { class: 'mono' }, '#' + n.replicaHeight + (n.lag > 0 ? ` (落后${n.lag})` : '')),
-                    h('td', {}, n.consistent ? h('span', { class: 'tag ok' }, '一致') : h('span', { class: 'tag warn' }, n.lag > 0 ? '待同步' : '不一致')),
+                    /* 已吊销节点保留只读副本、但已停止同步，它的副本高度停在
+                     * 吊销时刻。这里不能再写「(落后 N)」——那会让读者以为
+                     * 执行一次"同步"就能追上，而事实是它已无权再参与共识。 */
+                    h('td', { class: 'mono' }, '#' + n.replicaHeight
+                      + (String(n.status).toUpperCase() === 'REVOKED' ? ' (吊销时点)' : (n.lag > 0 ? ` (落后${n.lag})` : ''))),
+                    h('td', {}, String(n.status).toUpperCase() === 'REVOKED'
+                      ? h('span', { class: 'tag t-mute' }, '不参与比对')
+                      : (n.consistent ? h('span', { class: 'tag ok' }, '一致') : h('span', { class: 'tag warn' }, n.lag > 0 ? '待同步' : '不一致'))),
                     h('td', {}, [
                       h('button', { class: 'btn xs', disabled: busy.value, onClick: () => desync(n.nodeId) }, '模拟落后'),
                       ' ',

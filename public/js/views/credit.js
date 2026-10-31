@@ -55,7 +55,10 @@
       const statusTag = (s) => (s === 'ACTIVE' ? 'ok' : s === 'USED' ? 'warn' : 'err');
       const statusCn = (s) => ({ ACTIVE: '可用', USED: '已用尽', EXPIRED: '已过期' }[s] || s);
 
-      const assetTable = () => h('div', { class: 'table-wrap' }, [
+      /* 空表只有表头没有空态说明，读起来像渲染坏了（2026-10-31 巡检 P3） */
+      const assetTable = () => !(assets.value || []).length
+        ? h('x-empty', { inline: true, title: '暂无碳信用资产', sub: 'CCER / 林业碳汇 / 绿证签发后会显示在这里', icon: 'coin' })
+        : h('div', { class: 'table-wrap' }, [
         h('table', { class: 'table' }, [
           h('thead', {}, h('tr', {}, [
             ...(isEnt.value ? [] : ['持有企业']),
@@ -80,7 +83,9 @@
         ]),
       ]);
 
-      const offsetTable = () => h('div', { class: 'table-wrap' }, [
+      const offsetTable = () => !(offsets.value || []).length
+        ? h('x-empty', { inline: true, title: '暂无抵销记录', sub: '每笔抵销均已上链存证' })
+        : h('div', { class: 'table-wrap' }, [
         h('table', { class: 'table' }, [
           h('thead', {}, h('tr', {}, [
             ...(isEnt.value ? [] : ['企业']),
@@ -134,7 +139,7 @@
                     h('span', {}, [h('span', { class: 'tag chain' }, t.typeCn), `　${t.count} 笔`]),
                     h('span', { class: 'mono' }, `持有 ${App.fmt.num(Math.round(t.amount))} · 已抵销 ${App.fmt.num(Math.round(t.used))} tCO₂e`),
                   ]))
-                  : h('div', { class: 'tiny dim' }, '暂无数据')),
+                  : h('x-empty', { inline: true, title: '暂无数据' })),
               })
               : null,
 

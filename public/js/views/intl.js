@@ -60,6 +60,7 @@
     if (isEnt || !ents.value.length) return null;
     return h('select', {
       class: 'input', style: 'width:200px;height:30px', value: entId.value,
+      'aria-label': '选择企业',
       onChange: (e) => { entId.value = Number(e.target.value); },
     }, ents.value.map((o) => h('option', { value: o.id }, o.entName)));
   }
@@ -68,7 +69,7 @@
   async function useEnts(isEnt, entId) {
     if (isEnt) return [];
     try {
-      const d = await App.API.get('/regulator/enterprises', { page: 1, size: 200 });
+      const d = await App.API.get('/public/enterprises', { page: 1, size: 200 });
       const list = ((d && (d.rows || d)) || []).map((x) => ({ id: x.id, entName: x.ent_name }));
       if (!entId.value && list.length) entId.value = list[0].id;
       return list;
@@ -85,7 +86,7 @@
     return h('div', { class: 'card-body' }, (steps || []).map((st, i) => h('div', { class: 'intl-step' }, [
       h('span', { class: 'no' }, String(i + 1)),
       h('div', { class: 'flex-1' }, [
-        h('div', { class: 'tt' }, st.name + (st.kind ? '　' + h('span', { class: 'tag t-mute plain', style: 'font-size:10.6px' }, st.kind) : '')),
+        h('div', { class: 'tt' }, st.name + (st.kind ? '　' + h('span', { class: 'tag t-mute plain', style: 'font-size:11px' }, st.kind) : '')),
         h('div', { class: 'fx' }, st.formula || ''),
         h('div', { class: 'vv' }, `${num(st.value, 4)} ${st.unit || ''}${st.note ? '　· ' + st.note : ''}`),
       ]),
@@ -137,7 +138,7 @@
         finally { busy.value = false; }
       }
       async function doGenerate() {
-        if (!confirm('按当前参数生成 CBAM 申报包并写入联盟链存证？\n\n该动作会落库一条申报记录并上链（区块 +1）。')) return;
+        if (!(await App.confirm('按当前参数生成 CBAM 申报包并写入联盟链存证？\n\n该动作会落库一条申报记录并上链（区块 +1）。'))) return;
         busy.value = true;
         try {
           genResult.value = await App.API.post('/cbam/generate', {
@@ -404,9 +405,11 @@
             days: form.days === '' ? undefined : Number(form.days),
           });
           if (!r || !r.summary) {
-            /* 静态演示模式：小时级匹配需读写时序库，如实告知而不是伪造结果 */
+            /* 该端点在本版本未实现（小时级匹配需读写时序库）。
+             * ⚠ 原本文案写的是「静态演示模式下不执行」——但静态模式已删除，
+             * 那句话会让人以为「换个模式就能用」。现在如实说：该能力未实现。 */
             matchResult.value = null;
-            App.notify.warn('静态演示模式下不执行小时级匹配（需读写时序数据库）。请在本地 npm start 或在线模式下操作。');
+            App.notify.warn('小时级绿电匹配需要读写时序数据库，当前版本尚未实现该能力。');
             return;
           }
           matchResult.value = r;
@@ -577,9 +580,9 @@
                       h('b', {}, 'ISO 14064-1 · 组织轨'),
                       canWrite ? h('button', { class: 'btn sm primary', disabled: busy.value, onClick: () => doExport('14064') }, '导出并上链') : null,
                     ]),
-                    h('div', { class: 'tiny dim', style: 'line-height:1.7' },
+                    h('div', { class: 'tiny dim', style: 'line-height:1.7' }, App.fmt.md(
                       '面向组织层级的温室气体量化与报告：类别 1（直接排放）与类别 2（输入能源间接排放）本平台可实测；'
-                      + '类别 3~6（运输、产品使用、其他间接）**如实标注未纳入**，而非填 0 冒充完整。'),
+                      + '类别 3~6（运输、产品使用、其他间接）**如实标注未纳入**，而非填 0 冒充完整。')),
                   ]),
                   h('div', { class: 'card', style: 'padding:14px 16px' }, [
                     h('div', { class: 'flex between mb-8' }, [
@@ -592,7 +595,7 @@
                   ]),
                 ]),
                 h('div', { class: 'intl-quote mt-16' },
-                  '互证规则：**组织总量应 ≥ 已核算产品的隐含碳之和**。若产品隐含碳之和超过组织总量，说明边界或产量数据有误 —— 这是两轨同时计算的真正价值。'),
+                  App.fmt.md('互证规则：**组织总量应 ≥ 已核算产品的隐含碳之和**。若产品隐含碳之和超过组织总量，说明边界或产量数据有误 —— 这是两轨同时计算的真正价值。')),
               ]),
             }),
 

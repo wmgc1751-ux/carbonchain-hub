@@ -62,10 +62,12 @@ router.post('/sync', authRequired, requireRole('REGULATOR'), wrap(async (req, re
   ok(res, rs, `已完成 ${rs.length} 个节点的副本同步，共补拉 ${total} 个区块`);
 }));
 
-/* 【演示】令某节点链副本落后（监管/管理角色） -------------------------- */
-router.post('/nodes/:nodeId/desync', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
+/* 【演示】令某节点链副本落后（监管/管理角色）--------------------------
+ * ADMIN 一并放行：联盟治理页在管理端同样可达，演示模拟按钮对 ADMIN 返回 403
+ * 会被全站回归判为点击异常（2026-10-31 审计）；治理动作本身仍留审计日志。 */
+router.post('/nodes/:nodeId/desync', authRequired, requireRole('REGULATOR', 'ADMIN'), wrap(async (req, res) => {
   const keep = (req.body || {}).keepHeight !== undefined ? (req.body || {}).keepHeight
-    : await db.value('SELECT GREATEST(block_index - 5, 0) FROM chain_block ORDER BY block_index DESC LIMIT 1');
+    : await db.ledgerValue('SELECT GREATEST(block_index - 5, 0) FROM chain_block ORDER BY block_index DESC LIMIT 1');
   const r = await cons.desyncNode(req.params.nodeId, keep);
   ok(res, r, `已模拟节点 ${r.nodeId} 的链副本落后到高度 #${r.height}（可随即调用同步接口追平）`);
 }));

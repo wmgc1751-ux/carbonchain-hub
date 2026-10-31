@@ -1,0 +1,28 @@
+{
+  "name": "carbonchain-hub",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "pages_build_output_dir": "./public",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "carbonchain-platform",
+      "database_id": "2f6b8d8d-4dad-4357-968f-0a31fc23c6ab"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV_CACHE",
+      "id": "d4d054ab7dab4443a7026aa82a14c740"
+    }
+  ],
+  "vars": {
+    "DEMO_ACCOUNTS": "0",
+    "TURSO_URL": "libsql://carbonchain-jasonwfh.aws-ap-northeast-1.turso.io"
+  },
+  "ai": {
+    "binding": "AI"
+  }
+}

@@ -253,9 +253,33 @@ async function bind(did, entId, monitorNo, opts = {}) {
   if (!mno) {
     const cands = monitorsOf(ent).map((m) => m.monitor_no);
     mno = cands.find((c) => !usedMap.has(c)) || null;
+
+    /* ⭐ P7 修复（2026-10-14）：无空闲排口时，本分支原先**完全忽略 opts.replace**，
+     *    却抛出"如属设备更换，请显式传 replace=true"的提示 —— 按提示重试仍会落到
+     *    同一分支，形成误导闭环。前端绑定表单确实可构造出「replace=true 且 monitorNo 为空」
+     *    的组合（gov.js 的 bindForm），故该路径用户可达。
+     *    语义澄清：设备更换必须知道"接管哪一个排口"。若该企业只有 1 个标准排口，
+     *    接管它是**无歧义**的，直接放行；多排口时无法推断，必须要求显式指定。
+     *    接管动作与原显式分支完全一致（先置原设备 REVOKED 并留痕），
+     *    "同一排口不允许两台设备同时计量"的不变量不受影响。 */
+    if (!mno && opts.replace && cands.length === 1) {
+      mno = cands[0];
+      const occupant = usedMap.get(mno);
+      if (occupant && occupant.device_did !== did) {
+        await db.query(
+          "UPDATE device_registry SET auth_status = 'REVOKED', remark = ? WHERE device_did = ?",
+          [`已被设备 ${did} 接管更换下线（监管端绑定操作）`, occupant.device_did]
+        );
+        replaced = { did: occupant.device_did, mn: occupant.mn, monitorNo: mno };
+      }
+    }
+
     if (!mno) {
+      const hint = cands.length === 1
+        ? '如属设备更换，请传 replace=true 由本设备接管；'
+        : '如属设备更换，请显式指定被占用排口的 monitorNo 并传 replace=true；';
       throw new Error(`企业「${ent.ent_name}」的 ${cands.length} 个标准排口均已绑定设备。`
-        + '如属设备更换，请显式传 replace=true 由本设备接管；如属新增排口，请显式指定未占用的 monitorNo。');
+        + hint + '如属新增排口，请显式指定未占用的 monitorNo。');
     }
   } else {
     const occupant = usedMap.get(mno);

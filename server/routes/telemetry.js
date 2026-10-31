@@ -137,6 +137,15 @@ function attach(server) {
     })();
   }, 6000);
 
+  /* 实时指标桥接：把 realtime 引擎的每秒快照转发到 WS 通道。
+   * 与 SSE(/api/real/stream) 同源 —— 两个通道推的是同一份 state，
+   * 不会出现"网页看到的和 API 拿到的不一致"这种自相矛盾。 */
+  let unsubRealtime = null;
+  try {
+    const rt = require('../services/realtime');
+    unsubRealtime = rt.subscribe((delta) => broadcast('live:metrics', delta));
+  } catch (e) { /* realtime 未启动时跳过 */ }
+
   wss.on('connection', (ws) => {
     /* 连上立即推一帧 + 状态 */
     const cems = ARCHIVE_CEMS_60[idx];
@@ -160,7 +169,7 @@ function attach(server) {
   });
 
   console.log('[telemetry] WebSocket 端点已就绪：/ws/telemetry');
-  handles = { wss, telemetryTimer, chainTimer };
+  handles = { wss, telemetryTimer, chainTimer, get unsubRealtime() { return unsubRealtime; } };
   return handles;
 }
 
@@ -168,6 +177,7 @@ function detach() {
   if (!handles) return;
   if (handles.telemetryTimer) clearInterval(handles.telemetryTimer);
   if (handles.chainTimer) clearInterval(handles.chainTimer);
+  if (handles.unsubRealtime) try { handles.unsubRealtime(); } catch (e) {}
   if (handles.wss) try { handles.wss.close(); } catch (e) {}
   handles = null;
 }

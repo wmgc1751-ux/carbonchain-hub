@@ -7,6 +7,33 @@
 const path = require('path');
 
 /**
+ * 零依赖 .env 加载器（必须在读取任何 process.env 之前执行）。
+ * 为什么不用 dotenv：少一个依赖面，且只需要「KEY=VALUE + 注释」这一小撮语法。
+ * 规则：
+ *   · 只在变量**尚未存在**时注入（真实环境变量 > .env 文件，云平台面板可覆盖）；
+ *   · 行内 # 后视为注释、去首尾空白、去成对引号；
+ *   · 文件不存在/不可读一律静默跳过（.env 是本地便利设施，不是必需品）。
+ */
+(function loadDotEnv() {
+  try {
+    const fs = require('fs');
+    const raw = fs.readFileSync(path.resolve(__dirname, '..', '.env'), 'utf8');
+    for (const lineRaw of raw.split(/\r?\n/)) {
+      const line = lineRaw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const m = line.match(/^([\w.]+)\s*=\s*(.*)$/);
+      if (!m) continue;
+      let v = m[2].trim();
+      if (v.length >= 2 && ((v[0] === '"' && v[v.length - 1] === '"') || (v[0] === "'" && v[v.length - 1] === "'"))) {
+        v = v.slice(1, -1);
+      }
+      v = v.replace(/\s+#.*$/, '').trim();   // 行内注释
+      if (!(m[1] in process.env)) process.env[m[1]] = v;
+    }
+  } catch (e) { /* 无 .env 或不可读：按纯环境变量运行 */ }
+})();
+
+/**
  * 是否启用 TLS 连接数据库。
  * DB_SSL=true            开启（校验证书，适用于正规云数据库）
  * DB_SSL=require|true    同上
@@ -82,6 +109,35 @@ module.exports = {
     ssl: dbSsl(),
   },
 
+  /* ---- 联盟链账本库（与业务库物理分离） ----
+   * ------------------------------------------------------------------
+   * 为什么单独一个库而不是同库不同表：
+   *   同库时，一个拥有业务表写权限的账号，一条 UPDATE 就能同时改掉
+   *   「链下明文」与「链上锚点」，五道校验没有一道会报警 —— 这正是
+   *   评审指出的「信任模型硬伤」。独立成库后，业务账号对该库没有写权限，
+   *   「一条 UPDATE 同改」在权限层即失败；即便 DBA 越权同改，仍要面对
+   *   payload_hash → merkle_root → block_hash → 出块签名 的逐层失配。
+   *
+   * 三个字段都可单独覆盖，便于：
+   *   · 本地 MySQL：同实例、两个 schema（默认）
+   *   · 生产环境：账本库放到另一台实例/另一套账号（LEDGER_DB_HOST/USER）
+   *   · 云托管单库（TiDB Serverless 只给一个库）：把 LEDGER_DB_NAME 设成
+   *     与 DB_NAME 相同即自动退化为同库模式，代码无需改动。
+   */
+  ledgerDb: {
+    host: process.env.LEDGER_DB_HOST || process.env.DB_HOST || '127.0.0.1',
+    port: num(process.env.LEDGER_DB_PORT || process.env.DB_PORT, 3306),
+    user: process.env.LEDGER_DB_USER || process.env.DB_USER || 'root',
+    password: process.env.LEDGER_DB_PASSWORD || process.env.DB_PASSWORD || '123456',
+    database: process.env.LEDGER_DB_NAME || 'carbon_chain_ledger',
+    charset: 'utf8mb4',
+    waitForConnections: true,
+    connectionLimit: 7,
+    timezone: 'Z',
+    dateStrings: ['DATE', 'DATETIME'],
+    ssl: dbSsl(),
+  },
+
   /* ---- 认证 ---- */
   jwt: {
     secret: process.env.JWT_SECRET || 'carbonchain-hub-secret-2026-change-me',
@@ -102,6 +158,14 @@ module.exports = {
     root: path.resolve(__dirname, '..'),
     public: path.resolve(__dirname, '..', 'public'),
     schema: path.resolve(__dirname, '..', 'db', '01_schema.sql'),
+    /* MRV 生产层结构（活动数据台账 / 核算批次 / 结算 / 清缴 / 注销 / CBAM 证书 / 绿证）
+     * —— 只增不改 01_schema.sql，保证既有表结构与历史数据向后兼容。 */
+    mrvSchema: path.resolve(__dirname, '..', 'db', '04_schema_mrv.sql'),
+    /* 真实数据层（真实设施台账 / 年度真实排放 / 真实序列 / 实时归档 / 真实性声明）
+     * —— 与业务表**物理分离**，避免真实源数据与合成业务数据互相污染。 */
+    realSchema: path.resolve(__dirname, '..', 'db', '05_schema_real.sql'),
+    /* 账本库（链上 5 表）单独一份 DDL；业务库 schema 只保留指向它的只读视图 */
+    ledgerSchema: path.resolve(__dirname, '..', 'db', '00_schema_ledger.sql'),
     keystore: path.resolve(__dirname, 'keystore.json'),
   },
 

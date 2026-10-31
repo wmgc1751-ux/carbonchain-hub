@@ -1,16 +1,17 @@
 /* =====================================================================
    科研验证中心 —— 可复现、可证伪、可复核
    ---------------------------------------------------------------------
-   本页把平台的全部算法主张摊开成"可被质证"的证据面板，六个页签：
+   本页把平台的全部算法主张摊开成"可被质证"的证据面板，八个页签：
      ① 验证总览    六项验证的通过矩阵 + 断言口径
      ② 双轨对账    组织碳 ⊇ 产品碳 的包含性硬约束 + 存证覆盖率归因
      ③ 不确定度    IPCC 误差传播律解析解 vs 蒙特卡洛（可改迭代次数与种子）
      ④ 性能基准    密码学与联盟链内核的真实实测（双密码套件 / PoA vs PoW）
      ⑤ 判据证伪    故意破坏数据链路，验证判据会报警（判据非空）
-     ⑥ 合规映射    标准 / 政策 / 国际规则的逐条平台落地映射
+     ⑥ 信任模型    链库分离 / 七道校验 / 同库同改演练 / 关键数字溯源（院审整改出口）
+     ⑦ 合规映射    标准 / 政策 / 国际规则的逐条平台落地映射
    ---------------------------------------------------------------------
    全部数字由浏览器端**现场重算**（复用 App.Nucleus 同一份内核），
-   与 `node scripts/uncertainty.js` 的离线复算结果逐位一致（固定种子）。
+   与 `node tools/uncertainty-selftest.mjs` 的离线复算结果逐位一致（固定种子）。
    ===================================================================== */
 (function () {
   'use strict';
@@ -19,10 +20,12 @@
 
   const TABS = [
     ['overview', '验证总览', 'shield'],
+    ['realdata', '真实数据交叉验证', 'factory'],
     ['reconcile', '双轨对账', 'chain'],
     ['uncertainty', '不确定度传播', 'chart'],
     ['bench', '性能基准', 'db'],
     ['falsify', '判据可证伪性', 'alert'],
+    ['trust', '信任模型', 'lock'],
     ['compliance', '标准合规映射', 'book'],
   ];
 
@@ -59,6 +62,41 @@
       const seed = ref(20261011);
       const busy = ref(false);
       const mc = ref(null);
+
+      /* ---- 真实数据交叉验证（本页第 7 个页签的数据源） ----
+       * 与前六个页签的本质区别：前六个是**自证**（用平台生成的数据跑平台
+       * 的公式），这一个用**外部真实观测数据**检验平台实现。
+       * 因此它的数据必须来自 API 实时查询，不能在浏览器里重算 ——
+       * 否则又变成"用同一份逻辑验证同一份逻辑"。 */
+      const xv = ref(null);
+      const xvLoading = ref(false);
+      const xvErr = ref('');
+      const xvMode = ref('identity');
+
+      async function loadXv(mode) {
+        xvMode.value = mode;
+        xvLoading.value = true; xvErr.value = '';
+        try {
+          xv.value = await App.API.get('/real/cn/crosscheck', { mode });
+        } catch (e) { xvErr.value = e.message || String(e); }
+        xvLoading.value = false;
+      }
+
+      /* ---- 信任模型（第 6 页签的数据源） ----
+       * 与 xv 同一设计原则：评审要质证的是"平台的声明"，声明必须能被
+       * 运行时查询 —— 链库分离 / 同库同改演练 / 关键数字出处全部来自
+       * /api/chain/trust-model 的实时核验与证据文件，前端不缓存不加工。 */
+      const trust = ref(null);
+      const trustErr = ref('');
+      const trustLoading = ref(false);
+
+      async function loadTrust() {
+        trustLoading.value = true; trustErr.value = '';
+        try {
+          trust.value = await App.API.get('/chain/trust-model');
+        } catch (e) { trustErr.value = e.message || String(e); }
+        trustLoading.value = false;
+      }
 
       const S = App.Sources;
       const Ind = App.Industry;
@@ -177,16 +215,29 @@
           observed: `工序偏差 ${C.maxStageDevPct.toFixed(3)}%`,
         });
 
+        /* D. 产品碳放大到击破包含性
+         * ⚠ 这里必须按**实际需要的倍数**放大，不能写死 10×。
+         * 试点期存证覆盖率普遍很低（本例仅 5%），把产品碳放大 10 倍后
+         * 仍然远小于组织碳，包含性自然依然成立 —— 那样这条"注入"其实什么都没注入，
+         * 而页面会把判据标成"漏检"。这不是判据失效，是**测试用例设计和实际数据量级脱节**。
+         * 正确做法：先算出"要超过组织碳至少需要放大多少倍"，再放大到它的 1.2 倍，
+         * 并把实际倍数如实显示出来 —— 让读者看到注入强度随数据量级自适应。 */
         const target = recon.value.rows.find((r) => r.metered);
-        const inflate = target.batches.map((b) => Object.assign({}, b, { totalTco2e: b.totalTco2e * 10 }));
+        const needFactor = target.pcfSum > 0 ? (target.orgTotal / target.pcfSum) : 0;
+        const factor = Math.max(2, Math.ceil(needFactor * 1.2));
+        const inflate = target.batches.map((b) => Object.assign({}, b, { totalTco2e: b.totalTco2e * factor }));
         const bad = N.enterpriseReconcile({
-          entId: target.entId, orgTotal: target.orgTotal, batches: inflate,
+          entId: target.entId, entName: target.entName, entShort: target.entShort,
+          industry: target.industry,
+          orgTotal: target.orgTotal, batches: inflate,
           auxShare: AUX_SHARE, lossShare: LOSS_SHARE,
         });
         cases.push({
-          id: 'D', name: '产品碳放大 10× 使其超过组织碳',
-          inject: `${target.entShort}：Σ产品碳 ${target.pcfSum.toFixed(0)} → ${bad.pcfSum.toFixed(0)} tCO₂e`,
+          id: 'D', name: `产品碳放大 ${factor}× 使其超过组织碳`,
+          inject: `${target.entShort || target.entName}：Σ产品碳 ${target.pcfSum.toFixed(0)} → ${bad.pcfSum.toFixed(0)} tCO₂e（×${factor}）`,
           expect: '包含性硬约束被击破',
+          /* 必要条件：基线必须成立（否则"注入后被击破"说明不了判据有效）；
+           * 充分条件：注入后必须被击破。两者都满足才算检出。 */
           detected: target.pass && !bad.pass,
           observed: `基线 pass=${target.pass}，注入后 pass=${bad.pass}，不可解释量 ${bad.unexplained.toFixed(1)} tCO₂e`,
         });
@@ -226,7 +277,14 @@
         mc.value = { chain, batch: bt, batchNo: batch.batchNo, batchProduct: batch.product, grid, chainInputs };
         busy.value = false;
       }
-      onMounted(() => { if (!mc.value) runMC(); });
+      onMounted(() => {
+        /* 两个初始加载合并到一次挂载里：
+         * 原实现有两处独立的 onMounted，其中一处是我新加的 —— 分开写不会报错，
+         * 但会让人以为"只挂了一次"，后续再加第三个时很难看出执行顺序。 */
+        loadXv('identity');
+        loadTrust();
+        if (!mc.value) runMC();
+      });
 
       /* ── ⑧ 总览矩阵 ── */
       const matrix = computed(() => {
@@ -350,6 +408,216 @@
         });
       });
 
+      /* ---- 真实数据交叉验证 ---- */
+      function renderRealData() {
+        if (xvLoading.value && !xv.value) {
+          return h('div', { class: 'empty' }, '正在用真实设施数据复算…');
+        }
+        if (xvErr.value) {
+          return h('div', { class: 'col gap-12' }, [
+            /* 用 alertbar + x-icon 组合，而不是 x-alert ——
+             * 组件库里没有 x-alert（只有 x-card/x-kpi/x-table/x-chart 等）。
+             * 写不存在的组件不会报错，只会渲染成空的 <x-alert> 元素，
+             * 表现为"这块什么都不显示"。 */
+            h('div', { class: 'alertbar warn' }, [
+              h('x-icon', { name: 'info', size: 15 }),
+              h('span', {}, '真实数据交叉验证不可用：' + xvErr.value),
+            ]),
+            h('button', { class: 'btn sm', onClick: () => loadXv(xvMode.value) }, '重试'),
+          ]);
+        }
+        const d = xv.value;
+        if (!d) return h('div', { class: 'empty' }, '暂无数据');
+
+        const modeBtns = h('div', { class: 'flex gap-6 wrap mb-16' }, [
+          [['identity', '恒等式检验 E=A×EF'], ['stability', '因子年度稳定性'], ['benchmark', '与官方因子对照']]
+            .map(([m, label]) => h('button', {
+              class: ['btn sm', xvMode.value === m && 'primary'],
+              onClick: () => loadXv(m),
+              disabled: xvLoading.value,
+            }, label)),
+        ]);
+
+        /* ---- 恒等式检验 ---- */
+        if (xvMode.value === 'identity') {
+          const exactPct = (d.bands.find((b) => b.key === 'EXACT') || {}).sharePct;
+          const unitErr = (d.bands.find((b) => b.key === 'UNIT') || {}).count;
+          return h('div', { class: 'col gap-16' }, [
+            h('x-card', {
+              title: '为什么要用外部真实数据做这件事',
+              sub: '前六个页签是自己验证自己，这一页是让外部数据来检验我们',
+            }, {
+              default: () => h('div', { class: 'col gap-8' }, [
+                h('p', { style: 'margin:0;line-height:1.85;font-size:12.6px' }, [
+                  '平台此前的验证全部是',
+                  h('b', {}, '自证'),
+                  '：用自己生成的数据，跑自己的公式，再断言结果等于自己预设的期望。',
+                  '这在逻辑上是循环的 —— 它能证明「代码按我写的逻辑运行」，',
+                  '但证明不了「我的逻辑符合物理世界」。评审只需问一句「你的引擎在真实数据上验证过吗」就能击穿它。',
+                ]),
+                h('p', { style: 'margin:0;line-height:1.85;font-size:12.6px' }, [
+                  'Climate TRACE 对每座设施独立给出三个量：排放量 E、活动量 A（MWh 或吨产品）、',
+                  '排放因子 EF（tCO2e/单位）。三者来自',
+                  h('b', {}, '不同的观测链'),
+                  '（排放来自大气反演与烟羽观测；活动量来自电网调度或产量统计；因子来自技术档案或前两者反算），',
+                  '因此它们之间必须满足 ',
+                  h('code', { style: 'font-family:var(--mono);color:#6ee7b7' }, 'E ≈ A × EF'),
+                  '。这是一条',
+                  h('b', {}, '可被数据本身证伪的约束'),
+                  '。',
+                ]),
+                h('p', { style: 'margin:0;line-height:1.85;font-size:12.6px;color:var(--tx-3)' }, [
+                  '它检验的不是「准不准」，而是「量纲与口径对不对」。',
+                  '把 tCO2e/MWh 误当 tCO2e/GWh 会差 1000 倍；把年活动量误当日活动量会差 365 倍。',
+                  '这类错误在合成数据上永远不会暴露（因为合成数据就是同一个公式反推的），只有真实数据能抓出来。',
+                ]),
+              ]),
+            }),
+
+            modeBtns,
+
+            h('div', { class: 'grid g4' }, [
+              kpi({ label: '可检验设施', value: d.verifiable.toLocaleString(), unit: '家', tone: 'ok', icon: 'factory', foot: `年度 ${d.year} · 共 ${d.examined.toLocaleString()} 家，其中 ${d.unverifiable} 家缺 A 或 EF` }),
+              kpi({ label: '平均相对偏差', value: d.meanAbsDeviation == null ? '—' : (d.meanAbsDeviation * 100).toFixed(4), unit: '%', tone: 'chain', icon: 'chart', foot: '|重算 − 源公布| / 源公布' }),
+              kpi({ label: '精确自洽占比', value: exactPct == null ? '—' : exactPct.toFixed(3), unit: '%', tone: 'ok', icon: 'shield', foot: '偏差 ≤ 0.5%' }),
+              kpi({ label: '疑似量纲错误', value: String(unitErr), unit: '例', tone: unitErr ? 'err' : 'ok', icon: 'alert', foot: unitErr ? '偏差 > 100%，必须排查' : '未发现量纲级错误' }),
+            ]),
+
+            h('x-card', { title: '偏差分档分布', sub: `恒等式 ${d.identity} · 年度 ${d.year}` }, {
+              default: () => h('div', { class: 'col gap-8' }, d.bands.map((b) => {
+                const tone = b.tone === 'ok' ? '#10b981' : (b.tone === 'warn' ? '#f5a524' : '#f43f5e');
+                return h('div', { class: 'flex items-center gap-8' }, [
+                  h('div', { style: 'width:150px;font-size:12px;color:var(--tx-2)' }, b.label),
+                  h('div', { style: 'flex:1;height:8px;border-radius:4px;background:rgba(255,255,255,.06);overflow:hidden' }, [
+                    h('div', {
+                      style: `height:100%;width:${Math.max(0.4, b.sharePct || 0)}%;background:${tone};border-radius:4px`,
+                    }),
+                  ]),
+                  h('div', { style: 'width:130px;text-align:right;font-family:var(--mono);font-size:11.6px;color:var(--tx-2)' },
+                    `${b.count.toLocaleString()} 家 · ${b.sharePct == null ? '—' : b.sharePct.toFixed(3)}%`),
+                ]);
+              })),
+            }),
+
+            h('x-card', {
+              title: `待核清单（${d.reviewTotal} 家偏差 > 2%）`,
+              sub: '平台不删除、不修正异常，只列出供人工核实 —— 先修正再报告是数据造假的经典路径',
+            }, {
+              default: () => d.reviewList.length ? h('div', { style: 'max-height:46vh;overflow:auto' }, [
+                h('table', { class: 'tbl' }, [
+                  h('thead', {}, [h('tr', {}, ['设施', '行业', '活动量', '因子', '源公布 (t)', '重算 (t)', '偏差', '判断']
+                    .map((t, i) => h('th', { class: i >= 4 && i <= 6 ? 'r' : '' }, t)))]),
+                  h('tbody', {}, d.reviewList.map((r) => h('tr', {}, [
+                    h('td', {}, r.name),
+                    h('td', {}, r.industry),
+                    h('td', { class: 'mono', style: 'font-size:11px' }, `${r.activity}${r.activityUnit ? ' ' + r.activityUnit : ''}`),
+                    h('td', { class: 'mono' }, String(r.emissionFactor)),
+                    h('td', { class: 'r mono' }, r.publishedEmission),
+                    h('td', { class: 'r mono' }, r.recomputedEmission),
+                    h('td', { class: 'r mono', style: 'color:#fcd34d' }, (r.relDeviation * 100).toFixed(2) + '%'),
+                    h('td', { style: 'font-size:11px;color:var(--tx-3)' }, r.bandLabel),
+                  ]))),
+                ]),
+              ]) : h('div', { class: 'empty' }, '本年度无偏差 > 2% 的设施'),
+            }),
+
+            h('x-card', { title: '结论边界（这一页证明了什么、没证明什么）' }, {
+              default: () => h('div', { class: 'col gap-8' }, [
+                h('div', { style: 'border-left:3px solid rgba(16,185,129,.55);padding:8px 12px;background:rgba(16,185,129,.055);border-radius:0 8px 8px 0;font-size:12.2px;line-height:1.8' }, [
+                  h('b', {}, '✔ 它证明了：'), d.interpretation.whatThisProves,
+                ]),
+                h('div', { style: 'border-left:3px solid rgba(245,165,36,.6);padding:8px 12px;background:rgba(245,165,36,.06);border-radius:0 8px 8px 0;font-size:12.2px;line-height:1.8' }, [
+                  h('b', {}, '✘ 它没有证明：'), d.interpretation.whatThisDoesNotProve,
+                ]),
+                h('div', { style: 'border-left:3px solid rgba(6,182,212,.5);padding:8px 12px;background:rgba(6,182,212,.055);border-radius:0 8px 8px 0;font-size:12.2px;line-height:1.8' }, [
+                  h('b', {}, '⚠ 大偏差意味着什么：'), d.interpretation.whyLargeDeviationMatters,
+                ]),
+              ]),
+            }),
+          ]);
+        }
+
+        /* ---- 因子稳定性 ---- */
+        if (xvMode.value === 'stability') {
+          return h('div', { class: 'col gap-16' }, [
+            modeBtns,
+            h('x-card', { title: '为什么看排放因子的年度稳定性', sub: '因子是技术属性，短期不应剧烈变化' }, {
+              default: () => h('div', { class: 'col gap-8' }, [
+                h('p', { style: 'margin:0;line-height:1.85;font-size:12.6px' }, [
+                  '排放因子反映的是燃料碳含量与工艺效率，属于',
+                  h('b', {}, '技术属性'),
+                  '，相邻年度不应大幅跳变。若某设施的因子在两年间变化 > 20%，通常意味着三种情况之一：',
+                  '观测质量变化（置信度下降）、资产被重新归类（如燃料从煤改气）、或源数据被修订。',
+                  '三种情况对使用者的含义完全不同，因此平台',
+                  h('b', {}, '不自动平滑'),
+                  '，只列出来让人判断。',
+                ]),
+              ]),
+            }),
+            h('div', { class: 'grid g4' }, [
+              kpi({ label: '有因子记录的设施', value: d.facilitiesWithFactor.toLocaleString(), unit: '家', tone: 'ok', icon: 'factory', foot: '中国 · 全年度' }),
+              kpi({ label: '相邻年度对比', value: d.adjacentPairs.toLocaleString(), unit: '对', tone: 'info', icon: 'chart', foot: '只比连续年度，断档不计' }),
+              kpi({ label: '跳变 > 20%', value: d.jumpCount.toLocaleString(), unit: '例', tone: d.jumpCount ? 'warn' : 'ok', icon: 'alert', foot: `阈值 ${(d.threshold * 100)}%` }),
+              kpi({ label: '跳变率', value: d.jumpRatePct == null ? '—' : d.jumpRatePct.toFixed(2), unit: '%', tone: 'carbon', icon: 'shield', foot: '跳变数 / 对比对数' }),
+            ]),
+            h('x-card', { title: `因子跳变明细（前 ${d.jumps.length} 例）`, sub: d.reading }, {
+              default: () => d.jumps.length ? h('div', { style: 'max-height:50vh;overflow:auto' }, [
+                h('table', { class: 'tbl' }, [
+                  h('thead', {}, [h('tr', {}, ['设施', '行业', '年份', '因子变化', '变化幅度', '次年排放 (t)']
+                    .map((t, i) => h('th', { class: i >= 3 ? 'r' : '' }, t)))]),
+                  h('tbody', {}, d.jumps.map((j) => h('tr', {}, [
+                    h('td', {}, j.name),
+                    h('td', {}, j.industry),
+                    h('td', { class: 'mono' }, `${j.fromYear}→${j.toYear}`),
+                    h('td', { class: 'r mono', style: 'font-size:11px' }, `${j.fromEf} → ${j.toEf}`),
+                    h('td', { class: 'r mono', style: 'color:#fcd34d' }, j.changePct + '%'),
+                    h('td', { class: 'r mono' }, Number(j.emissionTo).toLocaleString()),
+                  ]))),
+                ]),
+              ]) : h('div', { class: 'empty' }, '未发现因子跳变'),
+            }),
+          ]);
+        }
+
+        /* ---- 与官方因子对照 ---- */
+        return h('div', { class: 'col gap-16' }, [
+          modeBtns,
+          h('x-card', { title: '第三方观测因子 vs 官方公布区域电网因子', sub: `年度 ${d.year} · 仅电力行业` }, {
+            default: () => h('div', { class: 'col gap-12' }, [
+              h('p', { style: 'margin:0;line-height:1.85;font-size:12.6px' }, [
+                '这是平台「科学性」最硬的一环：把 ',
+                h('b', {}, '第三方观测隐含的因子'),
+                ' 与 ', h('b', {}, '生态环境部公布的区域电网因子'),
+                ' 放在同一张表里。两者的边界不同（设施排放含燃料燃烧与工业过程，电网因子只反映电力消费侧），',
+                '因此', h('b', {}, '不能要求相等，也不应相减'),
+                '。但它们的量级若相差一个数量级，一定有地方理解错了。',
+              ]),
+              h('table', { class: 'tbl' }, [
+                h('thead', {}, [h('tr', {}, ['区域', '设施数', '观测因子均值', '观测范围', '官方电网因子', '比值']
+                  .map((t, i) => h('th', { class: i >= 1 ? 'r' : '' }, t)))]),
+                h('tbody', {}, d.regionRows.map((r) => h('tr', {}, [
+                  h('td', {}, r.region),
+                  h('td', { class: 'r mono' }, String(r.facilities)),
+                  h('td', { class: 'r mono' }, r.observedFactorMean == null ? '—' : String(r.observedFactorMean)),
+                  h('td', { class: 'r mono', style: 'font-size:11px' },
+                    r.observedFactorMin == null ? '—' : `${r.observedFactorMin} ~ ${r.observedFactorMax}`),
+                  h('td', { class: 'r mono' }, r.officialGridFactor == null ? '—' : String(r.officialGridFactor)),
+                  h('td', { class: 'r mono', style: `color:${r.ratio != null && (r.ratio < 0.1 || r.ratio > 10) ? '#fda4af' : '#6ee7b7'}` },
+                    r.ratio == null ? '—' : String(r.ratio)),
+                ]))),
+              ]),
+              h('div', { style: 'border-left:3px solid rgba(6,182,212,.5);padding:8px 12px;background:rgba(6,182,212,.055);border-radius:0 8px 8px 0;font-size:12.2px;line-height:1.8' }, [
+                h('b', {}, '单位说明：'), `观测 ${d.unitNotice.observed} vs 官方 ${d.unitNotice.official}。`,
+                ' ', d.unitNotice.caveat,
+              ]),
+              h('div', { style: 'border-left:3px solid rgba(16,185,129,.55);padding:8px 12px;background:rgba(16,185,129,.055);border-radius:0 8px 8px 0;font-size:12.2px;line-height:1.8' }, [
+                h('b', {}, '判据：'), d.judgment,
+              ]),
+            ]),
+          }),
+        ]);
+      }
+
       /* ================================================================
        * 渲染
        * ================================================================ */
@@ -389,14 +657,19 @@
           h('x-card', { title: '复现方式', sub: '任何评审可在本机独立重跑，结果必须逐位一致' }, {
             default: () => h('div', {}, [
               h('div', { class: 'mono-pre', style: 'white-space:pre-wrap;line-height:1.85' },
-                '$ node scripts/uncertainty.js 20000\n'
-                + '$ node scripts/bench-crypto.js            # 密码学与链性能真实基准\n'
-                + '$ node scripts/browser-check.js           # 全站路由与交互回归\n'
-                + '$ node scripts/smoke-test.js              # 接口冒烟'),
+                /* 2026-10-29 巡检 P0-11：原命令写的是 scripts/*.js，
+                 * 但仓库根目录没有 scripts/ —— 评审照抄必然 MODULE_NOT_FOUND，
+                 * 而这一页的核心主张恰恰是"可在本机独立重跑"。全部改为真实路径。 */
+                '$ node tools/uncertainty-selftest.mjs     # 不确定度自检（GUM vs 蒙特卡洛）\n'
+                + '$ node tools/bench-crypto.mjs            # 密码学与链性能真实基准\n'
+                + '$ node tools/console-audit.mjs           # 全站路由与交互回归（逐页点按钮）\n'
+                + '$ node tools/full-regression.mjs         # 全量回归 + 证据包（含接口冒烟）'),
               h('div', { class: 'alertbar info mt-16' }, [
                 h('x-icon', { name: 'info', size: 15 }),
-                h('span', {}, '全部随机数来自 mulberry32 固定种子，跨机器结果完全一致；'
-                  + '基准数字与硬件相关，应比较**同一环境下的相对差异**而非绝对值。'),
+                /* 原文这里是裸字符串，`**…**` 会原样显示成星号；
+                 * 改用 fmt.md 渲染强调（2026-10-29 巡检 P1-20）。 */
+                h('span', {}, App.fmt.md('全部随机数来自 mulberry32 固定种子，跨机器结果完全一致；'
+                  + '基准数字与硬件相关，应比较**同一环境下的相对差异**而非绝对值。')),
               ]),
               h('div', { class: 'tiny dim mt-8', style: 'line-height:1.8' }, App.fmt.md(
                 '**口径诚实声明**：组织碳取自"已接入计量的设备子集"，是组织碳的**下界**；'
@@ -423,7 +696,7 @@
                 ['输配损耗率', (r.lossShare * 100).toFixed(1) + '%'],
               ], '104px'),
               h('div', { class: 'tiny dim mt-8', style: 'line-height:1.8' }, c.note
-                + ' 在线率由在网设备的工况状态折算（处于降解态的设备不计入有效运行小时），不是拍出来的常数。'),
+                + ' 在线率由在网设备的工况状态折算（处于降级态的设备不计入有效运行小时），不是拍出来的常数。'),
             ]),
           }),
 
@@ -645,7 +918,7 @@
       /* ---- 性能基准 ---- */
       function renderBench() {
         if (!Bench) return h('x-card', { title: '性能基准数据缺失' }, {
-          default: () => h('div', { class: 'tiny dim' }, '请先运行 `node scripts/bench-crypto.js` 生成 public/js/data/bench.js。'),
+          default: () => h('div', { class: 'tiny dim' }, '请先运行 `node tools/bench-crypto.mjs` 生成 public/js/data/bench.js。'),
         });
         const e = Bench.environment; const gm = Bench.gm; const sg = Bench.signature;
         const bp = Bench.blockProduction; const ch = Bench.chain; const pw = Bench.password;
@@ -809,8 +1082,8 @@
                 : `存在 ${f.total - f.detectedCount} 类漏检，判据需加强`),
               h('div', { class: 'tiny dim mt-8', style: 'line-height:1.85' }, App.fmt.md(
                 '**可复现**：本页的注入用例在浏览器现场执行；同一逻辑也已固化进 '
-                + '`scripts/uncertainty.js` 的 `checkFalsification()`，'
-                + '评审可 `node scripts/uncertainty.js` 独立重跑并比对。')),
+                + '`tools/uncertainty-selftest.mjs` 的 `checkFalsification()`，'
+                + '评审可 `node tools/uncertainty-selftest.mjs` 独立重跑并比对。')),
             ]),
           }),
         ]);
@@ -900,6 +1173,200 @@
         ]);
       }
 
+      /* ---- 信任模型（院审意见①②③④的整改出口） ---- */
+      function renderTrust() {
+        const t = trust.value;
+        if (trustErr.value) {
+          return h('div', { class: 'col gap-16' }, [
+            h('x-card', { title: '信任模型', sub: '运行时核验不可用' }, {
+              default: () => h('div', { class: 'alertbar err' }, [h('x-icon', { name: 'alert', size: 15 }), h('span', {}, '接口异常：' + trustErr.value)]),
+            }),
+          ]);
+        }
+        if (!t) {
+          return h('div', { class: 'col gap-16' }, [
+            h('x-card', { title: '信任模型', sub: trustLoading.value ? '加载中…' : '暂无数据' }, { default: () => h('div', { class: 'tiny dim' }, '等待 /api/chain/trust-model 返回') }),
+          ]);
+        }
+        const sd = t.splitDb || {};
+        const atk = t.attack;
+        const met = t.metrics;
+        const MET_STATUS = { OK: 'ok', STALE: 'warn', SUSPECT: 'err', UNVERIFIED: 'err', MISSING: 'err' };
+        return h('div', { class: 'col gap-16' }, [
+          h('x-card', { title: '为什么这一页存在', sub: '院审：声明与证据必须对等，且能被当场查询' }, {
+            default: () => h('div', { class: 'tiny dim', style: 'line-height:1.9' }, App.fmt.md(
+              '院审意见指出：**"管理员无法事后篡改"的声明，必须配得上等强度的证据**——'
+              + '链上锚点与链下明文若同库，一条 UPDATE 即可同时改掉。本页把信任模型本身变成可质证对象：'
+              + '链库是否物理分离**实时查库**、攻击演练结果**读证据文件**、关键数字**逐条溯源到产生命令**。'
+              + '证据文件缺失时如实显示"未采集"，绝不显示一个编造的数。')),
+          }),
+          /* ① 链库物理分离 */
+          h('x-card', { title: '① 链库与业务库物理分离（实时查库）', sub: '不只报"已分离"，同时报分离到了哪一档强度 —— 同实例分库与独立实例是两种强度' }, {
+            default: () => h('div', { class: 'col gap-8' }, [
+              h('div', { class: 'grid g4 mb-16' }, [
+                kpi({ label: '业务库', value: sd.businessEndpoint || sd.businessDb || '—', unit: '', tone: 'info', icon: 'db' }),
+                kpi({ label: '账本库', value: sd.ledgerEndpoint || sd.ledgerDb || '—', unit: '', tone: 'chain', icon: 'chain' }),
+                kpi({
+                  label: '隔离强度',
+                  value: sd.level || '—',
+                  unit: '',
+                  tone: sd.levelGuarded ? 'ok' : 'err',
+                  icon: 'shield',
+                  foot: sd.levelLabel || '',
+                }),
+                kpi({
+                  label: '账本实体表(业务库)',
+                  value: (sd.ledgerBaseTablesInBusinessDb || []).length,
+                  unit: '张',
+                  tone: (sd.ledgerBaseTablesInBusinessDb || []).length === 0 ? 'ok' : 'err',
+                  icon: 'shield',
+                  foot: 'BASE TABLE，必须为 0',
+                }),
+              ]),
+              readout(!!sd.levelGuarded, `隔离强度 ${sd.level || '—'}（${sd.levelLabel || '未知'}）`, sd.levelDesc || ''),
+              readout(!!sd.separated, '实体表位置', sd.note || ''),
+              /* 强度分级表：把"为什么 L1 不算物理分离"讲清楚，避免用 L1 结果背书 L3 声明 */
+              h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+                h('thead', {}, [h('tr', {}, [
+                  h('th', { style: 'width:56px' }, '档'), h('th', { style: 'width:22%' }, '形态'),
+                  h('th', { style: 'width:74px' }, '拦得住?'), h('th', {}, '说明'),
+                ])]),
+                h('tbody', {}, [
+                  { k: 'L1', label: '同实例不同库', guard: '否', desc: 'DBA 同一会话执行两条 UPDATE 仍可同改（只拦非 DBA）' },
+                  { k: 'L2', label: '不同实例同账号', guard: '是', desc: '网络层已切断同连接同改；账号泄露则两侧都能动' },
+                  { k: 'L3', label: '不同实例不同账号', guard: '是', desc: '业务侧凭据在任何情况下都够不到账本库' },
+                ].map((r) => h('tr', {
+                  style: r.k === (sd.level || '') ? 'background:rgba(0,192,127,.08)' : '',
+                }, [
+                  h('td', { class: 'mono' }, r.k + (r.k === (sd.level || '') ? ' ←' : '')),
+                  h('td', {}, r.label),
+                  h('td', {}, h('span', { class: ['tag', r.guard === '是' ? 'ok' : 'warn'] }, r.guard)),
+                  h('td', { class: 'tiny dim' }, r.desc),
+                ]))),
+              ])]),
+            ]),
+          }),
+          /* ② 七道校验 */
+          h('x-card', { title: '② 七道校验：逐层收口', sub: '每层回答"防的是哪一种改动"；任意单点改动必然落在某一层的判定范围内' }, {
+            flush: true,
+            default: () => h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+              h('thead', {}, [h('tr', {}, [h('th', { style: 'width:52px' }, '道'), h('th', { style: 'width:22%' }, '校验'), h('th', {}, '防住的改动'), h('th', { style: 'width:26%' }, '判定入口')])]),
+              h('tbody', {}, (t.sevenChecks || []).map((c) => h('tr', {}, [
+                h('td', { class: 'mono' }, String(c.id)),
+                h('td', {}, c.name),
+                h('td', { class: 'tiny dim' }, c.guards),
+                h('td', { class: 'mono tiny' }, c.where),
+              ]))),
+            ])]),
+          }),
+          /* ③ 同库同改演练 */
+          h('x-card', { title: '③ 「同库同改」篡改演练', sub: '评审要求补的攻击用例：一条 UPDATE 同时改链上锚点与链下明文，必须被检出' }, {
+            default: () => !atk
+              ? h('div', { class: 'col gap-8' }, [
+                  h('div', { class: 'alertbar warn' }, [h('x-icon', { name: 'alert', size: 15 }), h('span', {}, '演练证据尚未采集（tools/out/attack-same-db.json 不存在）—— 本页如实显示，不展示历史数字')]),
+                  h('div', { class: 'tiny dim mono' }, t.selfCheckHint || ''),
+                ])
+              : h('div', { class: 'col gap-8' }, [
+                  h('div', { class: 'grid g4 mb-16' }, [
+                    kpi({ label: '攻击用例', value: atk.summary.total, unit: '组', tone: 'info', icon: 'alert' }),
+                    kpi({ label: '按预期检出', value: atk.summary.hit, unit: '组', tone: atk.summary.hit === atk.summary.total ? 'ok' : 'warn', icon: 'shield' }),
+                    kpi({ label: '与预期不符', value: atk.summary.mismatch, unit: '组', tone: atk.summary.mismatch === 0 ? 'ok' : 'err', icon: 'verify' }),
+                    kpi({ label: '演练时强度', value: atk.level || '—', unit: '', tone: 'violet', icon: 'chain', foot: (atk.generatedAt || '').slice(0, 10) }),
+                  ]),
+                  /* 证据与当前环境不一致时必须显式告警 —— 拿旧环境的结果背书新环境，
+                   * 正是评审最反感的那种错位。 */
+                  atk.levelMatchesNow === false
+                    ? h('div', { class: 'alertbar warn mb-16' }, [h('x-icon', { name: 'alert', size: 15 }),
+                      h('span', {}, `演练证据来自 ${atk.level} 强度，当前环境是 ${sd.level} —— 请重跑 node tools/attack-same-db.mjs 后再引用本页结论`)])
+                    : null,
+                  h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+                    h('thead', {}, [h('tr', {}, [h('th', {}, '攻击路径'), h('th', { style: 'width:22%' }, '预期'), h('th', { style: 'width:22%' }, '实际判定'), h('th', { style: 'width:72px' }, '命中')])]),
+                    h('tbody', {}, (atk.cases || []).map((c) => h('tr', {}, [
+                      h('td', { class: 'tiny' }, c.case),
+                      h('td', { class: 'mono tiny' }, c.expect),
+                      h('td', { class: 'mono tiny' }, c.verdict),
+                      h('td', {}, h('span', { class: ['tag', c.hit ? 'ok' : (c.hit === false ? 'err' : 'warn')] }, c.hit === true ? '命中' : (c.hit === false ? '未中' : '跳过'))),
+                    ]))),
+                  ])]),
+                ]),
+          }),
+          /* ④ 关键数字溯源 */
+          h('x-card', { title: '④ 关键数字的出处（指标溯源台账）', sub: '院审：关键数字无出处、摘要与正文笔数不一致 —— 根治方式是数字只允许来自台账' }, {
+            default: () => !met
+              ? h('div', { class: 'col gap-8' }, [
+                  h('div', { class: 'alertbar warn' }, [h('x-icon', { name: 'alert', size: 15 }), h('span', {}, '台账证据尚未采集（tools/out/metrics-ledger.json 不存在）—— 台账缺席时本页不展示任何数字')]),
+                  h('div', { class: 'tiny dim mono' }, t.selfCheckHint || ''),
+                ])
+              : h('div', { class: 'col gap-8' }, [
+                  h('div', { class: 'grid g4 mb-16' }, [
+                    kpi({ label: '台账指标', value: met.totals.metrics, unit: '条', tone: 'info', icon: 'book' }),
+                    kpi({ label: '有效', value: met.totals.OK || 0, unit: '条', tone: 'ok', icon: 'verify' }),
+                    kpi({ label: '非有效', value: (met.totals.metrics || 0) - (met.totals.OK || 0), unit: '条', tone: (met.totals.metrics || 0) - (met.totals.OK || 0) === 0 ? 'ok' : 'warn', icon: 'alert' }),
+                    kpi({ label: '台账生成', value: (met.generatedAt || '').slice(0, 10), unit: '', tone: 'violet', icon: 'clock' }),
+                  ]),
+                  h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+                    h('thead', {}, [h('tr', {}, [h('th', {}, '指标'), h('th', { style: 'width:110px' }, '数值'), h('th', { style: 'width:80px' }, '状态'), h('th', { style: 'width:34%' }, '产生命令（可当场重跑）')])]),
+                    h('tbody', {}, (met.key || []).map((r) => h('tr', {}, [
+                      h('td', { class: 'tiny' }, r.claim),
+                      h('td', { class: 'mono' }, r.value === null ? '—' : String(r.value) + (r.unit === 'bool' ? '' : ' ' + r.unit)),
+                      h('td', {}, h('span', { class: ['tag', MET_STATUS[r.status] || 'warn'] }, r.status)),
+                      h('td', { class: 'mono tiny' }, r.cmd),
+                    ]))),
+                  ])]),
+                ]),
+          }),
+          /* ⑤ 真实数据接入状态（院审意见③） */
+          h('x-card', { title: '⑤ 真实企业 CEMS 接入状态', sub: '院审：实机测试系自举模拟 —— 处置方式是让真实数据能进来，且进来后与模拟数据不可混淆' }, {
+            default: () => {
+              const rd = t.realData || {};
+              return h('div', { class: 'col gap-8' }, [
+                h('div', { class: 'grid g4 mb-16' }, [
+                  kpi({ label: '真实接入批次', value: rd.realBatches === null || rd.realBatches === undefined ? '—' : rd.realBatches, unit: '批', tone: rd.realBatches > 0 ? 'ok' : 'warn', icon: 'db', foot: 'batch_no 以 RCEMS- 开头' }),
+                  kpi({ label: '真实读数', value: rd.realReadings === null || rd.realReadings === undefined ? '—' : rd.realReadings, unit: '条', tone: rd.realReadings > 0 ? 'ok' : 'warn', icon: 'iot' }),
+                  kpi({ label: '模拟读数', value: rd.modeledReadings === null || rd.modeledReadings === undefined ? '—' : rd.modeledReadings, unit: '条', tone: 'info', icon: 'alert', foot: '平台自举生成，非任何设备上报' }),
+                  kpi({ label: '第三方复算包', value: rd.recomputePackage ? '已生成' : '未生成', unit: '', tone: rd.recomputePackage ? 'ok' : 'warn', icon: 'verify' }),
+                ]),
+                rd.realBatches > 0
+                  ? h('div', { class: 'alertbar ok' }, [h('x-icon', { name: 'check', size: 15 }),
+                    h('span', {}, `已接入 ${rd.realBatches} 批真实企业 CEMS 数据（${rd.realReadings} 条），可按批次导出复算包交第三方独立核验`)])
+                  : h('div', { class: 'alertbar warn' }, [h('x-icon', { name: 'alert', size: 15 }),
+                    h('span', {}, '当前尚无真实企业 CEMS 数据接入。平台不把模拟读数冒充实机测试：'
+                      + '所有模拟读数在来源分层中计为 MODELED，对外表述必须同样标注')]),
+                h('div', { class: 'tiny dim', style: 'line-height:1.85' }, App.fmt.md(
+                  '**接入通道**（本轮新增，可当场执行）：`tools/real-cems-ingest.mjs` 支持三种输入 —— '
+                  + 'HJ 212-2017 原始报文、CSV、JSON 行数组。通道对数据做严格校验：'
+                  + '缺 CRC 不代算、时间乱序整批拒绝、企业未备案拒绝入库。'
+                  + '入库后自动生成**第三方独立复算包**（只给原始读数与口径，平台算值单独标注"仅供比对"）。')),
+              ]);
+            },
+          }),
+          /* ⑥ 部署形态 */
+          h('x-card', { title: '⑥ 部署形态声明', sub: '院审：消除"前后端分离"与"同端口单进程"的表述矛盾' }, {
+            default: () => {
+              const dm = t.deployMode || {};
+              return h('div', { class: 'col gap-8' }, [
+                readout(true, '一句话口径', dm.oneLine || '（接口未返回）'),
+                h('div', { class: 'tbl-wrap' }, [h('table', { class: 'tbl' }, [
+                  h('thead', {}, [h('tr', {}, [h('th', { style: 'width:110px' }, '维度'), h('th', { style: 'width:150px' }, '结论'), h('th', {}, '说明')])]),
+                  h('tbody', {}, [
+                    h('tr', {}, [h('td', {}, '运行形态'), h('td', { class: 'mono' }, (dm.runtime || {}).model || '—'), h('td', { class: 'tiny dim' }, (dm.runtime || {}).statement || '')]),
+                    h('tr', {}, [h('td', {}, '前端构建'), h('td', { class: 'mono tiny' }, (dm.runtime || {}).frontendBuild ? '无独立产物' : '—'), h('td', { class: 'tiny dim' }, (dm.runtime || {}).frontendBuild || '')]),
+                    h('tr', {}, [h('td', {}, '资产托管'), h('td', { class: 'mono' }, (dm.assetHosting || {}).separated ? '线上分离托管' : '本地同端口'), h('td', { class: 'tiny dim' }, (dm.assetHosting || {}).statement || '')]),
+                    h('tr', {}, [h('td', {}, 'API 契约'), h('td', { class: 'mono' }, (dm.contract || {}).consistent ? '一致' : '不一致'), h('td', { class: 'tiny dim' }, (dm.contract || {}).statement || '')]),
+                  ]),
+                ])]),
+                h('div', { class: 'tiny dim', style: 'line-height:1.85' }, App.fmt.md(
+                  '**为什么有过这个矛盾**：矛盾的原话把两个层面的说法并列成了对立面 —— '
+                  + '"前后端分离"描述的是**资产托管**（线上静态与 API 由不同产品承载），'
+                  + '"同端口单进程"描述的是**应用形态**（一个 Node 进程提供全部 API 与静态资源）。'
+                  + '两者可以同时为真，但放在一句里就自相矛盾。'
+                  + '前端是运行期编译的 Vue、没有独立构建产物，因此本平台**不使用**"前后端分离架构"这一表述。')),
+              ]);
+            },
+          }),
+        ]);
+      }
+
       return () => h('x-page', {
         title: '科研验证中心',
         desc: '全部算法主张摊开成可被质证的证据面板：可复现（固定种子）、可证伪（负向注入）、可复核（现场重算）',
@@ -912,10 +1379,12 @@
         default: () => h('div', {}, [
           tabsBar(),
           tab.value === 'overview' ? renderOverview() : null,
+          tab.value === 'realdata' ? renderRealData() : null,
           tab.value === 'reconcile' ? renderReconcile() : null,
           tab.value === 'uncertainty' ? renderUncertainty() : null,
           tab.value === 'bench' ? renderBench() : null,
           tab.value === 'falsify' ? renderFalsify() : null,
+          tab.value === 'trust' ? renderTrust() : null,
           tab.value === 'compliance' ? renderCompliance() : null,
         ]),
       });

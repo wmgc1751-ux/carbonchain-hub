@@ -218,8 +218,29 @@ function nigPosterior(xs, prior = {}) {
 /**
  * 蒙特卡洛交叉验证：从后验直接抽样，得到区间端点。
  * 与解析解的 t 分布区间**必须一致** —— 两条独立路径互相印证。
+ *
+ * ⚠ 2026-10-24 整改（旧实现的核心缺陷）：
+ *   旧版只算出 agreement 的三个 delta，然后**硬编码一句 verdict 文案**
+ *   「解析解与蒙特卡洛抽样结论一致 ⇒ 区间计算无误」。无论实际偏差多大，
+ *   这句话都成立 —— 于是"两条路径互证"变成了一句无法被证伪的声明。
+ *   审计实测：抽样侧 uBayes 与 GUM 差 15~40 倍，系统仍判"一致"。
+ *
+ * 现在改为**真判据**：
+ *   · 均值相对偏差 ≤ tolMeanPct（默认 0.5%）
+ *   · 区间半宽相对偏差 ≤ tolHalfPct（默认 5%，MC 20000 抽样的收敛精度量级）
+ *   · 区间端点相对偏差 ≤ tolHalfPct
+ * 三条全过才判 CONSISTENT；任一条超限即判 DIVERGENT 并给出具体是哪一条。
+ *
+ * @param {number[]} xs 样本
+ * @param {object} prior 先验
+ * @param {number} draws 抽样次数
+ * @param {number} seed 随机种子
+ * @param {object} [tol] 容差 { meanPct, halfPct }
  */
-function monteCarloCheck(xs, prior = {}, draws = 20000, seed = 20261012) {
+function monteCarloCheck(xs, prior = {}, draws = 20000, seed = 20261012, tol = {}) {
+  const tolMeanPct = Number.isFinite(Number(tol.meanPct)) ? Number(tol.meanPct) : 0.5;
+  const tolHalfPct = Number.isFinite(Number(tol.halfPct)) ? Number(tol.halfPct) : 5;
+
   const post = nigPosterior(xs, prior);
   let s = seed >>> 0;
   const rng = () => {
@@ -244,21 +265,53 @@ function monteCarloCheck(xs, prior = {}, draws = 20000, seed = 20261012) {
   const mcMean = mus.reduce((a, b) => a + b, 0) / draws;
   const mcSd = Math.sqrt(mus.reduce((a, b) => a + (b - mcMean) * (b - mcMean), 0) / (draws - 1));
 
+  const mcLow = q(0.025);
+  const mcHigh = q(0.975);
+  const mcHalf = (mcHigh - mcLow) / 2;
+  const anHalf = post.ci.halfWidth;
+
+  /* ---- 三项真实判据 ---- */
+  const meanRelPct = post.mean !== 0 ? Math.abs(mcMean - post.mean) / Math.abs(post.mean) * 100 : null;
+  const halfRelPct = anHalf !== 0 ? Math.abs(mcHalf - anHalf) / Math.abs(anHalf) * 100 : null;
+  const lowRelPct = post.ci.low !== 0 ? Math.abs(mcLow - post.ci.low) / Math.abs(post.ci.low) * 100 : null;
+  const highRelPct = post.ci.high !== 0 ? Math.abs(mcHigh - post.ci.high) / Math.abs(post.ci.high) * 100 : null;
+
+  const checks = [
+    { name: '均值一致', pass: meanRelPct === null || meanRelPct <= tolMeanPct,
+      value: meanRelPct, tol: tolMeanPct, unit: '%' },
+    { name: '区间半宽一致', pass: halfRelPct === null || halfRelPct <= tolHalfPct,
+      value: halfRelPct, tol: tolHalfPct, unit: '%' },
+    { name: '下端点一致', pass: lowRelPct === null || lowRelPct <= tolHalfPct,
+      value: lowRelPct, tol: tolHalfPct, unit: '%' },
+    { name: '上端点一致', pass: highRelPct === null || highRelPct <= tolHalfPct,
+      value: highRelPct, tol: tolHalfPct, unit: '%' },
+  ].map((c) => ({ ...c, value: c.value === null ? null : Number(c.value.toFixed(4)) }));
+
+  const failed = checks.filter((c) => !c.pass);
+  const verdict = failed.length === 0 ? 'CONSISTENT' : 'DIVERGENT';
+
   return {
     draws,
     seed,
     mean: mcMean,
     sd: mcSd,
-    ci: { level: post.ci.level, low: q(0.025), high: q(0.975) },
+    ci: { level: post.ci.level, low: mcLow, high: mcHigh, halfWidth: mcHalf },
+    analytic: { mean: post.mean, low: post.ci.low, high: post.ci.high, halfWidth: anHalf },
     agreement: {
       meanDelta: Math.abs(mcMean - post.mean),
-      meanRelPct: post.mean !== 0 ? Math.abs(mcMean - post.mean) / Math.abs(post.mean) * 100 : null,
+      meanRelPct: meanRelPct === null ? null : Number(meanRelPct.toFixed(6)),
+      halfRelPct: halfRelPct === null ? null : Number(halfRelPct.toFixed(6)),
       sdDelta: Math.abs(mcSd - post.scale),
-      lowDelta: Math.abs(q(0.025) - post.ci.low),
-      highDelta: Math.abs(q(0.975) - post.ci.high),
+      lowDelta: Math.abs(mcLow - post.ci.low),
+      highDelta: Math.abs(mcHigh - post.ci.high),
     },
-    verdict: '解析解（t 分布）与蒙特卡洛抽样结论一致 ⇒ 区间计算无误。'
-      + '蒙特卡洛在本方案中退回"交叉验证"角色，不再作为不确定度的唯一来源。',
+    tolerance: { meanPct: tolMeanPct, halfPct: tolHalfPct },
+    checks,
+    verdict,
+    ok: verdict === 'CONSISTENT',
+    reason: failed.length === 0
+      ? `解析解与蒙特卡洛抽样在 ${draws} 次抽样下端点偏差 ≤ ${tolHalfPct}%、均值偏差 ≤ ${tolMeanPct}%，两条独立路径互证成立`
+      : `两条路径未通过互证：${failed.map((c) => `${c.name}偏差 ${c.value}% > 容差 ${c.tol}%`).join('；')}`,
     note: '随机数发生器为确定性 xorshift32（固定种子），因此本结果可复现，不会每次跑出不同数字。',
   };
 }

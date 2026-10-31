@@ -21,8 +21,25 @@ function scopedEntId(req) {
 }
 
 /* 动态核算总览 ------------------------------------------------------- */
-router.get('/overview', wrap(async (req, res) => {
-  const entId = scopedEntId(req) || (req.query.entId ? Number(req.query.entId) : null);
+/* ⚠⚠ 这一端点必须鉴权。
+ *
+ * 原实现是 `router.get('/overview', wrap(...))` —— 完全无鉴权，且
+ * `scopedEntId(req)` 在匿名时返回 null，而 null 在 `dyn.overview()` 里
+ * 的语义是"给我全部企业"。于是**任何未登录的访问者都能拿到全平台 60 家
+ * 企业的动态账户明细**：滚动排放量、配额余额、履约缺口、风险等级。
+ *
+ * 这不是"公开数据"。公开数据是真实层（EPA/Climate TRACE 的设施台账），
+ * 而那些数据之所以公开，是因为源数据本身公开。企业配额与缺口是
+ * **监管过程数据**，泄露它等于泄露"哪家企业即将违约"——
+ * 这在碳市场里是可以直接变现的信息。
+ *
+ * 保留匿名访问的只有"聚合口径"（不含企业标识的总量统计），
+ * 需要它的场景（如公示大屏）走 /api/public/dashboard。 */
+router.get('/overview', authRequired, wrap(async (req, res) => {
+  /* 企业角色强制锁定本企业；其他角色可显式按 entId 查单家。 */
+  const scoped = scopedEntId(req);
+  if (scoped) return ok(res, await dyn.overview(scoped));
+  const entId = req.query.entId ? Number(req.query.entId) : null;
   ok(res, await dyn.overview(entId));
 }));
 

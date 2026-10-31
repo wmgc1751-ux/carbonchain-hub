@@ -23,9 +23,13 @@
  * ① **未经审批的源端不落库**：设备能连上、能被看见（台账里出现 PENDING），
  *    但数据不进核算账本。碳数据一旦被未授权源端污染，后面全链路再可信也没意义。
  * ② **物理折算不猜**：排放速率用浓度法而非经验系数 ——
- *      Q(m³/h) = 流速(m/s) × 烟道截面积(m²) × 3600
- *      rate(tCO₂/h) = Q(m³/h) × 浓度(mg/m³) × 1e-9
+ *      Q工况(m³/h) = 流速(m/s) × 烟道截面积(m²) × 3600
+ *      Q标干(m³/h) = Q工况 × (273.15/(273.15+t)) × ((P_amb+p)/101.325) × (1−湿度/100)
+ *      rate(tCO₂/h) = Q标干(m³/h) × 浓度(mg/m³，标干) × 1e-9
  *    单位闭链可查：m³/h × mg/m³ = mg/h；1 mg = 1e-9 t。
+ *    ⚠ 温度缺失时退化为工况流量，并在 `flowBasis` 中如实标注，**不假装做过折算**。
+ *    ⚠ 本式必须与设备端 `cc_sensors.c#cc_compute_emission` 逐项一致，
+ *       否则"端云双算互证"必然超阈值报警 —— 这是两端口径的**唯一权威定义**。
  * ③ **不做"补数据"式美化**：断网期间平台**不凭空生成**读数，只如实记录缺口，
  *    由 PMA（数据获取率）把它暴露成指标。缺数就是缺数。
  * ④ **零新增依赖**：只用 Node 内置 `net` + `crypto`；无 MQTT broker、无消息队列，
@@ -33,7 +37,8 @@
  *
  * 环境变量
  *   HJ212_PORT      监听端口，默认 9100
- *   HJ212_PW        设备访问密码，默认 123456
+ *   HJ212_PW        设备访问密码，默认 123456（仅限本地演示；
+ *                   生产环境弱口令将拒绝启动监听，见 passwordPolicy）
  *   HJ212_AUTOSTART '1' 时随服务启动自动监听，默认 '1'
  */
 'use strict';
@@ -45,6 +50,7 @@ const config = require('../config');
 const H = require('../protocol/hj212');
 const registry = require('./deviceRegistry');
 const dyn = require('./dynamic');
+const deviceVerify = require('./deviceVerify');   // CEN-100 设备签名验签（platform-patch §三）
 
 let gm = null;
 try { gm = require('../blockchain/gm-crypto'); } catch (e) { gm = null; }
@@ -63,13 +69,19 @@ const QN_RTN = {
   7: '设备已授权但未绑定归属主体（企业/排口）',
 };
 
-/** CP 因子编码 → 业务含义（HJ 525-2009） */
+/** CP 因子编码 → 业务含义（HJ 212-2025 第 33 页参数编码表） */
 const FACTOR = {
-  co2Mass: 'a05001',      // 二氧化碳 质量浓度 mg/m³（本平台碳核算的主因子）
-  velocity: 'a01011',     // 烟气流速 m/s
+  /* ⚠ 2026-10-28 修正：a05001 在 HJ 212-2025 标准里是「二氧化碳**体积分数 %**」，
+   *   不是质量浓度 mg/m³（紧随其后的 a05002 才是 mg/m³ / kg 口径）。
+   *   此前注释与换算都按 mg/m³ 处理；若真接入国内报文会少算约 2 万倍
+   *   （10% CO₂ ≈ 196,470 mg/m³，按 mg/m³ 解释却只当成 10 mg/m³）。
+   *   现按 % 处理，换算在 computeEmission 内显式完成。 */
+  co2Percent: 'a05001',   // 二氧化碳 体积分数 %
+  co2MassAlt: 'a05002',   // 二氧化碳 质量浓度 mg/m³（设备若直接给质量口径时使用）
+  velocity: 'a01011',     // 烟气流速 m/s（工况）
   section: 'a01016',      // 烟道截面积 m²
   temperature: 'a01012',  // 烟气温度 ℃
-  pressure: 'a01013',     // 烟气压力 kPa
+  pressure: 'a01013',     // 烟气压力 kPa（表压）
   humidity: 'a01014',     // 烟气湿度 %
   o2: 'a19001',           // 氧气含量 %
   dust: 'a34013',         // 烟尘 mg/m³
@@ -77,10 +89,21 @@ const FACTOR = {
   nox: 'a21002',          // 氮氧化物 mg/m³
 };
 
+/** CO₂ 体积分数 % → 标干质量浓度 mg/m³
+ *  1% = 10,000 ppm；标态下 CO₂ 质量浓度系数 = 44.01 / 22.4 ≈ 1.9647 mg/m³ per ppm
+ *  例：10% → 10,000 × 1.9647 = 196,470 mg/m³ */
+const CO2_MG_PER_M3_PER_PCT = 10000 * (44.01 / 22.4);
+
 /** 物理常数 */
 const SECONDS_PER_HOUR = 3600;
 /** mg → t */
 const MG_TO_TONNE = 1e-9;
+/** 标准状态温度 0 ℃（K）—— 与设备端 CC_T0 一致 */
+const T0_KELVIN = 273.15;
+/** 标准状态压力 kPa —— 与设备端 CC_P0 一致 */
+const P0_KPA = 101.325;
+/** 当地大气压 kPa（设备端 g_cfg.ambient_kpa 同为 101.325） */
+const AMBIENT_KPA = 101.325;
 /** 缺省烟道截面积(m²)：设备未报 a01016 时按工程常见值假定，并在 remark 标注 */
 const DEFAULT_SECTION_M2 = 6.0;
 
@@ -143,17 +166,70 @@ function computeEmission(rtd) {
   };
 
   const velocity = num(FACTOR.velocity);
-  const co2Mass = num(FACTOR.co2Mass);
+  /* CO₂ 浓度口径兼容处理（2026-10-28）
+   * ------------------------------------------------------------------
+   * HJ 212-2025 标准第 33 页把 a05001 定义为「体积分数 %」，a05002 才是 mg/m³。
+   * 但现场设备厂商实现并不统一：本项目的固件（cc_sensors.c）与既有测试脚本
+   * 一直把 **标干质量浓度 mg/m³** 塞进 a05001（例如 278915.795），
+   * 若服务端一律按 % 解释，会与固件差约 2 万倍（实测 C1 对拍偏差 1.96e4）。
+   *
+   * 因此按数值量级自动判别，两种口径都能正确接入：
+   *   · 烟气 CO₂ 体积分数真实范围约 3%–25%
+   *   · 对应质量浓度约 60,000–490,000 mg/m³
+   *   两者相差 4 个数量级，不存在重叠区间，判别是安全的。
+   *
+   * 判别结果写进 co2MassSource，前端与证据文件都能看到本次用的是哪种口径，
+   * 不做"猜对了就沉默"的处理。
+   */
+  const co2Raw = num(FACTOR.co2Percent);
+  const co2MassAlt = num(FACTOR.co2MassAlt);
+  let co2Converted = null;
+  let co2MassSource = null;
+  let co2PercentRaw = null;
+
+  if (co2MassAlt !== null) {
+    /* a05002 明确就是 mg/m³，直接用 */
+    co2Converted = co2MassAlt;
+    co2MassSource = 'a05002_mg_m3';
+  } else if (co2Raw !== null) {
+    if (co2Raw > 0 && co2Raw <= 100) {
+      /* ≤100 只可能是体积分数 %（mg/m³ 不可能这么小） */
+      co2Converted = co2Raw * CO2_MG_PER_M3_PER_PCT;
+      co2PercentRaw = co2Raw;
+      co2MassSource = 'a05001_pct_converted';
+    } else {
+      /* >100 只可能是质量浓度 mg/m³（固件/部分厂商的既有实现） */
+      co2Converted = co2Raw;
+      co2MassSource = 'a05001_mg_m3_as_sent';
+    }
+  }
   let section = num(FACTOR.section);
   const assumedSection = section === null || section <= 0;
   if (assumedSection) section = DEFAULT_SECTION_M2;
 
   const flowM3h = (velocity === null ? null : velocity * section * SECONDS_PER_HOUR);
-  const rate = (flowM3h === null || co2Mass === null) ? null : flowM3h * co2Mass * MG_TO_TONNE;
+
+  /* 标干折算（与设备端 cc_flow_std_dry_m3h 同式）。
+   * 温度/压力/湿度任一缺失就退化为工况流量 —— 宁可标注"未折算"，
+   * 也不要用缺省值硬凑出一个看似完整的数。 */
+  const tStack = num(FACTOR.temperature);
+  const pGauge = num(FACTOR.pressure);
+  const humidity = num(FACTOR.humidity);
+  let flowStdM3h = flowM3h;
+  let flowBasis = 'WET_ACTUAL';
+  if (flowM3h !== null && tStack !== null && (T0_KELVIN + tStack) > 0) {
+    const pAbs = AMBIENT_KPA + (pGauge === null ? 0 : pGauge);
+    const dry = humidity === null ? 1 : Math.max(0, 1 - humidity / 100);
+    flowStdM3h = flowM3h * (T0_KELVIN / (T0_KELVIN + tStack)) * (pAbs / P0_KPA) * dry;
+    flowBasis = 'STD_DRY';
+  }
+
+  const rate = (flowStdM3h === null || co2Converted === null) ? null : flowStdM3h * co2Converted * MG_TO_TONNE;
 
   /* 质量标记：优先取碳核算主因子（CO₂）的标记；缺则退到烟尘；
    * 都没有则按"有值即 NORMAL / 无值即 MISSING"判定。 */
-  const primaryFlag = flag(FACTOR.co2Mass) || flag(FACTOR.dust) || flag(FACTOR.so2) || flag(FACTOR.nox);
+  const primaryFlag = flag(FACTOR.co2Percent) || flag(FACTOR.co2MassAlt)
+    || flag(FACTOR.dust) || flag(FACTOR.so2) || flag(FACTOR.nox);
   let quality;
   if (primaryFlag && H.FLAG_TO_QUALITY[primaryFlag]) quality = H.FLAG_TO_QUALITY[primaryFlag];
   else if (rate === null) quality = 'MISSING';
@@ -162,10 +238,15 @@ function computeEmission(rtd) {
   return {
     rate,
     flowM3h,
+    flowStdM3h,
+    flowBasis,
     velocity,
     section: assumedSection ? null : section,
     assumedSection,
-    co2Mass,
+    co2Mass: co2Converted,
+    /* 原始口径一并返回：让前端能显示"报文给的是 X%"，并复核 ×19647.3 这一步 */
+    co2Percent: co2PercentRaw,
+    co2MassSource,
     o2: num(FACTOR.o2),
     temperature: num(FACTOR.temperature),
     pressure: num(FACTOR.pressure),
@@ -175,7 +256,7 @@ function computeEmission(rtd) {
     nox: num(FACTOR.nox),
     quality,
     factorFlags: {
-      co2: flag(FACTOR.co2Mass), velocity: flag(FACTOR.velocity),
+      co2: flag(FACTOR.co2Percent) || flag(FACTOR.co2MassAlt), velocity: flag(FACTOR.velocity),
       o2: flag(FACTOR.o2), temperature: flag(FACTOR.temperature),
     },
   };
@@ -193,7 +274,12 @@ function dataTimeToSql(s) {
  * ==================================================================
  * ⚠ 这是本次接入改造里最容易出事、也最容易被忽略的一处
  * ------------------------------------------------------------------
- * `dynamic.js#recompute` 取「该企业**最新一条**读数的 cum_value」当作年度累计排放。
+ * `dynamic.js#recompute` 的年度累计由**原始读数按唯一口径重新推导**（2026-10-14 定稿，
+ *   见 `dynamic.annualCumAt`）；`cems_reading.cum_value` 列降级为**对照披露**，不再作为核算账取值来源。
+ *   取值史（三态）：① 「该企业最新一条读数」—— 被写入滞后的排口占住，实测 ent2 低估 18.71%；
+ *   ② 「各排口最新值取最大值」—— 修掉滞后但仍是取值技巧，只要某个生产者落后一版代码，
+ *      列里就混着两种尺度；③ 定稿：不取值、改推导，正确性不再依赖"谁写得晚、谁写得大"。
+ *   （「各排口求和」是**错误**方向：会把企业累计重复计 N 次，实测 ent7 高估 1151%。）
  * 若两条写入路径对 cum 的口径不一致，就会出现：
  *   ① 同一列里混着不同尺度的值，"最新一条被谁占住就听谁的"，年度累计来回跳；
  *   ② 排口级积分只是企业总量的一部分，直接写进去会把企业累计拉低一个数量级。
@@ -207,8 +293,9 @@ function dataTimeToSql(s) {
  *     实测偏差修正 = ∫实测速率 dt − 基准速率 × 被测量覆盖时长
  * 与 `dynamic.ingest` 的 `cum = base × 已过天数 + Σ(flow × STEP_HOURS)` 在覆盖率
  * 100% 时恒等，因此平台自举读数与设备直报读数**共用同一尺度、可混写**。
- * 实现见 `dynamic.observedCorrection()`；积分的 Δt 上限与 WP4 一致（名义周期 4h），
- * 超出部分不外推。
+ * ⭐ 该公式**只有一处实现**：`dynamic.annualCumAt()`（内部用 `observedCorrection`）。
+ * 本文件的 `annualCum` 不再自写一份，只转发 —— 口径写两遍就是分叉的温床。
+ * 积分的 Δt 上限与 WP4 一致（名义周期 4h），超出部分不外推。
  *
  * 局限如实说明：1 月 1 日到读数窗口起点这一段仍无实测，按配额基准填补。
  * 这是"基准估计 + 实测修正"而非"全年实测积分"；其不确定度由 WP4 的
@@ -263,12 +350,12 @@ async function entCtx(entId) {
 async function annualCum(entId, sqlTime, rate) {
   const ctx = await entCtx(entId);
   if (!ctx) return Number((rate || 0).toFixed(3));
-  const t = new Date(sqlTime);
-  const jan1 = new Date(ctx.year, 0, 1).getTime();
-  const hours = Math.max(0, (t.getTime() - jan1) / 3600000);
-  const baseRate = ctx.base / 24;                       // tCO2e/h
-  const corr = await dyn.observedCorrection(entId, t);  // tCO2e（带 60s 缓存）
-  return Number((baseRate * hours + corr).toFixed(3));
+  /* ⭐ 单一实现（2026-10-14，来源 ① 根治）：直接调用 dynamic.annualCumAt。
+     本函数此前自带一份同样的公式（base/24 × 自年初小时数 + observedCorrection）——
+     即"同一个口径写两遍"。两份实现只要有一处漂移，设备直报与平台自举就会重新分叉，
+     正是来源 ① 的成因。现在公式只存在于 dynamic.annualCumAt，
+     本函数退化为"带上已缓存的 base 再转发"，不承载任何口径。 */
+  return dyn.annualCumAt(entId, sqlTime, { base: ctx.base });
 }
 
 /* ==================================================================
@@ -361,6 +448,25 @@ async function processFrame(f, ctx = {}) {
   await registry.touch(f.mn, ctx.ip);
   if (ctx.socket) ctx.socket.deviceMn = f.mn;
 
+  /* ④′ 设备签名验签（CEN-100 可信终端 · platform-patch §三）
+   * 只对数据帧（2011 实时 / 2031 分钟）生效（与固件上报子集一致）。
+   * 未登记公钥或未带签名的设备按 UNSIGNED **放行**，不阻断存量自举设备
+   * 与第三方数采仪 —— 新能力是增强，不是替换。 */
+  if (f.cn === '2011' || f.cn === '2031') {
+    const v = await deviceVerify.verifyFrame(f, dev, ctx);
+    if (!v.ok) {
+      state.rejected++;
+      const isReplay = v.qnRtn === deviceVerify.QNRTN.REPLAY;
+      const why = isReplay ? '序号回退（疑似重放）' : 'SM2 验签失败';
+      pushEvent('SIG_REJECT', `设备 ${f.mn} 第 ${v.sig.seq} 号读数被拒：${why}`);
+      const ack = buildAck(f, v.qnRtn);
+      if (ctx.socket) send(ctx.socket, ack);
+      pushFrame({ ...base, result: isReplay ? 'REPLAY' : 'SIG_FAIL' });
+      return { ok: false, reason: isReplay ? 'REPLAY' : 'SIG_FAIL', qnRtn: v.qnRtn };
+    }
+    f.__verify = v;
+  }
+
   /* ⑤ 按 CN 分派 */
   switch (f.cn) {
     case '9021': { // 数据转发登录
@@ -428,6 +534,8 @@ async function ingestReading(f, dev, ctx) {
     quality: calc.quality,
     rate: calc.rate === null ? null : Number(calc.rate.toFixed(4)),
     flowM3h: calc.flowM3h === null ? null : Math.round(calc.flowM3h),
+    flowStdM3h: calc.flowStdM3h === null ? null : Math.round(calc.flowStdM3h),
+    flowBasis: calc.flowBasis,
     co2Mass: calc.co2Mass,
     o2: calc.o2,
     assumedSection: calc.assumedSection,
@@ -435,7 +543,7 @@ async function ingestReading(f, dev, ctx) {
 
   if (calc.rate === null) {
     // 报文中没有可折算的因子 → 不入库（不猜、不补）
-    pushEvent('INGEST_SKIP', `设备 ${f.mn} 的 ${f.cn} 帧缺少碳核算主因子(${FACTOR.co2Mass}/${FACTOR.velocity})，不予入库`);
+    pushEvent('INGEST_SKIP', `设备 ${f.mn} 的 ${f.cn} 帧缺少碳核算主因子(${FACTOR.co2Percent}/${FACTOR.velocity})，不予入库`);
     detail.reason = 'NO_CARBON_FACTOR';
     return { ok: false, detail };
   }
@@ -449,17 +557,23 @@ async function ingestReading(f, dev, ctx) {
   } catch (e) { /* 无 SM3 时留 NULL（不伪造） */ }
 
   const batchNo = cu.bizNo('CEMS');
+  const v = f.__verify || null;   // ④′ 验签结果（未验签路径为 null → 记为 UNSIGNED）
   const res = await db.query(
     `INSERT IGNORE INTO cems_reading
        (ent_id, monitor_no, energy_type, reading_time, flow_value, cum_value,
-        o2_content, temperature, source, status, quality_flag, device_did, crc16, sm3_digest, batch_no)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        o2_content, temperature, source, status, quality_flag, device_did, crc16, sm3_digest, batch_no,
+        dev_seq, signature, sig_mode, gdev_tph)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       dev.ent_id, dev.monitor_no, registry.energyTypeOf(dev.monitor_no), sqlTime,
       Number(calc.rate.toFixed(4)), cum,
       calc.o2, calc.temperature,
       'CEMS', calc.quality === 'NORMAL' ? 'NORMAL' : 'ABNORMAL',
       calc.quality, dev.device_did, f.crc, sm3Digest, batchNo,
+      v && v.sig && v.sig.seq != null ? v.sig.seq : null,
+      v && v.sig && v.sig.sigRaw ? cu.sha256(v.sig.sigRaw).slice(0, 32) : null,
+      v ? v.mode : 'UNSIGNED',
+      v && v.sig && v.sig.gdev != null ? v.sig.gdev : null,
     ]
   );
 
@@ -475,6 +589,33 @@ async function ingestReading(f, dev, ctx) {
   }
   detail.cum = cum;
   detail.sm3 = sm3Digest ? sm3Digest.slice(0, 16) + '…' : null;
+  detail.sigMode = v ? v.mode : 'UNSIGNED';
+  if (v && v.sig && v.sig.seq != null) detail.devSeq = v.sig.seq;
+
+  /* 端云双算互证 —— 本平台的核心创新链，必须在**落库时就跑**，
+   * 否则 source_crosscheck 永远是空表，"两路独立采样可互证"就只是句口号。
+   *
+   * 比对对象：
+   *   valueCems —— 平台按 (标干流量 × 标干浓度 × 1e-9) 复算的速率；
+   *   valueEdge —— 设备在报文 Gdev 字段里自报的独立折算速率。
+   * 两者用的是同一份原始信号与同一套公式，理论上应完全相等；
+   * 偏差只可能来自：传输被改、两端公式不一致、或传感器被替换。
+   * 设备未报 Gdev（第三方数采仪 / 无签名链路）时不比对 —— 不臆造比对结果。 */
+  const edgeRate = (v && v.sig && v.sig.gdev != null) ? Number(v.sig.gdev) : null;
+  if (inserted && edgeRate !== null && calc.rate !== null) {
+    try {
+      detail.crosscheck = await deviceVerify.crossCheck({
+        entId: dev.ent_id,
+        monitorNo: dev.monitor_no,
+        readingTime: sqlTime,
+        valueCems: calc.rate,
+        valueEdge: edgeRate,
+      });
+    } catch (e) {
+      detail.crosscheck = { relDiff: null, alarmed: false, reason: 'CROSSCHECK_ERROR' };
+    }
+  }
+
   return { ok: true, detail };
 }
 
@@ -527,6 +668,21 @@ function handleConnection(socket) {
 }
 
 /**
+ * 设备访问密码安全策略（企业接入加固）。
+ *   · 弱口令 = 默认 123456 或长度 < 8；
+ *   · 生产环境（NODE_ENV=production / 托管云）弱口令**拒绝开启 TCP 监听**——
+ *     未审批设备本就不落库，但弱口令会让任意攻击者连入、刷 PENDING 台账、
+ *     制造噪音事件甚至挤占连接数。fail-safe：宁可不开设备口，也不用默认口令开；
+ *   · 开发环境允许默认口令（保住"单机离线可完整演示"），但日志与 status
+ *     明确暴露 passwordWeak 标记，投产前一眼可查。
+ * @returns {{weak: boolean, blockInProd: boolean}}
+ */
+function passwordPolicy() {
+  const weak = PASSWORD === '123456' || PASSWORD.length < 8;
+  return { weak, blockInProd: weak && config.isProd };
+}
+
+/**
  * 启动 TCP 监听。
  * @param {object} o { port }
  * @returns {Promise<object>} { port, listening }
@@ -534,6 +690,20 @@ function handleConnection(socket) {
 function start(o = {}) {
   const port = Number(o.port || PORT);
   if (server) return Promise.resolve({ port: state.port, listening: state.listening, reused: true });
+
+  const pol = passwordPolicy();
+  if (pol.blockInProd) {
+    const msg = 'HJ 212 设备接入服务拒绝启动：生产环境检测到弱设备口令'
+      + '（HJ212_PW 未设置、为默认 123456 或长度不足 8）。'
+      + '请在部署环境注入强口令后重启，例如 HJ212_PW=<16位以上随机串>。';
+    pushEvent('START_BLOCKED', msg);
+    console.error('⛔ [hj212] ' + msg);
+    return Promise.reject(new Error(msg));
+  }
+  if (pol.weak) {
+    console.warn('⚠ [hj212] 设备访问口令为默认/弱口令（仅限本地演示；投产前必须设置 HJ212_PW，生产环境弱口令将拒绝启动）');
+  }
+
   return new Promise((resolve, reject) => {
     server = net.createServer(handleConnection);
     server.on('error', (e) => {
@@ -570,6 +740,7 @@ function status() {
     port: state.port,
     startedAt: state.startedAt,
     passwordDefault: PASSWORD === '123456',
+    passwordWeak: passwordPolicy().weak,
     protocol: 'HJ 212-2017',
     totalConnections: state.totalConnections,
     liveConnections: state.liveConnections,
@@ -582,6 +753,7 @@ function status() {
     duplicates: state.duplicates,
     backfilled: state.backfilled,
     offlineMarks: state.offlineMarks,
+    verify: deviceVerify.stats,   // CEN-100 验签计数（明细以 device_verify_log 为准）
     byCn: Object.keys(state.byCn).map((cn) => ({
       cn, name: (H.CN_CODES[cn] || {}).name || '未知', count: state.byCn[cn],
     })).sort((a, b) => b.count - a.count),

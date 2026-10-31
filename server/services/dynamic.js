@@ -31,6 +31,35 @@ const SCALE_RATIO = { 大型: 1.6, 中型: 1.0, 小型: 0.55 };
 /** 采样步长（小时）：CEMS 每 STEP 小时推一次读数 */
 const STEP_HOURS = 4;
 
+/** 年度小时数（与不确定度模块的 DAYS_PER_YEAR = 365 同源，禁止各自硬编码） */
+const HOURS_PER_YEAR = 365 * 24;
+
+/**
+ * ⭐ 年度排放估计的**唯一口径**（全平台只此一处，两条写入路径 + 不确定度模块共用）。
+ *
+ *     annual = 基准速率(base/24) × 8760 + 实测偏差修正
+ *
+ * 语义：**未实测时段按配额基准模型填充，实测覆盖时段按实测值**；
+ * 偏差是**绝对量**，不随覆盖度放大。
+ *
+ * 为什么必须收敛到一个函数（2026-10-14，WP4 口径分叉根治）
+ * ------------------------------------------------------------------
+ * 此前同一份读数在两侧被套上不同的外推放大系数：
+ *   · `dynamic#recompute`：`cum / 已过天数 × 365`   → 偏差被放大 8760/hours ≈ 1.27 倍；
+ *   · `uncertainty#posterior`：`实测日均 × 365`      → 偏差被放大 8760/coveredHours ≈ 12 倍
+ *     （31 天窗口 / 365 天）。
+ * 两条公式各自自洽，但**平台对外只能有一个口径**。实测证据（ent2）：
+ * 两侧年化值相差 16.11%，跨过 15% 的一致性断言阈值，且该差值随窗口内
+ * 实测偏离基准的幅度线性放大 —— 数据越"偏离",分叉越大。
+ * 收敛到本函数后，任何一侧的后续改动都必须经过这里，分叉在结构上不可能再发生。
+ *
+ * @param {number} baseRate 基准排放速率 tCO2e/h（= dailyBaseFor/24）
+ * @param {number} correction 实测偏差修正 tCO2e（见 observedCorrection，绝对量）
+ */
+function annualFrom(baseRate, correction) {
+  return baseRate * HOURS_PER_YEAR + (Number(correction) || 0);
+}
+
 /** 某企业的日均排放基准（确定性：同企业每次运行结果一致，便于复现） */
 function dailyBase(ent) {
   const base = INDUSTRY_BASE[ent.industry] || 800;
@@ -90,13 +119,34 @@ function currentPeriod(d = new Date()) {
  * @param {object} opts { days 回溯天数, now 基准时间 }
  */
 async function ingest(opts = {}) {
-  const days = opts.days || 7;
+  /* ⭐ 天数解析（2026-10-14 修复：本平台历史上最严重的完整性缺陷）
+     ------------------------------------------------------------------
+     `opts.days === 0` 是**合法取值** —— 调度器（startScheduler 的 tick）正是用它
+     表示"只采当前一个步长"。但早先写成 `opts.days || 7`，0 是 falsy，于是
+       ① 每次 tick 都被当成"重建 7 天窗口"；
+       ② 窗口锚点是 `now - 7d`，随 now 分钟级漂移，`fmt()` 只截到分钟，
+          于是每分钟整批时间戳平移 1 分钟，`INSERT IGNORE` 一条也挡不住。
+     实测后果：每 60s 净增约 4,620 行（60 家 × 3 排口 × 42 点/天×... ），
+     折合约 **665 万行/天**；我在本轮验证中观测到 9 分钟涨 4.5 万行即为该缺陷。
+     用 `=== undefined` 判断，并显式 Number()，0 才会被如实执行。 */
+  const rawDays = (opts.days === undefined || opts.days === null) ? 7 : Number(opts.days);
+  const days = Number.isFinite(rawDays) && rawDays >= 0 ? rawDays : 7;
   const now = opts.now ? new Date(opts.now) : new Date();
   const ents = await db.query("SELECT id, industry, scale FROM enterprise WHERE status <> 'SUSPENDED'");
   const batchNo = cu.bizNo('CEMS');
   const rows = [];
 
+  const STEP_MS = STEP_HOURS * 3600 * 1000;
   const points = Math.floor((days * 24) / STEP_HOURS);
+  /* ⭐ 窗口锚点的确定性（第二条：重建幂等）
+     重建型调用（days > 0）把窗口末尾**对齐到 4h 步长网格**：同一网格内重复调用
+     得到完全相同的时间戳，`INSERT IGNORE` 真正生效（实测净增 0 行）。
+     不对齐时窗口随 now 漂移，一次 `ingest({days:30})` 就能净增 18,216 行（≈0.76 个窗口）。
+     实时单点（days === 0）保留分钟粒度，让准实时数据真正向前推进；
+     同一分钟内的重复调用仍由时间戳去重。 */
+  const endMs = days > 0
+    ? Math.floor(now.getTime() / STEP_MS) * STEP_MS
+    : now.getTime();
   const { year: quotaYear } = currentPeriod(now);
   for (const ent of ents) {
     const allocated = Number(await db.value(
@@ -120,17 +170,17 @@ async function ingest(opts = {}) {
        cum 会退化成"配额基线的复读机"，`recompute` 的"动态核算"也就名不副实。
        实测偏差修正由 observedCorrection() 给出（与设备直报路径共用同一实现）。 */
     const jan1 = new Date(now.getFullYear(), 0, 1).getTime();
-    const windowStartMs = now.getTime() - points * STEP_HOURS * 3600 * 1000;
+    const windowStartMs = endMs - points * STEP_MS;
     const windowStart = new Date(windowStartMs);
     let cum = perHour * ((windowStartMs - jan1) / 3600000)
       + await observedCorrection(ent.id, windowStart);
 
     for (let p = 0; p <= points; p++) {
-      const t = new Date(windowStartMs + p * STEP_HOURS * 3600 * 1000);
-      /* 一个采样步长内所有排口共用一个企业级 cum。
-         先算完整步长再落 cum，避免"同一步长内不同排口拿到不同累计值"——
-         而 recompute 取的是最新一条读数的 cum，那种不一致会让年度累计随
-         插入顺序抖动。 */
+      const t = new Date(windowStartMs + p * STEP_MS);
+      /* 一个采样步长内所有排口共用一个企业级 cum：
+         先算完整步长再落 cum，避免"同一步长内不同排口拿到不同累计值"。
+         （该一致性对审计仍重要 —— 积分器按 (排口, 时刻) 逐点比对，
+          同刻不同值会让 Δt 归属产生歧义。） */
       let stepFlow = 0;
       const stepRows = [];
       for (let mi = 0; mi < mons.length; mi++) {
@@ -151,8 +201,12 @@ async function ingest(opts = {}) {
              OFFLINE      0.3%  停机/断线
              DRIFT        0.9%  测到了但读数存疑（flow 值明显偏离工况）
            同一份种子在任意机器、任意次运行都得到同一结果（可复现）。
-           关键口径：**只有 NORMAL 推进年度累计 cum**。缺数/校准/停机/漂移一律不推进，
-           于是 cum 的含义是"经质量门控后的可信年度累计"，而不是"所有报数的累加"。 */
+           关键口径：质量标记决定该步长用**实测值**还是**基准值**推进 cum ——
+           NORMAL 用实测速率，其余（缺数/校准/停机/漂移）按该排口基准速率。
+           于是 cum 的含义是"实测覆盖段按实测、未覆盖段按基准估计的年度累计"，
+           而不是"所有报数的累加"，也不是"仪器坏了就停止排放"。
+           （2026-10-14 修正：早先这些步长贡献 0，与 observedCorrection 的
+             "未覆盖时段基准填补"口径不一致，两条实现系统性相差约 0.2%。） */
         const roll = parseInt(
           cu.sha256(`cems-quality|${ent.id}|${m.monitor_no}|${t.toISOString()}`).slice(0, 6), 16
         ) % 1000;
@@ -166,8 +220,19 @@ async function ingest(opts = {}) {
         else if (roll < 32) { quality = 'DRIFT'; flowValue = Number((flow * 1.35).toFixed(3)); }
 
         /* cum 的单位是 tCO2e（年度累计排放量），flowValue 的单位是 tCO2e/h，
-           因此每个采样步长推进的是 flowValue × STEP_HOURS，而不是 flowValue 本身。 */
+           因此每个采样步长推进的是 flowValue × STEP_HOURS，而不是 flowValue 本身。
+
+           ⭐ 「未被有效测量覆盖的步长怎么推进」必须与 observedCorrection 完全一致
+           （2026-10-14，来源 ① 的最后一处隐性分叉）：
+             observedCorrection 把 缺数/校准/停机/漂移 视作**未被测量覆盖**，
+             按"未实测时段用基准模型填补"的口径以基准速率推进；
+             早先这里却让这些步长贡献 0，等于宣称"仪器坏了工厂就停止排放"，
+             两条实现因此系统性相差 baseRate × 覆盖损失（实测约 0.2%）。
+           现在的规则统一为：NORMAL → 按实测速率推进；其余 → 按该排口的基准速率推进。
+           注意质量标记**仍然真正影响核算**（它决定用实测值还是基准值），
+           被排除的量继续由 excluded_points 如实披露，不是静默忽略。 */
         if (quality === 'NORMAL') stepFlow += flowValue;
+        else stepFlow += perHour * share;   // 未覆盖步长：按该排口基准速率推进
 
         stepRows.push([
           ent.id, m.monitor_no, m.energy_type, fmt(t), flowValue, 0,
@@ -261,7 +326,8 @@ async function observedCorrection(entId, upto = new Date()) {
 
   /* 步进积分：Δt = min(相邻间隔, 名义上限)；末点不外推（与 WP4 同一口径） */
   let integrated = 0;
-  let coveredHours = 0;
+  const coveredByMon = new Map();
+  const emittedByMon = new Map();
   let prevMon = null;
   let prevT = null;
   let prevRate = 0;
@@ -269,15 +335,72 @@ async function observedCorrection(entId, upto = new Date()) {
     const t = new Date(r.reading_time).getTime();
     if (r.monitor_no === prevMon) {
       const dtMin = Math.min((t - prevT) / 60000, NOMINAL_CAP_MIN);
-      if (dtMin > 0) { integrated += prevRate * (dtMin / 60); coveredHours += dtMin / 60; }
+      if (dtMin > 0) {
+        const e = prevRate * (dtMin / 60);
+        integrated += e;
+        coveredByMon.set(r.monitor_no, (coveredByMon.get(r.monitor_no) || 0) + dtMin / 60);
+        emittedByMon.set(r.monitor_no, (emittedByMon.get(r.monitor_no) || 0) + e);
+      }
     }
     prevMon = r.monitor_no; prevT = t; prevRate = Number(r.flow_value);
   }
+
+  /* ⭐ 企业级"被测量覆盖时长"= 各排口覆盖时长按**该排口实测排放量**加权平均
+     ------------------------------------------------------------------
+     推导（不是拍脑袋的加权）：
+       设排口 m 占企业排放的份额为 shareₘ（Σ shareₘ = 1）。
+       基准应排放量 = Σₘ baseRate·shareₘ·coveredₘ = baseRate · Σₘ shareₘ·coveredₘ
+       因此"企业级覆盖时长" = Σₘ shareₘ · coveredₘ —— **份额加权**，不是算术平均。
+       份额不可知，用该排口的实测排放量作代理（流量 ∝ 份额，商在同一窗口内抵消）。
+     三种取法的后果（实测）：
+       · 直接求和   → 基准量重复计 N 倍，cum 系统性偏低（ent2 偏低 12,225 t，已修）；
+       · 算术平均   → 被"只在窗口里出现过几分钟"的排口拖垮。ent7 有 16 个排口
+                     （3 个平台自举 + 13 个历史设备/测试排口各几条读数），
+                     平均后覆盖时长从 ~700h 掉到 ~131h，基准减项缩水 82%，
+                     correction 虚高 +5,682，库值/推导漂移 8.05%；
+       · 排放量加权 → 权重集中在真正在测的排口上，ent7 恢复到 -0.2% 量级。
+     排口完全同质（覆盖时长相同）时本式退化为算术平均，故与既有口径向后兼容。 */
+  const emittedTotal = [...emittedByMon.values()].reduce((a, b) => a + b, 0);
+  const coveredHours = emittedTotal > 0
+    ? [...emittedByMon.entries()].reduce((a, [mon, e]) => a + (coveredByMon.get(mon) || 0) * e, 0) / emittedTotal
+    : 0;
 
   const value = Number((integrated - baseRate * coveredHours).toFixed(3));
   if (corrCache.size > 600) corrCache.clear();   // 时间桶无界增长，做个上限兜底
   corrCache.set(key, { at: Date.now(), value, coveredHours: Number(coveredHours.toFixed(2)) });
   return value;
+}
+
+/**
+ * ⭐ 任意时刻的**权威年度累计排放**（tCO2e）—— 全平台唯一实现。
+ *
+ *     cum(t) = 基准速率(dailyBaseFor/24) × 自年初小时数 + 实测偏差修正(t)
+ *
+ * 两条写入路径（平台自举 `ingest` / HJ 212 设备直报 `hj212Server`）与
+ * 动态核算账（`recompute`）现在**都只调用本函数**：
+ *   · 设备直报此前自带一份同名实现（`hj212Server#annualCum`），属重复口径；
+ *   · `recompute` 此前直接采信库里的 `cum_value` 列 —— 而那一列由两个生产者写入，
+ *     "最新一条被谁占住就听谁的"，是来源 ①（跨路径尺度混写）的结构性根源。
+ * 收敛到本函数后，核算账不再依赖"哪个生产者写得晚"，而只依赖**原始读数本身**。
+ *
+ * @param {number} entId
+ * @param {Date|string} at 目标时刻
+ * @param {object} [pre] 可选的预取上下文 { base } —— 避免重复查配额
+ */
+async function annualCumAt(entId, at, pre = {}) {
+  const t = at instanceof Date ? at : new Date(at);
+  const ent = await db.one('SELECT id, industry, scale FROM enterprise WHERE id = ?', [entId]);
+  if (!ent) return 0;
+  const year = t.getFullYear();
+  const base = pre.base !== undefined
+    ? Number(pre.base)
+    : dailyBaseFor(ent, Number(await db.value(
+      'SELECT total_allocated FROM carbon_quota WHERE ent_id = ? AND year = ?', [entId, year]
+    ) || 0));
+  const jan1 = new Date(year, 0, 1).getTime();
+  const hours = Math.max(0, (t.getTime() - jan1) / 3600000);
+  const corr = await observedCorrection(entId, t);
+  return Number((base / 24 * hours + corr).toFixed(3));
 }
 
 /**
@@ -287,28 +410,53 @@ async function observedCorrection(entId, upto = new Date()) {
  */
 async function recompute(entId = null) {
   const { year, period } = currentPeriod();
-  const daysPassed = Math.max(1, Math.floor((Date.now() - new Date(year, 0, 1).getTime()) / 86400000));
   const ents = entId
     ? await db.query('SELECT id, industry, scale FROM enterprise WHERE id = ?', [entId])
     : await db.query("SELECT id, industry, scale FROM enterprise WHERE status <> 'SUSPENDED'");
 
   const results = [];
   for (const ent of ents) {
-    /* 1) 周期累计实测排放 = 该企业**最新一条有效读数**的年度累计值。
+    /* 1) 最后读数时刻（多排口：取各排口最新时刻中的最晚者）+ 库值对照。
        ⭐ 质量门控（WP1）：只采信 quality_flag='NORMAL' 的读数。
        若把缺数/校准/停机/漂移期间的值一并采信，质量标记就只是装饰；
        这里让质量标记**真正决定哪些数据进入核算**，并用 excluded_points 如实披露被排除的量。
-       退化路径：某企业一条有效读数都没有时，退回最新任意读数（否则该企业会凭空变成 0 排放），
-       但此时 risk 计算中的 `allocated === 0 && cumulative > 0` 等分支仍按真实值走。 */
-    const latestValid = await db.one(
-      `SELECT cum_value, reading_time FROM cems_reading
-       WHERE ent_id = ? AND quality_flag = 'NORMAL' ORDER BY reading_time DESC, id DESC LIMIT 1`, [ent.id]
-    );
-    const latest = latestValid || await db.one(
-      `SELECT cum_value, reading_time FROM cems_reading
-       WHERE ent_id = ? ORDER BY reading_time DESC, id DESC LIMIT 1`, [ent.id]
-    );
-    const cumulative = latest ? Number(latest.cum_value) : 0;
+
+       ⭐ 多排口 × 多路径的取值史（2026-10-14，两步修复，末尾是定稿）
+       cems_reading 是「多排口 × 多时刻」明细表，cum_value 曾是**企业级年度累计的冗余副本**，
+       而该列由两个生产者写入（平台自举 / HJ 212 设备直报）。历史上踩过两坑：
+         · 旧实现「全表最新一条」：会被**任意一个排口 / 任意一个生产者**的最新时刻占住，
+           该行若写入滞后就取到偏小值（实测 ent2：取到 203,308，低估 18.71%）；
+         · 「各排口求和」**错误**：会把同一企业累计重复计 N 次（实测 ent7 14 排口，高估 1151%）。
+       中间态修复为「各排口最新值取最大值」——有效，但仍是**取值技巧**：只要某个生产者
+       落后一版代码，列里就混着两种尺度，正确性依赖"谁写的值恰好更大"。
+       定稿：核算账**不再从本列取值**，改为由原始读数按唯一口径重新推导（见下方第 3 步）；
+       本列降级为**对照披露**（storedCum / cumDriftPct），漂移超 2% 即可被审计定位。
+       这一步才是来源 ①（跨路径 cum 尺度混写）的根治：不依赖写入顺序、不依赖谁写得大。 */
+    const latestPerStack = (qualityOnly) => `
+      SELECT t.cum_value, t.reading_time, t.source FROM (
+        SELECT cum_value, reading_time, source,
+               ROW_NUMBER() OVER (PARTITION BY monitor_no ORDER BY reading_time DESC, id DESC) AS rn
+          FROM cems_reading
+         WHERE ent_id = ?${qualityOnly ? " AND quality_flag = 'NORMAL'" : ''}
+      ) t WHERE t.rn = 1`;
+    let stacks = await db.query(latestPerStack(true), [ent.id]);
+    const qualityGated = !stacks.length;   // true = 该企业无 NORMAL 读数，已退化为任意读数
+    if (qualityGated) stacks = await db.query(latestPerStack(false), [ent.id]);
+    /* ⭐ 库里的 cum_value 只作为**对照披露**，不再作为核算账的取值来源（2026-10-14，来源 ① 根治）。
+       cum_value 列由两个生产者写入（平台自举 `ingest` / 设备直报 `hj212Server`），
+       只要其中一方落后一版代码或被别的时点占住，"最新一条被谁占住就听谁的"。
+       现在核算账改由 `annualCumAt()` 从**原始读数**重新推导（见下方第 3 步），
+       库值仅用于交叉校验：漂移 > 2% 时在结果里给出 cumDriftPct，供审计定位。
+       ⚠ WATCHDOG 行是"看门狗占位写入"，其 cum 按设计就**沿用该排口最后已知值**，
+         不代表当刻的推导结果，故不参与对照（否则每个离线排口都会报一次假漂移）。 */
+    const comparable = stacks.filter((r) => r.source !== 'WATCHDOG');
+    const storedCum = comparable.length
+      ? Math.max(...comparable.map((r) => Number(r.cum_value) || 0))
+      : 0;
+    /* 时间口径用的「最后读数时刻」= 各排口最新时刻中的最晚者 */
+    const latest = stacks.length
+      ? stacks.reduce((a, b) => (new Date(a.reading_time) >= new Date(b.reading_time) ? a : b))
+      : null;
 
     // 本年度有效点数 / 被质量门控排除的点数（披露而非隐藏）
     const qstat = await db.one(
@@ -323,22 +471,40 @@ async function recompute(entId = null) {
     const quota = await db.one('SELECT total_allocated, available FROM carbon_quota WHERE ent_id = ? AND year = ?', [ent.id, year]);
     const allocated = quota ? Number(quota.total_allocated) : 0;
     const available = quota ? Number(quota.available) : 0;
+    const base = dailyBaseFor(ent, allocated);   // tCO2e/天（基准模型）
+    const baseRate = base / 24;                  // tCO2e/h
 
-    // 3) 滚动日均排放速率（tCO2e/天）= 年度累计实测排放 / 自年初已过天数
-    //    口径稳定、可复现：不依赖"最近一天恰好有几条读数"，读数越积越准。
+    /* 3) ⭐ 权威年度累计（来源 ① 根治）：不再读库值，改由原始读数按唯一口径推导。
+       口径与两条写入路径完全同一实现（observedCorrection 的实测偏差修正），
+       因此"设备直报 vs 企业自举共用同一 cum 尺度"在结构上成立，无需再靠取值技巧兜底。 */
     const latestAt = latest ? new Date(latest.reading_time) : new Date();
-    const elapsedDays = Math.max(1, (latestAt.getTime() - new Date(year, 0, 1).getTime()) / 86400000);
+    const hoursElapsed = Math.max(0, (latestAt.getTime() - new Date(year, 0, 1).getTime()) / 3600000);
+    const elapsedDays = Math.max(1, hoursElapsed / 24);
+    /* 一条读数都没有的企业保持"无账可算"（cumulative = 0），不退化成基准复读机；
+       此时 predicted 仍为基准年量 baseRate×8760，与旧实现 dailyBaseFor×365 恒等。 */
+    const corrNow = latest ? await observedCorrection(ent.id, latestAt) : 0;
+    const cumulative = latest
+      ? Number((baseRate * hoursElapsed + corrNow).toFixed(3))   // = annualCumAt(ent.id, latestAt)
+      : 0;
+    const cumDriftPct = storedCum > 0 ? (cumulative - storedCum) / storedCum : null;
+
+    // 3b) 滚动日均排放速率（tCO2e/天）—— 描述性指标，口径稳定、不依赖"最近一天恰好有几条读数"
     const rate = cumulative > 0
       ? Number((cumulative / elapsedDays).toFixed(4))
-      : dailyBaseFor(ent, allocated);
+      : base;
 
     // 4) 已用碳信用抵销量（第二类碳资产 CCER 等）—— 抵销履约缺口
     const offsetTotal = Number(await db.value(
       'SELECT IFNULL(SUM(amount),0) FROM credit_offset WHERE ent_id = ? AND year = ?', [ent.id, year]
     ) || 0);
 
-    // 5) 按当前速率外推期末排放 → 抵销后预计配额缺口（= 预测期末 − 已抵销 − 已分配配额）
-    const predicted = Number((rate * 365).toFixed(3));
+    /* 5) 期末排放外推 —— ⭐ 改用全平台唯一口径 annualFrom（来源 ② 根治）。
+       旧实现 `rate × 365` 会把实测偏差按 8760/hours（≈1.27 倍）放大，
+       与不确定度模块的放大系数（≈12 倍）不一致，同一份数据两侧年化值相差 16.11%。
+       现口径：年度量 = 基准速率 × 8760 + 实测偏差修正（偏差为绝对量，不随覆盖度放大），
+       与 services/uncertainty.js 共用同一函数，口径分叉在结构上不可能再发生。
+       恒等式：predicted = cumulative + baseRate × 剩余小时数（自检用）。 */
+    const predicted = Number(annualFrom(baseRate, corrNow).toFixed(3));
     const netPredicted = predicted - offsetTotal;
     const gap = Number((netPredicted - allocated).toFixed(3));
     let risk = 'LOW';
@@ -364,7 +530,10 @@ async function recompute(entId = null) {
     );
     results.push({
       entId: ent.id, cumulative, allocated, gap, predicted, offset: offsetTotal, rate, risk,
-      validPoints, excludedPoints, qualityGated: !latestValid,
+      validPoints, excludedPoints, qualityGated,
+      /* 口径与可信度披露：库值与权威推导的漂移、基准速率、实测偏差修正 */
+      storedCum, cumDriftPct, baseRate, correction: corrNow,
+      expectedAnnual: predicted,        // = annualFrom(baseRate, corrNow)，全平台唯一口径
     });
   }
 
@@ -373,7 +542,8 @@ async function recompute(entId = null) {
   return results;
 }
 
-/** 根据动态核算结果产生/更新监管预警（同企业同类 OPEN 预警不重复产生） */
+/** 根据动态核算结果产生/更新监管预警（同企业同类 OPEN 预警不重复产生；
+ *  风险降级后存量 OPEN 预警自动复核关闭，保证状态机闭环）。 */
 async function emitAlerts(entId = null) {
   const where = entId ? 'AND a.ent_id = ?' : '';
   const params = entId ? [entId] : [];
@@ -390,17 +560,55 @@ async function emitAlerts(entId = null) {
     );
     if (open) continue;
     const level = r.risk_level === 'HIGH' ? 'HIGH' : 'MEDIUM';
+    /* 标题/内容必须带年度：企业总览页 KPI 展示的是「最近已申报年度」（如 2025，
+     * 盈余 59,755），而滚动预警针对当前年度（如 2026 配额尚未分配）——
+     * 不带年度时同一屏出现"盈余"与"缺口预警"，看起来自相矛盾且无从解释
+     * （2026-10-31 巡检 P1）。配额未分配是独立成因，文案单独成段，不冒充"缺口"。 */
+    const unassigned = !(Number(r.quota_allocated) > 0);
+    const title = unassigned
+      ? `${r.ent_name} ${r.year} 年度配额尚未分配，滚动核算存在预测缺口`
+      : `${r.ent_name} ${r.year} 年度动态核算触发配额缺口预警`;
+    const content = unassigned
+      ? `${r.ent_name} ${r.year} 年度配额尚未分配（已分配 0 tCO₂e）。`
+        + `截至最近实测，本年度累计排放 ${Number(r.cumulative_emission).toFixed(2)} tCO₂e；`
+        + `按当前滚动速率（${Number(r.emission_rate).toFixed(2)} tCO₂e/天）外推，预计期末排放约 ${Number(r.predicted_eoy).toFixed(2)} tCO₂e。`
+        + `请尽快完成 ${r.year} 年度配额核定与分配，再行滚动核算复核；`
+        + `该预警与上一履约年度的盈亏结论无关。`
+      : `${r.ent_name} ${r.year} 年度：截至最近实测累计排放 ${Number(r.cumulative_emission).toFixed(2)} tCO₂e，`
+        + `已分配配额 ${Number(r.quota_allocated).toFixed(2)} tCO₂e；`
+        + `按当前滚动速率（${Number(r.emission_rate).toFixed(2)} tCO₂e/天）外推，预计期末排放约 ${Number(r.predicted_eoy).toFixed(2)} tCO₂e，`
+        + `预计期末缺口 ${Number(r.gap).toFixed(2)} tCO₂e（风险 ${level}）。`;
     await db.query(
       `INSERT INTO alert_record (alert_no, ent_id, alert_type, level, title, content, metric, status)
        VALUES (?,?, 'OVER_QUOTA', ?, ?, ?, ?, 'OPEN')`,
-      [cu.bizNo('AL'), r.ent_id, level,
-        `${r.ent_name} 动态核算触发配额缺口预警`,
-        `截至最近实测，本年度累计排放 ${Number(r.cumulative_emission).toFixed(2)} tCO₂e，已分配配额 ${Number(r.quota_allocated).toFixed(2)} tCO₂e；`
-        + `按当前滚动速率（${Number(r.emission_rate).toFixed(2)} tCO₂e/天）外推，预计期末排放约 ${Number(r.predicted_eoy).toFixed(2)} tCO₂e，`
-        + `预计期末缺口 ${Number(r.gap).toFixed(2)} tCO₂e（风险 ${level}）。`,
-        `预计缺口 ${Number(r.gap).toFixed(2)} tCO2e`]
+      [cu.bizNo('AL'), r.ent_id, level, title, content,
+        unassigned
+          ? `预计期末排放 ${Number(r.predicted_eoy).toFixed(2)} tCO2e（配额未分配）`
+          : `预计缺口 ${Number(r.gap).toFixed(2)} tCO2e`]
     );
     created++;
+  }
+
+  /* 状态机闭环：动态核算风险降级（缺口已消除/配额已覆盖）后，存量 OPEN
+   * 的 OVER_QUOTA 预警不能永远挂着 —— 自动复核关闭并留档，供监管端审计。
+   * 此前只有"同企业同类 OPEN 不重复创建"守卫，没有退出路径（2026-10-31 巡检 P1）。 */
+  let autoClosed = 0;
+  const stale = await db.query(
+    `SELECT id, ent_id FROM alert_record
+     WHERE alert_type = 'OVER_QUOTA' AND status = 'OPEN'
+     ${entId ? 'AND ent_id = ?' : ''}`,
+    entId ? [entId] : []
+  );
+  const riskEntIds = new Set(rows.map((x) => x.ent_id));
+  for (const a of stale) {
+    if (riskEntIds.has(a.ent_id)) continue;   // 仍在 HIGH/MEDIUM 风险中，保留
+    await db.query(
+      `UPDATE alert_record SET status = 'CLOSED', closed_at = NOW(),
+              handler = '动态核算自动复核',
+              handle_note = '最新滚动核算未再触发 HIGH/MEDIUM 风险（预测缺口已消除或配额已覆盖），系统自动关闭留档。'
+        WHERE id = ? AND status = 'OPEN'`, [a.id]
+    );
+    autoClosed++;
   }
   return created;
 }
@@ -427,6 +635,24 @@ async function overview(entId = null) {
   const [reading] = (await db.query(
     `SELECT COUNT(*) AS cnt, IFNULL(AVG(flow_value),0) AS avg_flow, MAX(reading_time) AS last_at FROM cems_reading`
   )) || [{}];
+
+  /* ⭐ 来源构成：`cems_reading` 同表混两类数据，必须分开报。
+   *
+   *   source='CEMS' 且 device_did IS NULL → 自举生成（dynamic.ingest）
+   *   device_did IS NOT NULL              → 真实设备直报（HJ212 落库）
+   *
+   * 同一字段里混着"模型输出"与"设备实测"，如果只报总数，页面就无法诚实
+   * 说明这些数是什么。这是院审"数据无出处"的根因 —— 所以这里把构成算出来，
+   * 让前端能按真实比例声明，而不是靠文案自觉。 */
+  const [srcMix] = (await db.query(
+    `SELECT SUM(device_did IS NOT NULL) AS device_rows,
+            SUM(device_did IS NULL) AS modeled_rows
+       FROM cems_reading`
+  )) || [{}];
+  const deviceRows = Number(srcMix.device_rows || 0);
+  const modeledRows = Number(srcMix.modeled_rows || 0);
+  const totalRows = deviceRows + modeledRows;
+
   return {
     year, period,
     summary: {
@@ -443,6 +669,19 @@ async function overview(entId = null) {
       total: Number(reading.cnt),
       avgFlow: Number(reading.avg_flow),
       lastAt: reading.last_at,
+      /* 来源构成：前端据此决定说"设备实测"还是"建模生成" */
+      deviceRows,
+      modeledRows,
+      deviceSharePct: totalRows > 0 ? Number((deviceRows / totalRows * 100).toFixed(2)) : 0,
+      /* 本页整体该被称作什么：只要存在建模读数就不能自称"全量实测"。
+       * 用"混合"而不是"部分真实"，因为前者对读者更可核查。 */
+      sourceKind: deviceRows > 0 && modeledRows > 0 ? 'MIXED'
+        : (deviceRows > 0 ? 'DEVICE' : 'MODELED'),
+      disclaimer: deviceRows === 0
+        ? '当前所有读数均为平台自举的建模值（按行业基准 + 确定性抖动生成），非任何真实排口的实测数据。'
+        : (modeledRows > 0
+          ? `当前 ${deviceRows.toLocaleString()} 条为设备直报、${modeledRows.toLocaleString()} 条为建模生成，两者混在同一序列中，请勿混用。`
+          : '当前读数全部来自边缘设备直报（HJ 212-2017，逐帧 CRC/SM3 校验）。'),
     },
     accounts: rows.map((r) => ({
       entId: r.ent_id, entName: r.ent_name, industry: r.industry, region: r.region, scale: r.scale,
@@ -478,6 +717,69 @@ async function readings(entId, limit = 48) {
 /* ---------------- 定时采数调度（准实时滚动） ---------------- */
 let timer = null;
 
+/**
+ * 把「当前所有未锚定的读数」作为**一个批次**上链，并把 chain_tx_id 只回写到这批行。
+ * ------------------------------------------------------------------
+ * 这是 CEMS 读数上链的**唯一实现**（调度器与 scripts/anchor-real-rows.cjs 共用）。
+ *
+ * ⚠⚠ 为什么必须有这个函数、而不能就地写 `UPDATE ... WHERE chain_tx_id IS NULL`：
+ *   那条语句的条件是**全表**的。任何一次 tick 都会把历史上所有尚未锚定的行
+ *   （含别的设备、别的时段、甚至人工补录的行）统统挂到这一笔交易上，
+ *   chain_tx_id 因此失去"这条读数属于哪次存证"的溯源意义 ——
+ *   拿任何一行去链上比对都能"验过"，但验的其实是别人的批次。
+ *   正确口径：本批 ≡ 提交时刻的未锚定行集合；payload 记下条数与 id 区间，
+ *   回写用 `id IN (...)`，与 payload 一一对应，可逐条复算。
+ *
+ * @param {object} [opt]
+ *   opt.where       额外过滤条件（SQL 片段，可含 `?`），如 "device_did LIKE ?"
+ *   opt.params      与 where 中 `?` 对应的参数
+ *   opt.txType      交易类型，默认 CEMS_READING
+ *   opt.bizPrefix   业务单号前缀，默认 CEMS
+ *   opt.scope       写进 payload 的范围标记，默认 ALL_PENDING
+ * @returns {Promise<null|object>} 无待锚定行时返回 null（不产生空交易）
+ */
+async function anchorPendingBatch(opt = {}) {
+  const where = opt.where ? ` AND (${opt.where})` : '';
+  const params = opt.params || [];
+  const rows = await db.query(
+    `SELECT id FROM cems_reading WHERE chain_tx_id IS NULL${where} ORDER BY id ASC`,
+    params
+  );
+  const ids = rows.map((r) => Number(r.id));
+  if (!ids.length) return null;            // 无新行 ⇒ 不产生空交易
+
+  const anchorSvc = require('./anchor');
+  const batchNo = cu.bizNo(opt.bizPrefix || 'CEMS');
+  const res = await anchorSvc.anchor({
+    txType: opt.txType || 'CEMS_READING',
+    bizNo: batchNo,
+    fromLabel: 'regulator:system',
+    payload: {
+      batchNo,
+      scope: opt.scope || 'ALL_PENDING',
+      readingCount: ids.length,
+      firstReadingId: ids[0],
+      lastReadingId: ids[ids.length - 1],
+      at: new Date().toISOString(),
+    },
+  });
+  const w = await db.query(
+    `UPDATE cems_reading SET chain_tx_id = ?
+      WHERE chain_tx_id IS NULL AND id IN (?)`,
+    [res.txId, ids]
+  );
+  return {
+    batchNo,
+    txId: res.txId,
+    blockIndex: res.blockIndex,
+    blockHash: res.blockHash,
+    readingCount: ids.length,
+    firstReadingId: ids[0],
+    lastReadingId: ids[ids.length - 1],
+    updatedRows: w && w.affectedRows !== undefined ? w.affectedRows : Number(w),
+  };
+}
+
 /** 启动定时采数与核算；intervalMs 默认 60s（演示节奏，生产可按小时） */
 function startScheduler(intervalMs = Number(process.env.CEMS_INTERVAL_MS || 60000)) {
   if (timer) return timer;
@@ -487,15 +789,7 @@ function startScheduler(intervalMs = Number(process.env.CEMS_INTERVAL_MS || 6000
       await recompute();             // 滚动重算全部企业
       // 采数批次上链存证（整批一次，体现"实测数据直接上链"）
       try {
-        const anchorSvc = require('./anchor');
-        const batch = cu.bizNo('CEMS');
-        const n = await db.value('SELECT COUNT(*) FROM cems_reading');
-        const res = await anchorSvc.anchor({
-          txType: 'CEMS_READING', bizNo: batch,
-          fromLabel: 'regulator:system',
-          payload: { batchNo: batch, readingCount: Number(n), at: new Date().toISOString() },
-        });
-        await db.query('UPDATE cems_reading SET chain_tx_id = ? WHERE chain_tx_id IS NULL', [res.txId]);
+        await anchorPendingBatch();
       } catch (e) { /* 上链失败不阻断采数 */ }
     } catch (e) {
       console.error('[dynamic] 定时核算失败：', e.message);
@@ -519,8 +813,10 @@ async function bootstrap() {
 }
 
 module.exports = {
-  INDUSTRY_BASE, STEP_HOURS, NOMINAL_CAP_MIN, dailyBase, dailyBaseFor, monitorsOf, sharesOf, currentPeriod,
+  INDUSTRY_BASE, STEP_HOURS, NOMINAL_CAP_MIN, HOURS_PER_YEAR,
+  dailyBase, dailyBaseFor, monitorsOf, sharesOf, currentPeriod,
   ingest, recompute, emitAlerts, overview, readings,
-  observedCorrection, resetCorrCache,
+  observedCorrection, annualFrom, annualCumAt, resetCorrCache,
+  anchorPendingBatch,
   startScheduler, stopScheduler, bootstrap,
 };

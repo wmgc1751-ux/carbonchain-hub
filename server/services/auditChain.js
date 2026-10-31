@@ -125,29 +125,47 @@ function append(o = {}) {
 function seal(o = {}) {
   const limit = Math.min(Math.max(Number(o.limit) || 2000, 1), 20000);
   return serialize(async () => db.tx(async (conn) => {
-    const [tips] = await conn.query(
-      'SELECT id, entry_hash FROM audit_log WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE'
+    /* ⚠ 不能简单「从最后一条已封印往后续」。
+     * 现实中会出现"中间有空洞"的形态：initdb 灌入的 220 条历史条目 entry_hash 为 NULL，
+     * 而服务启动后新增的操作日志（id 更大）已被实时封印。此时 tipId 指向最新那条，
+     * 空洞全部落在 tipId 之前，沿用 `id > tipId` 的写法会永远取不到待封印条目，
+     * seal 返回 0、剩余数不动，看起来像"封印失效"。
+     * 正确做法：定位**最早**的未封印条目，从它前一条的哈希重新起链，
+     * 把它及其之后的全部条目重算一遍（已封印的也要重算，否则 prev_hash 断链）。
+     * 本缺陷由 2026-10-23 的 initdb → verify:all 复现（audit 套件 6/12）。 */
+    const [holes] = await conn.query(
+      'SELECT id FROM audit_log WHERE entry_hash IS NULL ORDER BY id ASC LIMIT 1'
     );
-    let prevHash = tips.length ? tips[0].entry_hash : null;
-    const tipId = tips.length ? Number(tips[0].id) : 0;
+    if (!holes.length) return { sealed: 0, remaining: 0, tipHash: null };
+
+    const holeId = Number(holes[0].id);
+    const [before] = await conn.query(
+      'SELECT entry_hash FROM audit_log WHERE id < ? AND entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE',
+      [holeId]
+    );
+    let prevHash = before.length ? before[0].entry_hash : null;
 
     const [pending] = await conn.query(
-      `SELECT ${SELECT_COLS} FROM audit_log
-        WHERE entry_hash IS NULL AND id > ? ORDER BY id ASC LIMIT ?`,
-      [tipId, limit]
+      `SELECT ${SELECT_COLS} FROM audit_log WHERE id >= ? ORDER BY id ASC LIMIT ?`,
+      [holeId, limit]
     );
 
     let sealed = 0;
+    let rehashed = 0;
     for (const r of pending) {
       const payload = rowToPayload(r);
       const h = entryHash(prevHash, payload);
-      await conn.query('UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE id = ?', [prevHash, h, r.id]);
+      const already = r.entry_hash === h && r.prev_hash === prevHash;
+      if (!already) {
+        await conn.query('UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE id = ?', [prevHash, h, r.id]);
+        if (r.entry_hash === null || r.entry_hash === undefined) sealed++;
+        else rehashed++;
+      }
       prevHash = h;
-      sealed++;
     }
 
     const [[cnt]] = await conn.query('SELECT COUNT(*) AS n FROM audit_log WHERE entry_hash IS NULL');
-    return { sealed, remaining: Number(cnt.n), tipHash: prevHash };
+    return { sealed, rehashed, remaining: Number(cnt.n), tipHash: prevHash };
   }));
 }
 

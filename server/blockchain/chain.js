@@ -102,6 +102,37 @@ class Blockchain {
   }
 
   /**
+   * 以库为准校正内存链高度。
+   * ------------------------------------------------------------------
+   * 正常路径只多一条 `MAX(block_index)`；仅当内存高度与库内不一致
+   * （多进程并发、外部直接灌库、库被重建）时才整链重载。
+   */
+  async alignHeight() {
+    let dbMax = -1;
+    try {
+      const [rows] = await this.db.query('SELECT MAX(block_index) AS maxIdx FROM chain_block');
+      const v = rows && rows[0] ? rows[0].maxIdx : null;
+      dbMax = v === null || v === undefined ? -1 : Number(v);
+    } catch (e) {
+      // 极早期（chain_block 尚未建表）忽略：交给后续 INSERT 抛真实错误
+      return this.blocks.length ? Number(this.blocks[this.blocks.length - 1].index) : -1;
+    }
+    const memMax = this.blocks.length ? Number(this.blocks[this.blocks.length - 1].index) : -1;
+    if (dbMax !== memMax) await this.reloadAll();
+    return this.blocks.length ? Number(this.blocks[this.blocks.length - 1].index) : -1;
+  }
+
+  /** 从库内整链重载（仅在高度不一致或撞车重试时调用） */
+  async reloadAll() {
+    const [rows] = await this.db.query(
+      'SELECT block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, tx_count, miner, size_bytes, mine_time, UNIX_TIMESTAMP(block_time) AS ts FROM chain_block ORDER BY block_index ASC'
+    );
+    this.blocks = rows.map((r) => this._rowToBlock(r));
+    this._bumpRev();
+    return this;
+  }
+
+  /**
    * 把当前连接的会话时区固定为 UTC。
    * 池化连接下必须逐条连接生效，故先取一条连接执行；mysql2 每次从池里取到的连接
    * 都会带着初始化指令（在 pool 上用 connectionAttributes/initSql 不可用时，这里
@@ -396,35 +427,54 @@ class Blockchain {
     try {
       const genesis = !!opts.genesis;
       const txs = opts.txs || (genesis ? [] : this.pool.splice(0, this.pool.length));
-      const prev = this.blocks[this.blocks.length - 1];
-      const index = prev ? prev.index + 1 : 0;
-      // 时间戳取整到秒（与 DATETIME 存储精度一致，保证重新装载后哈希可复现）
-      const rawMs = opts.timestamp
-        ? new Date(opts.timestamp).getTime()
-        : (genesis ? Date.now() - 1000 * 60 * 60 * 24 : Date.now());
-      const timestamp = Math.floor(rawMs / 1000);
       const root = cu.merkleRoot(txs.map((t) => t.txId));
-      const prevHash = prev ? prev.hash : GENESIS_PREV_HASH;
 
-      // 按共识类型出块：联盟链默认 PoA（授权节点轮值 + 签名），POW 为历史兼容路径
-      const block = this.consensusMode === 'POA'
-        ? await this._buildPoaBlock({ index, timestamp, root, prevHash, txs, genesis, opts })
-        : this._buildPowBlock({ index, timestamp, root, prevHash, txs, genesis, opts });
+      // 出块前先与库内真实高度对齐。
+      // 本地开发常同时跑多个 app.js / 模拟脚本，或有人直接灌库；此时内存
+      // this.blocks 会落后于 chain_block 的实际高度，仍按 prev.index+1 出块
+      // 必然撞唯一索引 uk_block_index（Duplicate entry 'NNNN'）。
+      await this.alignHeight();
 
-      await this.db.query(
-        `INSERT INTO chain_block
-          (block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, consensus,
-           proposer, proposer_sig, tx_count, miner, size_bytes, mine_time, block_time, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-        [
-          block.index, block.hash, block.prevHash, block.merkleRoot, block.nonce,
-          block.difficulty, block.consensus, block.proposer, block.proposerSig,
-          block.txCount, block.miner, block.sizeBytes, block.mineTime,
-          // 传字符串而不是 Date 对象：驱动不再做任何本地时区换算，
-          // 配合会话 time_zone='+00:00'，写入值与读出秒数在 MySQL / TiDB 上完全一致。
-          Blockchain.utcDateString(block.timestamp),
-        ]
-      );
+      let block = null;
+      for (let attempt = 0; ; attempt += 1) {
+        const prev = this.blocks[this.blocks.length - 1];
+        const index = prev ? prev.index + 1 : 0;
+        // 时间戳取整到秒（与 DATETIME 存储精度一致，保证重新装载后哈希可复现）
+        const rawMs = opts.timestamp
+          ? new Date(opts.timestamp).getTime()
+          : (genesis ? Date.now() - 1000 * 60 * 60 * 24 : Date.now());
+        const timestamp = Math.floor(rawMs / 1000);
+        const prevHash = prev ? prev.hash : GENESIS_PREV_HASH;
+
+        // 按共识类型出块：联盟链默认 PoA（授权节点轮值 + 签名），POW 为历史兼容路径
+        const built = this.consensusMode === 'POA'
+          ? await this._buildPoaBlock({ index, timestamp, root, prevHash, txs, genesis, opts })
+          : this._buildPowBlock({ index, timestamp, root, prevHash, txs, genesis, opts });
+
+        try {
+          await this.db.query(
+            `INSERT INTO chain_block
+              (block_index, block_hash, prev_hash, merkle_root, nonce, difficulty, consensus,
+               proposer, proposer_sig, tx_count, miner, size_bytes, mine_time, block_time, created_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+            [
+              built.index, built.hash, built.prevHash, built.merkleRoot, built.nonce,
+              built.difficulty, built.consensus, built.proposer, built.proposerSig,
+              built.txCount, built.miner, built.sizeBytes, built.mineTime,
+              // 传字符串而不是 Date 对象：驱动不再做任何本地时区换算，
+              // 配合会话 time_zone='+00:00'，写入值与读出秒数在 MySQL / TiDB 上完全一致。
+              Blockchain.utcDateString(built.timestamp),
+            ]
+          );
+          block = built;
+          break;
+        } catch (e) {
+          const dup = e && (e.code === 'ER_DUP_ENTRY' || /Duplicate entry|uk_block_index/.test(String(e.message || '')));
+          // 撞车说明库内已被其他进程推进：重新对齐后按新高度重建本块（最多重试 3 次）
+          if (!dup || attempt >= 3) throw e;
+          await this.reloadAll();
+        }
+      }
 
       if (txs.length) {
         const ids = txs.map((t) => t.txId);
@@ -460,6 +510,7 @@ class Blockchain {
    * 无挖矿，出块耗时接近 0 —— 这正是联盟链相对公有链的性能优势。
    */
   async _buildPoaBlock({ index, timestamp, root, prevHash, txs, genesis, opts }) {
+    const t0 = Date.now();
     const proposer = await this.pickProposer(index, opts.proposer);
     const header = {
       index, timestamp, merkleRoot: root, prevHash,
@@ -467,11 +518,17 @@ class Blockchain {
     };
     const hash = Blockchain.calcHash(header);
     const proposerSig = cu.sign(proposer.privateKey, Blockchain.signingPayload(header));
+    /* 出块耗时：PoA 无挖矿，但"选主 + 算哈希 + 节点签名"是可测的真实工程开销。
+     * 原实现硬编码 0 → 大屏「平均出块」、浏览器「出块耗时」、管理总览「出块均值」
+     * 三处全部显示 0 ms / —（2026-10-29 巡检 P0-13）。一条本可用于佐证
+     * 联盟链性能优势的真实数据被浪费成了占位符。
+     * Math.max(1, …)：亚毫秒会被取整成 0，再次退化为"0 ms"，故设下限 1。 */
+    const mineTime = Math.max(1, Date.now() - t0);
     return {
       index, timestamp, merkleRoot: root, prevHash,
       consensus: 'POA', proposer: proposer.nodeId, nonce: 0, difficulty: 0,
       hash, proposerSig,
-      txCount: txs.length, miner: proposer.nodeId, mineTime: 0,
+      txCount: txs.length, miner: proposer.nodeId, mineTime,
       sizeBytes: Buffer.byteLength(JSON.stringify({ header, txs: txs.map((t) => t.txId) })),
     };
   }
@@ -570,6 +627,10 @@ class Blockchain {
       'SELECT *, UNIX_TIMESTAMP(block_time) AS ts FROM chain_block WHERE block_index >= ? ORDER BY block_index ASC', [from]
     );
     const errors = [];
+    /* 治理告警：不影响 valid（完整性结论），但必须让人看见。
+       见 (2) 出块资格判据的注释 —— 事后撤销节点不能反溯历史区块。 */
+    const warnings = [];
+    let revokedProposerBlocks = 0;
     let checked = 0;
 
     // 联盟链：加载授权节点公钥与状态，用于验证 PoA 出块签名与出块资格
@@ -589,7 +650,8 @@ class Blockchain {
      * 实测一次全链校验要跑几十分钟，接口必然超时。
      * 改成单条查询 + 内存分组后，往返次数恒为 1。 */
     const [allTx] = await this.db.query(
-      `SELECT block_index, tx_id, payload_hash, payload_json
+      `SELECT block_index, tx_id, payload_hash, payload_json, tx_type, biz_no,
+              signature, pub_key, from_address, to_address, nonce
          FROM chain_tx WHERE block_index >= ? ORDER BY block_index ASC, id ASC`,
       [from]
     );
@@ -608,6 +670,12 @@ class Blockchain {
     let payloadBound = 0;
     let payloadMismatch = 0;
     const payloadErrors = [];
+    /* 第(6)项：交易发起方签名校验的计数器 */
+    let txSigChecked = 0;
+    let txSigOk = 0;
+    let txSigInvalid = 0;
+    let txSigUnsigned = 0;
+    const txSigErrors = [];
     const PAYLOAD_ERROR_LIMIT = 20;
 
     for (let i = 0; i < blocks.length; i++) {
@@ -647,12 +715,32 @@ class Blockchain {
             message: `区块 #${b.index} 的 PoA 出块签名无效（出块节点 ${b.proposer} 签名校验失败）`,
           });
         }
+        /* ⚠⚠ 判据边界：出块资格必须按「出块当时」判，不能按「今天」判。
+         * 原实现拿 chain_node 的当前 status 去否历史区块 —— 节点一旦被撤销，
+         * 它此前签过的全部区块立刻变成"未授权出块"（实测 268 块 → 271 条错误），
+         * valid 从此恒为 false。这是恒假式判据：等于把「全链校验」这道总闸门废掉，
+         * 且联盟链本身也站不住 —— 撤销节点不能反溯撤销历史共识。
+         * 正确划分：
+         *   · 硬错误（真·未经授权）：出块者根本不在节点表里，身份不可识别；
+         *   · 治理告警（不是完整性问题）：出块者曾在册、事后被撤销/停用。
+         *     区块本身仍被签名与哈希链保护，篡改照样抓得住。
+         * 「撤销后是否仍在出块」属于节点治理问题，由 /regulator/nodes 的
+         * last_propose_at 与状态一起看，不该由历史区块反推。 */
         const st = nodeStatus.get(b.proposer);
-        if (st && (st.status !== 'ACTIVE' || !st.auth)) {
+        if (!st) {
           errors.push({
-            index: b.index, type: 'PROPOSER_UNAUTHORIZED',
-            message: `区块 #${b.index} 由未获授权的节点 ${b.proposer} 出块（当前状态 ${st.status}）`,
+            index: b.index, type: 'PROPOSER_UNREGISTERED',
+            message: `区块 #${b.index} 的出块节点 ${b.proposer} 不在联盟节点表中（身份不可识别）`,
           });
+        } else if (st.status !== 'ACTIVE' || !st.auth) {
+          revokedProposerBlocks += 1;
+          if (warnings.length < 20) {
+            warnings.push({
+              index: b.index, type: 'PROPOSER_REVOKED_LATER',
+              message: `区块 #${b.index} 由 ${b.proposer} 出块；该节点现为 ${st.status}`
+                + '（历史区块不因事后撤销而失效，此处仅作治理提示）',
+            });
+          }
         }
       } else if (!String(b.hash).startsWith(cu.ZERO.repeat(b.difficulty))) {
         errors.push({
@@ -701,6 +789,44 @@ class Blockchain {
             });
           }
         }
+
+        /* (6) 交易发起方签名校验 —— 补上「同库同改」的最后一段。
+         * 背景：payload_hash 虽被出块签名间接保护（区块头含 Merkle 根，
+         * 根由 txId 派生，而 txId 又由 payload_hash 派生），但攻击者可以
+         * **只改 payload_hash 而不改 txId**：此时 Merkle 根不变、第⑤道
+         * 重算出来的摘要也与被改后的 payload_hash 一致 —— 五道全绿，篡改成功。
+         * 交易签名覆盖了 payloadHash / txId / bizNo / from / to / nonce，
+         * 任何一项被改，验签必然失败；而伪造签名需要发起方私钥，
+         * 私钥只存在于节点本地 keystore，不进数据库。
+         * 因此本项是「改 payload_json + 同步改 payload_hash」这条路径的唯一出口。 */
+        if (t.signature && t.pub_key) {
+          txSigChecked++;
+          const okSig = Blockchain.isTxSignatureValid({
+            txId: t.tx_id,
+            txType: t.tx_type,
+            bizNo: t.biz_no,
+            fromAddress: t.from_address,
+            toAddress: t.to_address,
+            payloadHash: t.payload_hash,
+            nonce: Number(t.nonce),
+            signature: t.signature,
+            pubKey: t.pub_key,
+          });
+          if (okSig) {
+            txSigOk++;
+          } else {
+            txSigInvalid++;
+            if (txSigErrors.length < PAYLOAD_ERROR_LIMIT) {
+              txSigErrors.push({
+                index: b.index, txId: t.tx_id, type: 'TX_SIGNATURE_INVALID',
+                message: `区块 #${b.index} 的交易 ${String(t.tx_id).slice(0, 16)}… 发起方签名无效`
+                  + '（交易字段包括 payloadHash 已被改动，且无法伪造发起方私钥签名）',
+              });
+            }
+          }
+        } else {
+          txSigUnsigned++;
+        }
       }
     }
 
@@ -713,9 +839,21 @@ class Blockchain {
       });
     }
 
+    // 第(6)项：交易签名失配汇总
+    for (const e of txSigErrors) errors.push(e);
+    if (txSigInvalid > PAYLOAD_ERROR_LIMIT) {
+      errors.push({
+        index: -1, type: 'TX_SIGNATURE_INVALID_SUMMARY',
+        message: `另有 ${txSigInvalid - PAYLOAD_ERROR_LIMIT} 笔交易的发起方签名无效（明细已省略）`,
+      });
+    }
+
     return {
       valid: errors.length === 0,
       checkedBlocks: checked,
+      /* 治理告警（不参与 valid）：目前只有「出块节点事后被撤销」一类 */
+      warnings,
+      warningCount: revokedProposerBlocks,
       height: this.blocks.length ? this.blocks[this.blocks.length - 1].index : -1,
       /* 校验覆盖面（透明度指标）：本次到底验了什么、验了多少 */
       coverage: {
@@ -724,6 +862,10 @@ class Blockchain {
         txPayloadBindingChecked: txChecked,
         txPayloadBoundOk: payloadBound,
         txPayloadBindingMismatch: payloadMismatch,
+        txSignatureChecked: txSigChecked,
+        txSignatureOk: txSigOk,
+        txSignatureInvalid: txSigInvalid,
+        txSignatureUnsigned: txSigUnsigned,
       },
       errors,
       verifiedAt: new Date().toISOString(),
@@ -968,9 +1110,14 @@ class Blockchain {
         cost = pow.elapsed;
       }
       await this.db.query(
-        `UPDATE chain_block SET block_hash=?, prev_hash=?, merkle_root=?, nonce=?, proposer_sig=?, mine_time=?
+        /* ⚠ mine_time 不在区块哈希里，它是一份独立的观测数据（出块耗时样本）。
+         * 原实现无条件写 cost（PoA 分支恒为 0），于是每修复一次就把**全部**历史
+         * 出块耗时样本抹成 0：「出块均值 1 ms」退化为「—」，而 stats() 的注释
+         * 恰恰说这条数据是用来佐证联盟链性能的。修复只应改哈希与签名，
+         * 不应改动与被修字段无关的观测列 —— 这里保留原值。 */
+        `UPDATE chain_block SET block_hash=?, prev_hash=?, merkle_root=?, nonce=?, proposer_sig=?
          WHERE block_index = ?`,
-        [newHash, header.prevHash, merkle, header.nonce, sig, cost, raw.block_index]
+        [newHash, header.prevHash, merkle, header.nonce, sig, raw.block_index]
       );
       repaired.push({ index: header.index, newHash, cost });
       prevHash = newHash;
@@ -985,9 +1132,16 @@ class Blockchain {
    * ================================================================ */
 
   async stats() {
+    /* 平均出块耗时只在"真的出了块"的样本上平均。
+     * mine_time=0 表示该块不是节点挖出来的（历史补锚/导入批次），
+     * 把它算进均值会把 1~6 ms 的真实耗时稀释成 0，页面于是显示「0 ms」/「—」，
+     * 看起来像出块根本没有耗时（2026-10-29 巡检 P0-13）。 */
     const [[blk]] = await this.db.query(
       `SELECT COUNT(*) AS total_blocks, IFNULL(SUM(tx_count),0) AS total_txs,
-              IFNULL(AVG(mine_time),0) AS avg_mine_time, IFNULL(MAX(difficulty),0) AS difficulty,
+              IFNULL(AVG(NULLIF(mine_time,0)),0) AS avg_mine_time,
+              IFNULL(MAX(mine_time),0) AS max_mine_time,
+              SUM(mine_time > 0) AS mine_samples,
+              IFNULL(MAX(difficulty),0) AS difficulty,
               IFNULL(SUM(size_bytes),0) AS total_size
        FROM chain_block`
     );
@@ -998,11 +1152,28 @@ class Blockchain {
     const [byType] = await this.db.query(
       'SELECT tx_type, COUNT(*) AS cnt FROM chain_tx GROUP BY tx_type ORDER BY cnt DESC'
     );
+    /* 出块速率按**本地小时**分组：block_time 存的是 UTC 字面量，
+     * 直接 DATE_FORMAT 出来的是 UTC 整点，与页面上其它本地时间差 8 小时。 */
+    const tzOffHours = -new Date().getTimezoneOffset() / 60;
     const [recent] = await this.db.query(
-      `SELECT DATE_FORMAT(block_time,'%Y-%m-%d %H:00') AS hour, COUNT(*) AS cnt
-       FROM chain_block GROUP BY hour ORDER BY hour DESC LIMIT 24`
+      `SELECT DATE_FORMAT(DATE_ADD(block_time, INTERVAL ? HOUR),'%Y-%m-%d %H:00') AS hour, COUNT(*) AS cnt
+       FROM chain_block GROUP BY hour ORDER BY hour DESC LIMIT 24`, [tzOffHours]
     );
-    const tip = this.blocks[this.blocks.length - 1] || null;
+    let tip = this.blocks[this.blocks.length - 1] || null;
+    /* ⚠ 内存链在进程重启后为空（区块从 DB 独立可查），此时 tip=null 会让
+     * stats() 返回 height:-1，与同屏的 totalBlocks:1139 自相矛盾
+     * （/admin/overview"链高度 -1 块"就是它）。内存没有 tip 时回查 DB 链顶。 */
+    if (!tip && this.db) {
+      try {
+        /* 列名必须是 block_index / block_hash —— 账本表（00_schema_ledger.sql）的
+         * 真实列名，不是内存区块对象的 index/hash。原先写成 `index`/`hash`，
+         * 这条 SQL 必然抛 Unknown column，被下面 catch 吞掉后 height 仍为 -1：
+         * 回查形同虚设，页面继续显示「链高度 -1」而同屏显示 1,545 笔存证。 */
+        const [[dbTip]] = await this.db.query(
+          'SELECT block_index AS idx, block_hash AS hash FROM chain_block ORDER BY block_index DESC LIMIT 1');
+        if (dbTip) tip = { index: Number(dbTip.idx), hash: dbTip.hash };
+      } catch (e) { /* DB 不可用时维持 -1 */ }
+    }
     let activeNodes = 0;
     let poaBlocks = 0;
     try {
@@ -1011,16 +1182,81 @@ class Blockchain {
       const [[pb]] = await this.db.query("SELECT COUNT(*) AS c FROM chain_block WHERE consensus = 'POA'");
       poaBlocks = Number(pb.c) || 0;
     } catch (e) { /* 非联盟表结构时忽略 */ }
+
+    /* ⚠⚠ 三个"交易数"是三个不同的东西，必须分开命名。
+     *
+     *   totalTxs  = Σ(区块.tx_count) —— 历史上被**打包进区块**的笔数总和，
+     *               是"累计写入量"，不随交易状态变化，也不等于当前表行数。
+     *   confirmed = COUNT(*) WHERE status='CONFIRMED' —— 当前状态为已确认的笔数。
+     *   pending   = COUNT(*) WHERE status='PENDING'   —— 已入池、待打包的笔数。
+     *
+     * 三者不相等是**正常的**，会长期不等，原因有三种：
+     *   ① 入池与出块之间存在窗口期；
+     *   ② 打包后状态回写失败（进程中断）—— 这是真实的"账实不符"，必须能被发现；
+     *   ③ 重建链时被重新出块，tx_count 累加而 status 未同步。
+     *
+     * 院审点名"摘要 894 与正文 895 不一致"，本质就是这类口径混用：
+     * 同一个词"存证数"在不同位置指了不同的量。修法不是把数字调成一样
+     * （那会掩盖真实的不一致），而是**给每个口径一个明确的名字**，
+     * 并额外给出可核对的 `ledgerTxRows`（账本表实际行数）。
+     * 三者若要相等，只能靠状态回写机制保证；不相等时必须能被看见。 */
+    const totalTxs = Number(blk.total_txs);
+    const confirmed = Number(tx.confirmed || 0);
+    const pending = Number(tx.pending || 0);
+    const ledgerTxRows = Number(tx.total || 0);
+
     return {
       height: tip ? tip.index : -1,
       tipHash: tip ? tip.hash : null,
       totalBlocks: Number(blk.total_blocks),
-      totalTxs: Number(blk.total_txs),
+      /* 兼容字段：历史代码大量引用 totalTxs 表示"累计打包笔数"，语义保持不变。 */
+      totalTxs,
       avgMineTime: Math.round(Number(blk.avg_mine_time)),
+      /* 出块耗时的样本口径：只有 mine_time>0 的块才是节点真实出块，
+       * 补锚/导入批次为 0。把样本数一并回传，前端才能说清
+       * 「平均 2 ms（基于 849 个真实出块样本）」而不是含糊的「0 ms」。 */
+      mineTimeSamples: Number(blk.mine_samples || 0),
+      maxMineTime: Number(blk.max_mine_time || 0),
       difficulty: Number(blk.difficulty),
       totalSize: Number(blk.total_size),
-      confirmed: Number(tx.confirmed || 0),
-      pending: Number(tx.pending || 0),
+      confirmed,
+      pending,
+      ledgerTxRows,
+      /* 口径核对。⚠ 注意 `diff` 的符号有明确含义，不能笼统说"账实不符"：
+       *
+       *   diff < 0  ⇒ 待打包笔数 > 0，即账本表里还有交易尚未进区块。
+       *                这是**正常的工作状态**（等待下一个出块周期），
+       *                只要 pending 与 diff 绝对值相等即可确认无异常。
+       *   diff > 0  ⇒ 累计打包笔数 **大于** 已确认+待确认的总行数。
+       *                这才是真正的异常：打包记录里存在账本表中已不存在的交易
+       *                （被删除、被重建、或状态回写丢失）。必须告警。
+       *   diff == 0 ⇒ 完全自洽。
+       *
+       * 原判断只看 `!==`，把"有 35 笔正常待打包"报成"状态未回写，需排查" ——
+       * 一个会持续误报的告警比没有告警更糟，它会训练人忽略真正的异常。 */
+      txAccounting: {
+        packedTotal: totalTxs,
+        confirmed,
+        pending,
+        ledgerRows: ledgerTxRows,
+        balanced: totalTxs === (confirmed + pending),
+        diff: totalTxs - (confirmed + pending),
+        state: (totalTxs === confirmed + pending) ? 'BALANCED'
+          : (totalTxs - (confirmed + pending) === -pending && pending >= 0) ? 'PENDING_BACKLOG'
+            : 'MISMATCH',
+        note: (() => {
+          if (totalTxs === confirmed + pending) {
+            return '累计打包笔数 = 已确认 + 待确认，账实自洽';
+          }
+          if (totalTxs - (confirmed + pending) === -pending) {
+            return `账实自洽：${confirmed} 笔已确认、${pending} 笔待打包，合计等于账本表 ${ledgerTxRows} 行。`
+              + '待打包是正常的工作状态，不是一个缺陷。';
+          }
+          return `⚠ 累计打包 ${totalTxs} 笔 > 已确认+待确认 ${confirmed + pending} 笔，`
+            + `多出 ${totalTxs - (confirmed + pending)} 笔：区块记录里有账本表中不存在的交易，`
+            + '可能存在交易被删除或状态回写丢失，需排查。';
+        })(),
+      },
       txByType: byType,
       blockRate: recent.reverse(),
       node: this.nodeName,

@@ -1,0 +1,44 @@
+# =====================================================================
+#  碳链通 CarbonChain Hub —— 一键本地生产栈（应用 + MySQL 8）
+#  用法：docker compose up -d
+#  密钥：生产部署请改用 secrets 管理或外部环境注入，勿把真实密钥提交进仓库
+# =====================================================================
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-carbonchain-db-2026}
+      MYSQL_DATABASE: ${DB_NAME:-carbon_chain}
+      MYSQL_EXTRA_OPTIONS: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${DB_PASSWORD:-carbonchain-db-2026}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # 账本库 carbon_chain_ledger 由 initdb/迁移自行创建（同实例双 schema）
+
+  app:
+    build: .
+    ports:
+      - "8300:8300"
+    environment:
+      NODE_ENV: production
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: ${DB_PASSWORD:-carbonchain-db-2026}
+      DB_NAME: ${DB_NAME:-carbon_chain}
+      # ⚠ 生产部署必须换成自己的强随机密钥（否则 assertSecureConfig 直接拒绝启动）
+      JWT_SECRET: ${JWT_SECRET:?请通过环境变量或 .env 提供 JWT_SECRET}
+      KEYSTORE_SECRET: ${KEYSTORE_SECRET:-carbonchain-ks-2026}
+      CEMS_INTERVAL_MS: "86400000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mysql-data:

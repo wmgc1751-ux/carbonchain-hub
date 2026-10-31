@@ -30,7 +30,7 @@
 .gov-mono{font-family:var(--mono);font-size:11.6px;line-height:1.75;word-break:break-all}
 .gov-check{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--hair)}
 .gov-check:last-child{border-bottom:none}
-.gov-check .flag{flex:none;font-family:var(--mono);font-size:10.6px;font-weight:600;padding:2px 6px;border-radius:5px}
+.gov-check .flag{flex:none;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px}
 .gov-check .flag.ok{background:rgba(16,185,129,.16);color:#6ee7b7}
 .gov-check .flag.no{background:rgba(244,63,94,.16);color:#fda4af}
 .gov-check .tx{font-size:12.4px;color:var(--tx-1);line-height:1.65}
@@ -69,8 +69,13 @@
     };
   }
 
+  /* KPI 网格：列数按条目数取能整除的值，避免"末行只剩两张、右边空四格"。
+   * 2026-10-29 巡检 P1-30：/gov/iot 8 张卡在 auto-fit 下排成 7+1，
+   * 第二行右侧整片留空，看起来像漏渲染。 */
   function kpiGrid(items) {
-    return h('div', { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(180px,1fr))' },
+    const n = items.length;
+    const cols = n % 4 === 0 ? 4 : (n % 3 === 0 ? 3 : 4);
+    return h('div', { class: 'kpi-grid', style: `--kpi-cols:${cols}` },
       items.map((k) => h('x-kpi', k)));
   }
 
@@ -84,6 +89,16 @@
       const stats = ref({});
       const status = ref({});
       const devices = ref([]);
+      /* 设备台账分页：一台一屏铺完 80 行会把页面拉到 5000px 高
+       * （2026-10-29 巡检 P2-35）。一页 15 行，翻页成本低于无休止滚动。 */
+      const devPage = ref(1);
+      const DEV_PAGE_SIZE = 15;
+      const devPageRows = computed(() => {
+        const list = devices.value || [];
+        const p = Math.min(Math.max(devPage.value, 1), Math.max(1, Math.ceil(list.length / DEV_PAGE_SIZE)));
+        return list.slice((p - 1) * DEV_PAGE_SIZE, p * DEV_PAGE_SIZE);
+      });
+      const devPageCount = computed(() => Math.max(1, Math.ceil((devices.value || []).length / DEV_PAGE_SIZE)));
       const conformance = ref(null);
       const factors = ref(null);
       const filter = reactive({ protocol: '', authStatus: '', keyword: '' });
@@ -107,6 +122,7 @@
             protocol: filter.protocol, authStatus: filter.authStatus,
             keyword: filter.keyword, limit: 300,
           });
+          devPage.value = 1;
         } catch (e) { devices.value = []; } finally { loading.value = false; }
       }
       async function loadStatic() {
@@ -116,7 +132,7 @@
 
       async function setAuth(dev, nextStatus) {
         const verb = nextStatus === 'ACTIVE' ? '审批通过' : (nextStatus === 'REVOKED' ? '吊销' : '置为待审批');
-        if (!confirm(`确认将设备 ${dev.mn || dev.device_did} ${verb}？\n\n该动作会写入操作审计日志（哈希链留痕）。`)) return;
+        if (!(await App.confirm(`确认将设备 ${dev.mn || dev.device_did} ${verb}？\n\n该动作会写入操作审计日志（哈希链留痕）。`))) return;
         try {
           const r = await App.API.post(`/iot/devices/${encodeURIComponent(dev.device_did)}/auth`,
             { status: nextStatus, note: '监管端看板操作' });
@@ -131,7 +147,8 @@
         bindOpen.value = true;
         if (!ents.value.length) {
           try {
-            const d = await App.API.get('/regulator/enterprises', { page: 1, size: 200 });
+            /* 公开名录接口：ADMIN 也会打开本页，而 /regulator/enterprises 仅 REGULATOR 可用 */
+            const d = await App.API.get('/public/enterprises', { page: 1, size: 200 });
             ents.value = (d && (d.rows || d)) || [];
           } catch (e) { ents.value = []; }
         }
@@ -213,7 +230,7 @@
                   h('button', { class: 'btn sm ghost', onClick: loadDevices }, '刷新'),
                 ],
                 default: () => h('div', { class: 'card-body flush' }, [
-                  h('x-table', { columns, rows: devices.value, loading: loading.value, rowKey: 'device_did', empty: '暂无设备档案' }, {
+                  h('x-table', { columns, rows: devPageRows.value, loading: loading.value, rowKey: 'device_did', empty: '暂无设备档案' }, {
                     'col-mn': ({ row }) => h('span', { class: 'mono', title: row.device_did }, row.mn || '—'),
                     'col-monitor_no': ({ row }) => row.monitor_no
                       ? h('span', { class: 'tag t-info plain' }, row.monitor_no)
@@ -234,6 +251,10 @@
                       h('button', { class: 'btn sm ghost', onClick: () => openBind(row) }, '绑定主体'),
                     ]),
                   }),
+                  devPageCount.value > 1 ? h('x-pager', {
+                    page: devPage.value, pages: devPageCount.value, total: devices.value.length,
+                    size: DEV_PAGE_SIZE, onChange: (p) => { devPage.value = p; },
+                  }) : null,
                 ]),
               }),
 
@@ -288,14 +309,14 @@
                             (ok ? '入库' : '拒绝(' + (fr.result || '—') + ')')),
                         ]);
                       })
-                      : [h('div', { class: 'dim tiny' }, '暂无帧记录（启动模拟器或让设备直报后出现）')]),
+                      : [h('x-empty', { inline: true, title: '暂无帧记录 · 启动模拟器或让设备直报后出现' })]),
                     h('div', { class: 'tiny', style: 'color:var(--tx-2);margin:12px 0 6px' }, '服务端事件'),
                     h('div', { class: 'gov-ev' }, (st.events || []).length
                       ? st.events.map((ev) => h('div', { class: 'it' }, [
                         h('span', { class: 'at' }, String(ev.at || '').slice(11, 19)),
                         h('div', { class: 'flex-1' }, [h('x-tag', { text: ev.kind, tone: 't-mute' }), ' ' + ev.message]),
                       ]))
-                      : [h('div', { class: 'dim tiny' }, '暂无事件')]),
+                      : [h('x-empty', { inline: true, title: '暂无事件' })]),
                   ]),
                 }),
               ]),
@@ -513,12 +534,13 @@
                 actions: () => [
                   h('select', {
                     class: 'input', style: 'width:96px;height:30px', value: String(windowHours.value),
+                    'aria-label': '统计窗口',
                     onChange: (e) => { windowHours.value = Number(e.target.value); loadPma(); loadTrend(); },
                   }, [6, 24, 72, 168].map((x) => h('option', { value: String(x) }, `${x} 小时`))),
                   h('button', { class: 'btn sm ghost', onClick: () => { loadQuality(); loadPma(); loadTrend(); } }, '刷新'),
                 ],
                 default: () => h('div', { class: 'card-body' },
-                  trendOption.value ? h('x-chart', { option: trendOption.value, height: 'h260' }) : h('div', { class: 'empty' }, '暂无时序数据')),
+                  trendOption.value ? h('x-chart', { option: trendOption.value, height: 'h260' }) : h('x-empty', { title: '暂无时序数据', sub: '时序数据由采集任务写入，可在「系统与链自检」中触发一次采集', icon: 'chart', tone: 'data' })),
               }),
             ]),
 
@@ -561,9 +583,9 @@
               /* 离线看门狗 */
               h('x-card', { title: '离线看门狗', sub: 'OFFLINE 标记的唯一真实生产者' }, {
                 default: () => h('div', { class: 'card-body' }, [
-                  h('div', { class: 'tiny', style: 'color:var(--tx-2);line-height:1.8;margin-bottom:12px' },
+                  h('div', { class: 'tiny', style: 'color:var(--tx-2);line-height:1.8;margin-bottom:12px' }, App.fmt.md(
                     '缺数（MISSING）是设备报了但那个时段没有有效值；离线（OFFLINE）是设备**根本没出现**。'
-                    + '后者只能由平台主动巡检发现 —— 存活证据只认设备直报，平台自举读数不作数。'),
+                    + '后者只能由平台主动巡检发现 —— 存活证据只认设备直报，平台自举读数不作数。')),
                   h('div', { class: 'field' }, [
                     h('label', {}, '静默阈值（分钟）'),
                     h('input', {
@@ -705,6 +727,7 @@
                 actions: () => [
                   h('select', {
                     class: 'input', style: 'width:140px;height:30px', value: String(sample.value),
+                    'aria-label': '校验范围',
                     onChange: (e) => { sample.value = Number(e.target.value); },
                   }, [
                     h('option', { value: '0' }, '全链复算'),

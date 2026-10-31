@@ -21,8 +21,11 @@
 
 const express = require('express');
 const H = require('../protocol/hj212');
+const db = require('../db');
 const registry = require('../services/deviceRegistry');
 const hj = require('../services/hj212Server');
+const deviceVerify = require('../services/deviceVerify');
+const bridge = require('../services/sm2DeviceBridge');
 const { authRequired, requireRole, writeLog, ok, fail, wrap } = require('../middleware/auth');
 
 const router = express.Router();
@@ -199,6 +202,75 @@ router.post('/seed', authRequired, requireRole('ADMIN', 'REGULATOR'), wrap(async
     `新增 ${r.created} 条，既有 ${r.existing} 条，合计 ${r.total} 条`);
   ok(res, r, `设备台账自举完成：新增 ${r.created} 条，合计 ${r.total} 条`
     + (r.created === 0 ? '（本次无新增，幂等）' : ''));
+}));
+
+/**
+ * 注册设备 SM2 公钥（ADMIN / REGULATOR）
+ * ----------------------------------------------------------------
+ * 设备公钥一经登记，该设备此后上报的数据帧（2011/2031）即进入验签通道：
+ * 验签失败 QnRtn=8、序号回退 QnRtn=9，均**不落库**。
+ * 未登记公钥的设备按 UNSIGNED 放行（存量设备与第三方数采仪不受影响）。
+ * body: { mn: string, publicKey: string(PEM/SPKI), sm2Id?: string }
+ */
+router.post('/devices/register-key', authRequired, requireRole('ADMIN', 'REGULATOR'), wrap(async (req, res) => {
+  const { mn, publicKey, sm2Id } = req.body || {};
+  if (!mn || !publicKey) return fail(res, 'mn 与 publicKey 必填', 400);
+
+  // 早失败：先解析一次，确保是合法 SM2 SPKI，避免脏公钥进库后该设备全线验签失败
+  let keyFp;
+  try {
+    keyFp = bridge.computeZa(publicKey, sm2Id || bridge.DEFAULT_ID).toString('hex').slice(0, 32);
+  } catch (e) {
+    return fail(res, `公钥不合法（须为未压缩 SM2 SPKI/PEM）：${e.message}`, 400);
+  }
+
+  const r = await db.query(
+    'UPDATE device_registry SET dev_pubkey=?, dev_key_fp=?, dev_key_reg_at=NOW(), dev_sm2_id=? WHERE mn=?',
+    [publicKey, keyFp, sm2Id || bridge.DEFAULT_ID, String(mn)]
+  );
+  if (!r.affectedRows) return fail(res, `设备 ${mn} 不在台账中，请先让其报到或执行台账自举`, 404);
+
+  await writeLog(req, '设备接入', '注册设备 SM2 公钥', mn,
+    `公钥指纹 ${keyFp}，用户标识 ${sm2Id || bridge.DEFAULT_ID}`);
+  ok(res, { mn, keyFp, sm2Id: sm2Id || bridge.DEFAULT_ID, affected: r.affectedRows },
+    `设备 ${mn} 公钥已登记，此后其数据帧进入验签通道（指纹 ${keyFp}）`);
+}));
+
+/** 验签统计（阴性对照与攻击证据的口径来源） */
+router.get('/verify-stats', authRequired, requireRole('REGULATOR', 'ADMIN'), wrap(async (req, res) => {
+  let rows = [];
+  try {
+    rows = await db.query(
+      'SELECT outcome, COUNT(*) AS cnt FROM device_verify_log GROUP BY outcome'
+    );
+  } catch (e) { /* 表缺失时如实返回空，不伪造 */ }
+  const byOutcome = {};
+  for (const r of rows) byOutcome[r.outcome] = Number(r.cnt);
+
+  /* 端云双算互证汇总：比对数 / 报警数 / 最大相对偏差。
+   * 表缺失时返回 null，由前端显示"尚无比对记录"，不伪造 0。 */
+  let crosscheck = null;
+  try {
+    const c = (await db.query(
+      `SELECT COUNT(*) AS total, IFNULL(SUM(alarmed),0) AS alarmed,
+              MAX(rel_diff) AS maxDiff, MAX(reading_time) AS lastAt
+         FROM source_crosscheck`
+    ))[0];
+    crosscheck = {
+      total: Number(c.total),
+      alarmed: Number(c.alarmed),
+      maxDiff: c.maxDiff === null ? null : Number(c.maxDiff),
+      thresholdPct: 5,
+      lastAt: c.lastAt,
+    };
+  } catch (e) { /* ignore */ }
+
+  ok(res, { runtime: deviceVerify.stats, byOutcome, crosscheck });
+}));
+
+/** 设备桥接层自检（上线前必跑；ADMIN）—— ZA 口径 / DER 转换 / 阴性对照 9 项 */
+router.get('/verify-selftest', authRequired, requireRole('ADMIN'), wrap(async (req, res) => {
+  ok(res, bridge.selfTest());
 }));
 
 module.exports = router;

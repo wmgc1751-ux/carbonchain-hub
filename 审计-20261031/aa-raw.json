@@ -1,0 +1,1055 @@
+{
+ "firstPass": [
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/explorer",
+   "violations": [
+    {
+     "id": "color-contrast",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#fbbf24",
+          "bgColor": "#fef6e9",
+          "contrastRatio": 1.55,
+          "fontSize": "9.0pt (12px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<span class=\"no\">03</span>",
+           "target": [
+            ".no"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.55 (foreground color: #fbbf24, background color: #fef6e9, font size: 9.0pt (12px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<span class=\"no\">03</span>",
+       "target": [
+        ".no"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.55 (foreground color: #fbbf24, background color: #fef6e9, font size: 9.0pt (12px), font weight: bold). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#eef4ff",
+          "bgColor": "#ffffff",
+          "contrastRatio": 1.1,
+          "fontSize": "11.3pt (15px)",
+          "fontWeight": "normal",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.1 (foreground color: #eef4ff, background color: #ffffff, font size: 11.3pt (15px), font weight: normal). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<h3>碳资产存证记录与产品数字护照（DPP）</h3>",
+       "target": [
+        ".sect-head > div > h3"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.1 (foreground color: #eef4ff, background color: #ffffff, font size: 11.3pt (15px), font weight: normal). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#93a2bb",
+          "bgColor": "#ffffff",
+          "contrastRatio": 2.58,
+          "fontSize": "9.0pt (12px)",
+          "fontWeight": "normal",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 2.58 (foreground color: #93a2bb, background color: #ffffff, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<p>每一批产品从「物理计量 → 边缘国密签名 → 合约动态核算 → 多节点共识」全链条留痕。此处的存证记录同时是生成欧盟新电池法案 / CBAM 碳关税申报所需产品数字护照的数据底座。</p>",
+       "target": [
+        "p"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.58 (foreground color: #93a2bb, background color: #ffffff, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+      }
+     ],
+     "help": "Elements must meet minimum color contrast ratio thresholds"
+    },
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell has-label\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><span>通知公告</span><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/screen",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell has-label\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><span>通知公告</span><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 17,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/verify",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell has-label\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><span>通知公告</span><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 19,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/notice",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell has-label\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><span>通知公告</span><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 17,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/real/truth",
+   "violations": [
+    {
+     "id": "color-contrast",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "normal",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: normal). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+       "target": [
+        ".rl-warn"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: normal). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<b>这份契约的设计意图：</b>",
+       "target": [
+        ".rl-warn > b:nth-child(1)"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<b>计算出来</b>",
+       "target": [
+        ".rl-warn > b:nth-child(2)"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<b>允许失败</b>",
+       "target": [
+        "b:nth-child(3)"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+      }
+     ],
+     "help": "Elements must meet minimum color contrast ratio thresholds"
+    },
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 22,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/ent/reports",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 25,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/ent/quota",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 1
+  },
+  {
+   "hash": "#/ent/members",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 23,
+   "incomplete": 2
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 2
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 2
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 2
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 2
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 2
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [
+    {
+     "id": "label-content-name-mismatch",
+     "impact": "serious",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell\" title=\"30 条未读通知\" aria-label=\"通知中心\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><!----><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "help": "Elements must have their visible text as part of their accessible name"
+    }
+   ],
+   "passes": 24,
+   "incomplete": 2
+  }
+ ],
+ "afterBellFix": [
+  {
+   "hash": "#/ent/overview",
+   "violations": [],
+   "passes": 25
+  },
+  {
+   "hash": "#/explorer",
+   "violations": [
+    {
+     "id": "color-contrast",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#fbbf24",
+          "bgColor": "#fef6e9",
+          "contrastRatio": 1.55,
+          "fontSize": "9.0pt (12px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<span class=\"no\">03</span>",
+           "target": [
+            ".no"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.55 (foreground color: #fbbf24, background color: #fef6e9, font size: 9.0pt (12px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<span class=\"no\">03</span>",
+       "target": [
+        ".no"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.55 (foreground color: #fbbf24, background color: #fef6e9, font size: 9.0pt (12px), font weight: bold). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#eef4ff",
+          "bgColor": "#ffffff",
+          "contrastRatio": 1.1,
+          "fontSize": "11.3pt (15px)",
+          "fontWeight": "normal",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.1 (foreground color: #eef4ff, background color: #ffffff, font size: 11.3pt (15px), font weight: normal). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<h3>碳资产存证记录与产品数字护照（DPP）</h3>",
+       "target": [
+        ".sect-head > div > h3"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.1 (foreground color: #eef4ff, background color: #ffffff, font size: 11.3pt (15px), font weight: normal). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#93a2bb",
+          "bgColor": "#ffffff",
+          "contrastRatio": 2.58,
+          "fontSize": "9.0pt (12px)",
+          "fontWeight": "normal",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 2.58 (foreground color: #93a2bb, background color: #ffffff, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<p>每一批产品从「物理计量 → 边缘国密签名 → 合约动态核算 → 多节点共识」全链条留痕。此处的存证记录同时是生成欧盟新电池法案 / CBAM 碳关税申报所需产品数字护照的数据底座。</p>",
+       "target": [
+        "p"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.58 (foreground color: #93a2bb, background color: #ffffff, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+      }
+     ],
+     "sample": "<span class=\"no\">03</span>"
+    },
+    {
+     "id": "label-content-name-mismatch",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "label-content-name-mismatch",
+         "data": null,
+         "relatedNodes": [],
+         "impact": "serious",
+         "message": "Text inside the element is not included in the accessible name"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<button class=\"nc-bell has-label\" title=\"30 条未读通知\" aria-label=\"通知中心，30 条未读\"><span style=\"font-size: 15px; line-height: 1;\">🔔</span><span>通知公告</span><span class=\"nc-badge\">30</span></button>",
+       "target": [
+        ".nc-bell"
+       ],
+       "failureSummary": "Fix any of the following:\n  Text inside the element is not included in the accessible name"
+      }
+     ],
+     "sample": "<button class=\"nc-bell has-label\" title=\"30 条未读通知\" aria-label=\"通知中心，30 条未读\"><span style=\"font-size: 15px; line"
+    }
+   ],
+   "passes": 24
+  },
+  {
+   "hash": "#/real/truth",
+   "violations": [
+    {
+     "id": "color-contrast",
+     "nodes": [
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "normal",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: normal). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+       "target": [
+        ".rl-warn"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: normal). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<b>这份契约的设计意图：</b>",
+       "target": [
+        ".rl-warn > b:nth-child(1)"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<b>计算出来</b>",
+       "target": [
+        ".rl-warn > b:nth-child(2)"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+      },
+      {
+       "any": [
+        {
+         "id": "color-contrast",
+         "data": {
+          "fgColor": "#c3d0e4",
+          "bgColor": "#fefaf2",
+          "contrastRatio": 1.49,
+          "fontSize": "9.2pt (12.2px)",
+          "fontWeight": "bold",
+          "messageKey": null,
+          "expectedContrastRatio": "4.5:1"
+         },
+         "relatedNodes": [
+          {
+           "html": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显示\"全部真实\"。只有当声明能在运行时被<b>计算出来</b>、并且<b>允许失败</b>时，它才是可证伪的断言，才有可能是真的。本页的每一条 expected 都写死了具体数字，因此它随时可能变红 —— 这正是它有意义的原因。</div>",
+           "target": [
+            ".rl-warn"
+           ]
+          }
+         ],
+         "impact": "serious",
+         "message": "Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+        }
+       ],
+       "all": [],
+       "none": [],
+       "impact": "serious",
+       "html": "<b>允许失败</b>",
+       "target": [
+        "b:nth-child(3)"
+       ],
+       "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 1.49 (foreground color: #c3d0e4, background color: #fefaf2, font size: 9.2pt (12.2px), font weight: bold). Expected contrast ratio of 4.5:1"
+      }
+     ],
+     "sample": "<div class=\"rl-warn\" style=\"margin-top: 16px;\"><b>这份契约的设计意图：</b> 真实性声明如果是一段写死的文案，它和广告没有区别 —— 数据被删、被改、被重建，文案照样显"
+    }
+   ],
+   "passes": 23
+  },
+  {
+   "hash": "#/ent/overview",
+   "violations": [],
+   "passes": 25
+  }
+ ]
+}

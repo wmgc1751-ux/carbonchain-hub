@@ -4,10 +4,24 @@
 --  文件: db/01_schema.sql
 --  说明: 本文件为纯 DDL，不含数据。数据由 server/scripts/init-db.js 生成，
 --        并可导出为 db/02_seed_data.sql，方便直接导入还原。
+--
+--  ⚠ 结构变更（链库物理分离）：
+--    链上账本 5 张表（chain_block / chain_tx / chain_payload_backup /
+--    chain_node / chain_node_replica）已迁至独立数据库 carbon_chain_ledger，
+--    定义见 db/00_schema_ledger.sql。本库为此 5 张表建立【只读视图】，
+--    使得：
+--      · 原有全部查询代码零改动（含业务表与链表的 JOIN）；
+--      · 业务库账号对账本库只有 SELECT 权限，无法写入/篡改；
+--      · 链内核通过专用连接池（server/db.js#ledgerPool）直连账本库读写实体表。
+--    ⇒ 「一条 UPDATE 同时改业务明文与链上锚点」在权限层不再成立。
 -- =====================================================================
 
 DROP DATABASE IF EXISTS carbon_chain;
-CREATE DATABASE carbon_chain DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+-- 2026-10-31（CCD-005）：库默认排序规则统一为 utf8mb4_0900_ai_ci。
+-- 原 general_ci 声明导致旧表与新表（MySQL8 默认 0900_ai_ci）混合，
+-- ent_code 跨表比较直接抛 "Illegal mix of collations"（/api/real/* 500）。
+-- 已对现库执行 CONVERT 统一；此处修正声明防止 initdb 重建后复发。
+CREATE DATABASE carbon_chain DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 USE carbon_chain;
 
 SET NAMES utf8mb4;
@@ -19,7 +33,7 @@ SET FOREIGN_KEY_CHECKS = 0;
 CREATE TABLE sys_user (
   id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   username      VARCHAR(50)  NOT NULL                COMMENT '登录账号',
-  password      VARCHAR(128) NOT NULL                COMMENT '口令摘要 = SHA256(salt + 明文)',
+  password      VARCHAR(200) NOT NULL                COMMENT '口令摘要 = scrypt$<hex128>（135字符；SHA256旧格式64字符）',
   salt          VARCHAR(32)  NOT NULL                COMMENT '口令盐值',
   real_name     VARCHAR(50)           DEFAULT NULL   COMMENT '姓名',
   role          VARCHAR(20)  NOT NULL                COMMENT '角色: ENTERPRISE 企业端 / VERIFIER 核查机构端 / REGULATOR 监管端 / TRADER 交易端（碳配额履约流转） / ADMIN 系统管理',
@@ -28,7 +42,7 @@ CREATE TABLE sys_user (
   phone         VARCHAR(20)           DEFAULT NULL   COMMENT '手机号',
   email         VARCHAR(80)           DEFAULT NULL   COMMENT '邮箱',
   avatar        VARCHAR(255)          DEFAULT NULL   COMMENT '头像',
-  status        TINYINT      NOT NULL DEFAULT 1      COMMENT '状态 1启用 0停用',
+  status        TINYINT      NOT NULL DEFAULT 1      COMMENT '状态 1启用 0待审核(机构自主注册待管理员审核) 2停用',
   last_login    DATETIME              DEFAULT NULL   COMMENT '最近登录时间',
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   PRIMARY KEY (id),
@@ -285,76 +299,6 @@ CREATE TABLE trade_deal (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='碳配额成交记录表';
 
 -- ---------------------------------------------------------------------
--- 12. chain_block  区块链区块表（联盟链：哈希链 + Merkle 根 + PoA 授权出块）
--- ---------------------------------------------------------------------
-CREATE TABLE chain_block (
-  id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  block_index BIGINT       NOT NULL                COMMENT '区块高度',
-  block_hash  VARCHAR(80)  NOT NULL                COMMENT '区块哈希(SHA-256)',
-  prev_hash   VARCHAR(80)  NOT NULL                COMMENT '前一区块哈希',
-  merkle_root VARCHAR(80)  NOT NULL                COMMENT '交易 Merkle 根',
-  nonce       BIGINT       NOT NULL DEFAULT 0      COMMENT '随机数(历史 PoW 块为该块工作量证明的 nonce)',
-  difficulty  INT          NOT NULL DEFAULT 0      COMMENT '难度(历史 PoW 块为前导零个数；PoA 块为 0)',
-  consensus   VARCHAR(10)  NOT NULL DEFAULT 'POA'  COMMENT '共识类型: POA 授权证明 / POW 工作量证明(历史块)',
-  proposer    VARCHAR(80)           DEFAULT NULL   COMMENT '本轮出块的联盟授权节点标识',
-  proposer_sig VARCHAR(255)         DEFAULT NULL   COMMENT '出块节点对区块头的 ECDSA 签名',
-  tx_count    INT          NOT NULL DEFAULT 0      COMMENT '打包交易数',
-  miner       VARCHAR(80)           DEFAULT NULL   COMMENT '出块节点标识',
-  size_bytes  INT          NOT NULL DEFAULT 0      COMMENT '区块大小(字节)',
-  mine_time   BIGINT       NOT NULL DEFAULT 0      COMMENT '出块耗时(毫秒)',
-  block_time  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '出块时间',
-  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_block_index (block_index),
-  KEY idx_block_hash (block_hash),
-  KEY idx_block_time (block_time),
-  KEY idx_block_proposer (proposer)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联盟链区块表';
-
--- ---------------------------------------------------------------------
--- 13. chain_tx  链上交易（业务动作的可信存证）
--- ---------------------------------------------------------------------
-CREATE TABLE chain_tx (
-  id            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  tx_id         VARCHAR(80)  NOT NULL                COMMENT '交易号(SHA-256 摘要)',
-  tx_type       VARCHAR(30)  NOT NULL                COMMENT '类型: EMISSION_REPORT 排放上报 / VERIFY_REPORT 核查报告 / QUOTA_ALLOC 配额分配 / TRADE_DEAL 交易成交 / ENTERPRISE_REG 企业备案',
-  biz_no        VARCHAR(40)           DEFAULT NULL   COMMENT '关联业务单号',
-  block_index   BIGINT                DEFAULT NULL   COMMENT '所属区块高度(NULL 表示在内存池中)',
-  from_address  VARCHAR(80)           DEFAULT NULL   COMMENT '发起方钱包地址',
-  to_address    VARCHAR(80)           DEFAULT NULL   COMMENT '接收方钱包地址',
-  payload_hash  VARCHAR(80)  NOT NULL                COMMENT '业务数据 SHA-256 摘要',
-  payload_json  TEXT                  DEFAULT NULL   COMMENT '业务数据快照',
-  signature     VARCHAR(255)          DEFAULT NULL   COMMENT '发起方 ECDSA 数字签名(secp256k1)',
-  pub_key       TEXT                  DEFAULT NULL   COMMENT '发起方公钥 PEM',
-  nonce         BIGINT       NOT NULL DEFAULT 0      COMMENT '交易序号(防重放)',
-  gas_fee       DECIMAL(12,4) NOT NULL DEFAULT 0      COMMENT '存证手续费(碳积分)',
-  status        VARCHAR(20)  NOT NULL DEFAULT 'CONFIRMED' COMMENT '状态: PENDING 待打包 / CONFIRMED 已确认 / FAILED 失败',
-  anchor_batch_no VARCHAR(40)         DEFAULT NULL   COMMENT '所属批量锚定批次号(NULL 表示尚未被批量锚定)',
-  anchor_status VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '锚定状态: PENDING 待锚定 / BATCHED 已入批 / ANCHORED 已锚定 / SELF 自身即锚点',
-  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发起时间',
-  confirmed_at  DATETIME              DEFAULT NULL   COMMENT '确认时间',
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_tx_id (tx_id),
-  KEY idx_tx_block (block_index),
-  KEY idx_tx_type (tx_type),
-  KEY idx_tx_status (status),
-  KEY idx_tx_anchor (anchor_status, block_index),
-  KEY idx_tx_batch (anchor_batch_no)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='链上存证交易表';
-
--- ---------------------------------------------------------------------
--- 13b. chain_payload_backup  链下明细篡改演示的原文备份
---      仅用于「篡改链下明细 → 第五道校验告警 → 一键还原」的演示闭环，
---      保证演示可反复进行、不污染链下业务数据。正式业务流程不写入本表。
--- ---------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS chain_payload_backup (
-  tx_id        VARCHAR(80) NOT NULL           COMMENT '被篡改的交易号',
-  payload_json TEXT                 DEFAULT NULL COMMENT '篡改前的链下明文负载（原文备份）',
-  backed_at    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '备份时间',
-  PRIMARY KEY (tx_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='链下明细篡改演示原文备份';
-
--- ---------------------------------------------------------------------
 -- 14. alert_record  监管预警记录
 -- ---------------------------------------------------------------------
 CREATE TABLE alert_record (
@@ -409,60 +353,19 @@ CREATE TABLE notice (
   id           BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
   title        VARCHAR(150) NOT NULL                COMMENT '标题',
   content      TEXT                  DEFAULT NULL   COMMENT '正文',
-  notice_type  VARCHAR(20)  NOT NULL DEFAULT 'POLICY' COMMENT '类型: POLICY 政策法规 / MARKET 市场公告 / SYSTEM 系统通知',
+  notice_type  VARCHAR(20)  NOT NULL DEFAULT 'POLICY' COMMENT '类型: POLICY 政策法规 / MARKET 市场公告 / SYSTEM 系统通知 / OFFICIAL 官方通知 / INTL 国际动态',
   target_role  VARCHAR(20)  NOT NULL DEFAULT 'ALL'  COMMENT '目标角色 ALL/ENTERPRISE/VERIFIER/REGULATOR',
   publisher    VARCHAR(50)           DEFAULT NULL   COMMENT '发布人',
   is_top       TINYINT      NOT NULL DEFAULT 0      COMMENT '是否置顶',
   views        INT          NOT NULL DEFAULT 0      COMMENT '浏览量',
   publish_time DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
+  source_name  VARCHAR(120)          DEFAULT NULL   COMMENT '真实消息源名称（如"生态环境部"；平台自建公告为 NULL）',
+  source_url   VARCHAR(500)          DEFAULT NULL   COMMENT '原文链接（权威平台 URL）',
+  fetched_at   DATETIME              DEFAULT NULL   COMMENT '抓取时间（区分"实时抓取"与"平台自建"）',
   PRIMARY KEY (id),
   KEY idx_notice_type (notice_type),
   KEY idx_notice_time (publish_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台通知公告表';
-
--- ---------------------------------------------------------------------
--- 17. chain_node  联盟链成员节点（准入白名单 + 出块权 + 副本状态）
---     联盟链的本质：参与方是"许可制"的成员，各成员节点共同出块并各自持链。
--- ---------------------------------------------------------------------
-CREATE TABLE chain_node (
-  id              BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  node_id         VARCHAR(40)  NOT NULL                COMMENT '节点标识 如 node-regulator-01',
-  node_name       VARCHAR(80)  NOT NULL                COMMENT '节点名称',
-  org_type        VARCHAR(20)  NOT NULL                COMMENT '机构类型: REGULATOR 监管 / VERIFIER 核查 / ENTERPRISE 企业 / AUDITOR 审计',
-  org_name        VARCHAR(120)          DEFAULT NULL   COMMENT '所属机构名称',
-  wallet_address  VARCHAR(80)           DEFAULT NULL   COMMENT '节点钱包地址(链上身份)',
-  public_key      TEXT                  DEFAULT NULL   COMMENT '节点公钥 PEM(用于验证该节点的出块签名)',
-  status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '状态: PENDING 待审批 / ACTIVE 已授权 / REVOKED 已吊销',
-  is_authorized   TINYINT      NOT NULL DEFAULT 0      COMMENT '是否具备出块权(联盟授权)',
-  vote_weight     INT          NOT NULL DEFAULT 1      COMMENT '轮值权重(权重越高被选中出块的概率越大)',
-  last_propose_at DATETIME              DEFAULT NULL   COMMENT '最近一次出块时间',
-  proposed_blocks INT          NOT NULL DEFAULT 0      COMMENT '累计出块数',
-  replica_height  BIGINT       NOT NULL DEFAULT -1     COMMENT '本地链副本已同步高度(-1 表示尚未同步)',
-  replica_tip     VARCHAR(80)           DEFAULT NULL   COMMENT '本地副本链顶哈希',
-  applied_at      DATETIME              DEFAULT NULL   COMMENT '申请加入时间',
-  approved_at     DATETIME              DEFAULT NULL   COMMENT '审批通过时间',
-  remark          VARCHAR(255)          DEFAULT NULL   COMMENT '备注/审批意见',
-  created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_node_id (node_id),
-  KEY idx_node_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联盟链成员节点表';
-
--- ---------------------------------------------------------------------
--- 18. chain_node_replica  各成员节点的本地链副本
---     每同步一个区块插一行，用于证明"每个节点各自持有全量链副本"，
---     并可对比各节点链顶哈希是否与主链一致（可发现被篡改的节点）。
--- ---------------------------------------------------------------------
-CREATE TABLE chain_node_replica (
-  id          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
-  node_id     VARCHAR(40) NOT NULL                COMMENT '节点标识',
-  block_index BIGINT      NOT NULL                COMMENT '已同步到的区块高度',
-  block_hash  VARCHAR(80) NOT NULL                COMMENT '该高度区块哈希(副本中保存的值)',
-  synced_at   DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '同步时间',
-  PRIMARY KEY (id),
-  UNIQUE KEY uk_replica_node_block (node_id, block_index),
-  KEY idx_replica_node (node_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='联盟节点链副本表';
 
 -- ---------------------------------------------------------------------
 -- 19. cems_reading  在线监测(CEMS)实测读数
@@ -487,13 +390,18 @@ CREATE TABLE cems_reading (
   sm3_digest   VARCHAR(80)            DEFAULT NULL   COMMENT '报文国密 SM3 指纹(设备直报时有值)',
   batch_no     VARCHAR(40)            DEFAULT NULL   COMMENT '采数批次号(同批次整体上链)',
   chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '该批次上链存证交易号',
+  dev_seq      BIGINT                 DEFAULT NULL   COMMENT 'CEN-100 设备单调序号(与报文 DevSeq 一致，用于防重放)',
+  signature    VARCHAR(256)           DEFAULT NULL   COMMENT 'CEN-100 设备 SM2 签名的 SM3 指纹留痕(不存完整签名，避免表膨胀)',
+  sig_mode     VARCHAR(16)            DEFAULT NULL   COMMENT '验签口径 STD 标准含ZA / NO_ZA 非标 / UNSIGNED 无签名',
+  gdev_tph     DECIMAL(18,9)          DEFAULT NULL   COMMENT 'CEN-100 设备端独立折算的排放速率(t/h)，用于端云双算互证',
   created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_cems_point (ent_id, monitor_no, reading_time),
   KEY idx_cems_ent_time (ent_id, reading_time),
   KEY idx_cems_time (reading_time),
   KEY idx_cems_batch (batch_no),
-  KEY idx_cems_quality (quality_flag)
+  KEY idx_cems_quality (quality_flag),
+  KEY idx_reading_seq (device_did, dev_seq)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='CEMS 在线监测读数表（同一排口同一时刻唯一，采数幂等）';
 
 -- ---------------------------------------------------------------------
@@ -537,7 +445,7 @@ CREATE TABLE credit_asset (
   issue_year   INT                    DEFAULT NULL   COMMENT '签发年度',
   valid_until  DATE                   DEFAULT NULL   COMMENT '有效期截止',
   registry     VARCHAR(120)           DEFAULT NULL   COMMENT '登记机构',
-  status       VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT '状态 ACTIVE 可用 / USED 已用尽 / EXPIRED 过期',
+  status       VARCHAR(20)   NOT NULL DEFAULT 'ACTIVE' COMMENT '状态 ACTIVE 可用 / USED 已用尽 / RETIRED 已注销（永久退出流通，不可再声称） / EXPIRED 过期',
   chain_block_index INT              DEFAULT NULL    COMMENT '签发存证区块高度',
   chain_tx_id  VARCHAR(80)            DEFAULT NULL   COMMENT '签发存证交易号',
   created_at   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '落库时间',
@@ -711,14 +619,63 @@ CREATE TABLE device_registry (
   last_seen_at   DATETIME              DEFAULT NULL   COMMENT '最近一次上报时间',
   offline        TINYINT(1)   NOT NULL DEFAULT 0      COMMENT '是否配置为断网续传缓冲节点',
   remark         VARCHAR(200)          DEFAULT NULL   COMMENT '备注',
+  dev_pubkey     TEXT                  DEFAULT NULL   COMMENT 'CEN-100 设备 SM2 公钥 PEM(SPKI)；有值则该设备数据帧进入验签通道',
+  dev_key_fp     VARCHAR(64)           DEFAULT NULL   COMMENT 'CEN-100 公钥指纹 Hex(前 32 字符)，用于现场核对',
+  dev_key_reg_at DATETIME              DEFAULT NULL   COMMENT 'CEN-100 公钥注册时间',
+  dev_sm2_id     VARCHAR(64)  NOT NULL DEFAULT '1234567812345678' COMMENT 'CEN-100 SM2 用户标识，必须与设备端烧录值一致，否则 ZA 不同、验签必败',
+  dev_last_seq   BIGINT       NOT NULL DEFAULT 0      COMMENT 'CEN-100 设备已确认的最大单调序号，用于防重放',
+  dev_sig_mode   VARCHAR(16)           DEFAULT NULL   COMMENT 'CEN-100 最近一次验签口径 STD / NO_ZA / UNSIGNED',
+  tamper_at      DATETIME              DEFAULT NULL   COMMENT 'CEN-100 最近一次防拆触发时间',
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '登记时间',
   PRIMARY KEY (id),
   UNIQUE KEY uk_dr_did (device_did),
   UNIQUE KEY uk_dr_mn (mn),
   KEY idx_dr_ent (ent_id),
   KEY idx_dr_status (auth_status),
-  KEY idx_dr_protocol (protocol)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工业现场设备注册表（DID 标识 + 授权状态 + 接入协议）';
+  KEY idx_dr_protocol (protocol),
+  KEY idx_dev_keyfp (dev_key_fp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='工业现场设备注册表（DID 标识 + 授权状态 + 接入协议 + CEN-100 验签台账）';
+
+-- ---------------------------------------------------------------------
+-- 29b. device_verify_log  CEN-100 设备签名验签事件台账
+--      每次数据帧验签（通过/失败/重放/跳号/未签名）留痕，
+--      既是阴性对照与攻击证据的来源，也是"源端可信"的可观测性基础。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS device_verify_log (
+  id            BIGINT       NOT NULL AUTO_INCREMENT,
+  mn            VARCHAR(32)  NOT NULL COMMENT '设备 MN',
+  device_did    VARCHAR(128) DEFAULT NULL,
+  seq           BIGINT       DEFAULT NULL COMMENT '设备序号',
+  outcome       VARCHAR(24)  NOT NULL COMMENT 'PASS_STD / PASS_NO_ZA / SIG_FAIL / REPLAY / SEQ_GAP / UNSIGNED',
+  mode          VARCHAR(16)  DEFAULT NULL,
+  cn            VARCHAR(8)   DEFAULT NULL,
+  ip            VARCHAR(64)  DEFAULT NULL,
+  detail        VARCHAR(512) DEFAULT NULL,
+  created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_log_mn (mn, created_at),
+  KEY idx_log_outcome (outcome, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='设备签名验签事件台账（阴性对照与攻击证据留痕）';
+
+-- ---------------------------------------------------------------------
+-- 29c. source_crosscheck  同源双路交叉验证记录
+--      同一路探头信号，现役 CEMS 数采仪值与 CEN-100 独立采样值比对；
+--      相对偏差超阈值即告警 —— 这是"数采仪改数"从不可发现变为可发现的证据链。
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS source_crosscheck (
+  id             BIGINT        NOT NULL AUTO_INCREMENT,
+  ent_id         BIGINT        NOT NULL,
+  monitor_no     VARCHAR(32)   NOT NULL,
+  reading_time   DATETIME      NOT NULL,
+  value_cems     DECIMAL(18,6) DEFAULT NULL COMMENT '现役 CEMS 数采仪上报值',
+  value_edge     DECIMAL(18,6) DEFAULT NULL COMMENT 'CEN-100 独立采样上报值',
+  rel_diff       DECIMAL(10,6) DEFAULT NULL COMMENT '相对偏差 |A-B|/B',
+  threshold_pct  DECIMAL(6,3)  NOT NULL DEFAULT 5.000 COMMENT '告警阈值(%)，工程经验值，需按实测标定',
+  alarmed        TINYINT(1)    NOT NULL DEFAULT 0,
+  created_at     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_cc_ent (ent_id, monitor_no, reading_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='同源双路交叉验证记录（发现数采仪改数的证据链）';
 
 -- ---------------------------------------------------------------------
 -- 30. cbam_declaration  欧盟 CBAM 申报数据包（WP5 国际互认）
@@ -902,5 +859,27 @@ CREATE TABLE model_eval (
   KEY idx_me_model (model),
   KEY idx_me_ent (ent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='预测模型评估与消融实验（MAPE/R²/消融）';
+
+
+-- =====================================================================
+--  链上账本只读视图 —— 指向独立账本库 carbon_chain_ledger
+--  ---------------------------------------------------------------------
+--  目的：让业务侧查询代码（含与 business 表的 JOIN）保持不变，同时
+--        保证业务库账号对账本【只有读权限、没有写权限】。
+--  ⚠ 这些是视图不是表；对它们执行 UPDATE/INSERT/DELETE 会被 MySQL 拒绝
+--    （业务账号无账本库写权限）。写入必须走 server/db.js#ledgerPool。
+--  ⚠⚠ 必须显式 SQL SECURITY INVOKER（默认是 DEFINER）：
+--    默认 DEFINER 时，视图以**创建者（root）**的权限执行，于是任何拿到
+--    业务库 UPDATE 权限的账号，都能通过视图把改动写进账本库 —— 物理分离
+--    在权限层被绕过。改为 INVOKER 后，操作视图需要调用者自己对底层表有
+--    对应权限，业务账号只有 SELECT，写操作直接报 ER_TABLEACCESS_DENIED。
+--    本机制已由 tools/attack-same-db.mjs 用例 5 实测验证。
+--  ⚠ 若需改名（如云托管只给了一个库），改 init-db 的 LEDGER_DB 替换即可。
+-- =====================================================================
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW chain_block           AS SELECT * FROM carbon_chain_ledger.chain_block;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW chain_tx              AS SELECT * FROM carbon_chain_ledger.chain_tx;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW chain_payload_backup  AS SELECT * FROM carbon_chain_ledger.chain_payload_backup;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW chain_node            AS SELECT * FROM carbon_chain_ledger.chain_node;
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW chain_node_replica    AS SELECT * FROM carbon_chain_ledger.chain_node_replica;
 
 SET FOREIGN_KEY_CHECKS = 1;

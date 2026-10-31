@@ -35,15 +35,25 @@
     setup() {
       const ov = ref(null);
       const readings = ref(null);
+
+      /* 读数来源构成（来自 /dynamic/overview 的 readings 字段）。
+       * 与上面的 readings（企业读数明细数组）是两回事 —— 命名相近但语义不同，
+       * 因此单独取名 srcMix 以避免混淆。 */
+      const srcMix = computed(() => (ov.value && ov.value.readings) || {
+        deviceRows: 0, modeledRows: 0, deviceSharePct: 0, sourceKind: 'MODELED',
+      });
+      const readingSrc = computed(() => srcMix.value.sourceKind || 'MODELED');
       const busy = ref(false);
       const isEnt = computed(() => App.Store.user && App.Store.user.role === 'ENTERPRISE');
       const entId = computed(() => (isEnt.value && App.Store.user ? Number(App.Store.user.orgId) : null));
 
-      /* 实时脉动：每 2.4s 微调一次工况读数，营造真实在线监测观感 */
-      const tick = ref(0);
-      let timer = null;
-      onMounted(() => { timer = setInterval(() => { tick.value++; }, 2400); });
-      onUnmounted(() => { clearInterval(timer); });
+      /* 已移除 2.4 秒"实时脉动"定时器。
+       *
+       * 原实现每 2.4 秒给写死的静态读数加正弦抖动，用来"营造真实在线监测观感"。
+       * 它不是在模拟数据源，而是在伪造"数据在动"这个观感 ——
+       * 而真实的动感本来就应该来自服务端推进的读数（serverside 每 60 秒
+       * 采一次真机/合成读数并落库），前端只要如实展示即可。
+       * 去掉定时器后，页面上的数字变化频率 = 真实数据的更新频率。 */
 
       /* ── 双轨核算标准切换 ── */
       const track = ref('ORG');
@@ -106,16 +116,24 @@
         catch (e) { return null; }
       });
 
-      /** 工况读数（叠加 tick 抖动） */
+      /** 工况读数。
+       *
+       * ⚠⚠ 这里曾经是"伪实时"：一个 2.4 秒定时器推进 tick，再用
+       * `sin(tick)` 给写死的静态读数加 ±1.2%~6% 抖动，注释写着
+       * "营造真实在线监测观感"。三个问题：
+       *   ① 被抖动的不是任何真实读数，是 App.Industry 里写死的常量；
+       *   ② 定时器只在浏览器侧跑，与服务端设备状态无关 ——
+       *      设备离线了，数字照样在跳；
+       *   ③ 这是最容易被识破的一类造假：评审同时开两个标签页，
+       *      会看到两组不同的"实时值"，而它们都自称同一台设备的读数。
+       *
+       * 现在：直接展示登记值，不抖动。真实的实时性由服务端承担 ——
+       * HJ 212 设备直报经 TCP 9100 落库，在线与否由 last_seen_at 判定。 */
       function liveOf(d) {
-        const t = tick.value + (d.did.length % 7);
-        const j = (Math.sin(t * 0.9) + 1) / 2;   // 0..1
-        const L = d.live;
+        const L = d.live || {};
         const out = {};
         Object.keys(READOUT_LABEL).forEach((k) => {
-          if (L[k] === null || L[k] === undefined) { out[k] = null; return; }
-          const amp = k === 'o2Pct' ? 0.06 : k === 'flowTh' ? 0.04 : 0.012;
-          out[k] = +(L[k] * (1 + (j - 0.5) * amp * 2)).toFixed(k === 'o2Pct' || k === 'flowTh' ? 2 : 0);
+          out[k] = (L[k] === null || L[k] === undefined) ? null : L[k];
         });
         out.signal = L.signal;
         out.latencyMs = L.latencyMs;
@@ -142,10 +160,19 @@
       const doIngest = () => run('/dynamic/ingest', { days: 1 }, (r) => `已采集 ${r.inserted} 条 CEMS 实测读数`);
       const doRecompute = () => run('/dynamic/recompute', {}, (r) => `已完成 ${r.count} 家企业的滚动核算`);
 
-      /* 预言机倒计时 */
+      /* 预言机倒计时。
+       *
+       * ⚠ 这里原本依赖 `tick`（那个已删除的伪实时定时器）来触发重算。
+       * 去掉 tick 后不能只是删掉那一行 —— 否则这个 computed 永远不会重新求值，
+       * 倒计时会静止在第一次渲染的时刻。倒计时**本来就该每秒走**，
+       * 所以给它一个自己的秒级时钟，与"数据是否在变"无关。 */
+      const nowTick = ref(Date.now());
+      let clockTimer = null;
+      onMounted(() => { clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 1000); });
+      onUnmounted(() => { if (clockTimer) clearInterval(clockTimer); });
+
       const oracleCountdown = computed(() => {
-        tick.value; // 依赖 tick 触发刷新
-        const ms = Math.max(0, oracle.nextSync - Date.now());
+        const ms = Math.max(0, oracle.nextSync - nowTick.value);
         const m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000);
         return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
       });
@@ -154,7 +181,13 @@
         const d = ov.value || { summary: {}, readings: {}, accounts: [] };
         const s = d.summary || {};
         const r = d.readings || {};
-        const bal = balance.value || { ratio: 0, status: 'NORMAL', items: [] };
+        /* ⚠ 兜底对象必须与 balanceOf() 返回结构同形：
+         *   企业未在工业台账登记设备时（如演示账号 ent_zjbd，orgId=65，
+         *   App.Industry 只登记了 3 家工业企业的设备）balanceOf 返回 null，
+         *   此前兜底缺 worstRatio 字段，KPI 渲染 bal.worstRatio.toFixed(1)
+         *   直接抛 TypeError，整页渲染中断 —— 表现为"动态核算页空白"。
+         *   empty 标记供卡片渲染空态提示，而不是把 0 冒充"正常 0.0%"。 */
+        const bal = balance.value || { ratio: null, worstRatio: null, status: 'NORMAL', items: [], empty: true };
         const scoped = isEnt.value ? '本企业' : '全部纳入企业';
 
         return h('x-page', {
@@ -172,7 +205,7 @@
               h('x-kpi', { label: '核算周期', value: d.period || '-', icon: 'clock', tone: 'violet', foot: '滚动核算·非季度填报' }),
               h('x-kpi', { label: '覆盖企业', value: App.fmt.num(s.enterprises || 0), unit: '家', icon: 'factory', tone: 'carbon', foot: '纳入动态核算' }),
               h('x-kpi', { label: '接入边缘设备', value: onlineCount.value + '/' + devices.value.length, icon: 'layers', tone: 'sky', foot: `边缘可信签名 ${teeCount.value} 台 · 签名已固化` }),
-              h('x-kpi', { label: '物料平衡度', value: bal.worstRatio.toFixed(1), unit: '%', icon: 'target', tone: bal.status === 'ANOMALY' ? 'rose' : bal.status === 'WATCH' ? 'violet' : 'chain', foot: BAL_CN[bal.status] + ' · 低于 95% 自动阻断上链' }),
+              h('x-kpi', { label: '物料平衡度', value: bal.worstRatio == null ? '-' : bal.worstRatio.toFixed(1), unit: bal.worstRatio == null ? '' : '%', icon: 'target', tone: bal.status === 'ANOMALY' ? 'rose' : bal.status === 'WATCH' ? 'violet' : 'chain', foot: (bal.empty ? '本企业暂未接入源端设备' : BAL_CN[bal.status]) + ' · 低于 95% 自动阻断上链' }),
             ]),
             h('div', { class: 'grid g4 mb-16' }, [
               h('x-kpi', { label: '实测读数', value: App.fmt.num(r.total || 0), unit: '条', icon: 'db', tone: 'sky', foot: (r.lastAt ? '最新 ' + App.fmt.dt(r.lastAt) : '等待采数') }),
@@ -235,7 +268,9 @@
               h('div', { class: 'col gap-16' }, [
                 /* 物料平衡校验指示灯 */
                 h('x-card', { title: '物料平衡校验', sub: '边缘侧自动比对「能耗工况」与「产量/物料投入」的理论平衡度' }, {
-                  default: () => h('div', {}, [
+                  default: () => bal.empty
+                    ? h('x-empty', { inline: true, icon: 'target', title: '本企业暂未接入工业源端边缘设备', sub: '物料平衡校验在设备接入后自动启用；接入前不影响其他模块的核算与上链。' })
+                    : h('div', {}, [
                     h('div', { class: ['bal-meter', bal.status] }, [
                       lamp(bal.status, 12),
                       h('div', { class: 'flex-1' }, [
@@ -267,7 +302,7 @@
                 h('x-card', { title: '边缘报文与硬件签名', sub: '最新一条上报帧 · 签名在 TEE 内部完成，CPU 侧无法读取私钥' }, {
                   default: () => {
                     const d0 = devices.value[0];
-                    if (!d0) return h('div', { class: 'tiny dim' }, '暂无设备');
+                    if (!d0) return h('x-empty', { inline: true, title: '暂无设备' });
                     return h('div', {}, [
                       h('dl', { class: 'kv', style: 'grid-template-columns:88px 1fr' }, [
                         h('dt', {}, '设备'), h('dd', { class: 'mono' }, d0.did),
@@ -531,7 +566,7 @@
               }),
               ]),
               h('x-card', { title: '同一电网的三种口径（严禁混用）', sub: '行业最常见的低级错误：把不同口径的电力因子混为一谈' }, {
-                default: () => h('div', {}, [
+                default: () => h('div', { class: 'tbl-wrap' }, [
                   h('table', { class: 'tbl' }, [
                     h('thead', {}, h('tr', {}, ['口径', '数值', '单位', '适用场景'].map((t) => h('th', {}, t)))),
                     h('tbody', {}, [
@@ -601,7 +636,8 @@
             }, {
               actions: () => h('div', { class: 'input-group', style: 'width:320px' }, [
                 h('select', {
-                  class: 'select', value: curBatch.value ? curBatch.value.batchNo : '',
+                  class: 'select', 'aria-label': '核算批次选择',
+                  value: curBatch.value ? curBatch.value.batchNo : '',
                   onChange: (e) => { batchNo.value = e.target.value; },
                 }, batches.value.map((b) => h('option', { value: b.batchNo }, b.batchNo + ' · ' + b.product))),
               ]),
@@ -661,7 +697,7 @@
             h('div', { class: 'grid g3 mb-16' }, [
               h('x-card', { title: '履约风险分布' }, {
                 default: () => h('div', { class: 'col gap-8' }, [
-                  h('div', { class: 'flex between' }, [h('span', {}, '高风险'), h('b', { style: 'color:var(--danger,#e5484d)' }, (s.highRisk || 0) + ' 家')]),
+                  h('div', { class: 'flex between' }, [h('span', {}, '高风险'), h('b', { style: 'color:var(--danger-tx,#fda4af)' }, (s.highRisk || 0) + ' 家')]),
                   h('div', { class: 'flex between' }, [h('span', {}, '中风险'), h('b', {}, (s.mediumRisk || 0) + ' 家')]),
                   h('div', { class: 'flex between' }, [h('span', {}, '低风险'), h('b', {}, (s.lowRisk || 0) + ' 家')]),
                   h('div', { class: 'tiny dim mt-8' }, '风险判定基准：按当前排放速率外推的期末排放量 vs 已分配配额（超 10% 为高风险，超配额为中风险）。'),
@@ -669,8 +705,32 @@
               }),
               h('x-card', { title: '核算口径' }, {
                 default: () => h('dl', { class: 'kv', style: 'grid-template-columns:96px 1fr' }, [
-                  h('dt', {}, '数据来源'), h('dd', {}, 'CEMS 在线监测（准实时）'),
-                  h('dt', {}, '采样步长'), h('dd', { class: 'mono' }, '5 ~ 20 分钟 / 点（按设备类型）'),
+                  /* ⚠⚠ 这里原本写的是"CEMS 在线监测（准实时）"。
+                   * 但该页当前展示的读数是自举生成的（services/dynamic.ingest
+                   * 按行业基准 + 确定性抖动生成，source='CEMS'），
+                   * 而真机直报走的是 hj212Server（source 为真实设备标识）。
+                   * 两者在同一条链路上、同一个字段里，质量却完全不同。
+                   * 写成"在线监测"会让读者以为这是真实排口的实测值 ——
+                   * 这正是院审指出的"数据无出处"硬伤。
+                   * 现在如实区分：本页读数的来源由后端返回的 source 字段决定，
+                   * 不做统一口径的宣称。 */
+                  h('dt', {}, '数据来源'),
+                  /* 来源口径由后端 readings.sourceKind 决定，页面不自己猜。
+                   * 三个可能值：DEVICE（全设备直报）/ MIXED（两者混存）/ MODELED（全建模）。 */
+                  h('dd', {}, ({
+                    DEVICE: '边缘设备直报（HJ 212-2017 · TCP 9100 · 逐帧 CRC/SM3 校验）',
+                    MIXED: '设备直报与平台建模读数混存 —— 见下方「真实性等级」中的构成比例',
+                    MODELED: '平台自举的建模读数（按行业基准 + 确定性抖动生成，非真实排口实测）',
+                  }[readingSrc.value] || '未知')),
+                  h('dt', {}, '真实性等级'),
+                  h('dd', {}, h('span', {
+                    class: 'tag ' + (readingSrc.value === 'DEVICE' ? 'ok' : (readingSrc.value === 'MIXED' ? 'warn' : 'err')),
+                  }, ({
+                    DEVICE: 'REAL（设备实测）',
+                    MIXED: `MIXED（设备 ${srcMix.value.deviceSharePct}% · 建模 ${(100 - srcMix.value.deviceSharePct).toFixed(2)}%）`,
+                    MODELED: 'MODELED（建模生成）',
+                  }[readingSrc.value] || '未知'))),
+                  h('dt', {}, '采样步长'), h('dd', { class: 'mono' }, '4 小时 / 点（自举）· 按报文 / 点（设备直报）'),
                   h('dt', {}, '核算方式'), h('dd', {}, '滚动累计 + 速率外推'),
                   h('dt', {}, '平均流速'), h('dd', { class: 'mono' }, App.fmt.num(Math.round(r.avgFlow || 0)) + ' tCO₂e/点'),
                   h('dt', {}, '边缘签名'), h('dd', {}, '国密 SM2 · TEE/SE 硬件级'),
@@ -718,7 +778,7 @@
                     h('td', { class: 'mono' }, App.fmt.num(Math.round(a.cumulativeEmission))),
                     h('td', { class: 'mono' }, App.fmt.num(Math.round(a.quotaAllocated))),
                     h('td', { class: 'mono' }, a.offsetApplied > 0 ? App.fmt.num(Math.round(a.offsetApplied)) : '—'),
-                    h('td', { class: 'mono', style: a.gap > 0 ? 'color:var(--danger,#e5484d)' : '' }, (a.gap > 0 ? '+' : '') + App.fmt.num(Math.round(a.gap))),
+                    h('td', { class: 'mono', style: a.gap > 0 ? 'color:var(--danger-tx,#fda4af)' : '' }, (a.gap > 0 ? '+' : '') + App.fmt.num(Math.round(a.gap))),
                     h('td', { class: 'mono' }, App.fmt.num(Math.round(a.predictedEoy))),
                     h('td', {}, h('span', { class: ['tag', riskTag(a.riskLevel)] }, RISK_CN[a.riskLevel] || a.riskLevel)),
                     h('td', { class: 'tiny dim' }, a.lastReadingAt ? App.fmt.dt(a.lastReadingAt) : '-'),

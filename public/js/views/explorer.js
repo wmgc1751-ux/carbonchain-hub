@@ -46,6 +46,43 @@
       function openDpp(b) { dppRef.value = b; }
       function openProof(b) { proofRef.value = b; }
 
+      /* 数字护照数据包导出：真实落盘（JSON），含链上锚点与核查签名，供第三方离线复核 */
+      function exportDppPackage(b) {
+        const pkg = {
+          schema: 'carbonchain.dpp/v1',
+          exportedAt: new Date().toISOString(),
+          dppNo: b.dppNo,
+          product: { name: b.product, spec: b.spec, batchNo: b.batchNo, quantity: b.qty, unit: b.unit },
+          enterprise: { name: b.entName, industry: b.industry, region: b.region },
+          productCarbon: {
+            standard: 'ISO 14067',
+            totalTco2e: b.totalTco2e,
+            intensityPerUnit: b.intensity,
+            scope1Tco2e: b.scope1,
+            scope2Tco2e: b.scope2,
+            gridFactorKgPerKwh: App.Industry.oracle.baseline,
+          },
+          bomAllocation: ((b.bom && b.bom.stages) || []).map((s) => ({ stage: s.name, share: s.share, tco2e: s.tco2e })),
+          verification: {
+            verifier: b.verifierName, node: b.verifierNode, certNo: b.verifierCert,
+            pubKeyFingerprint: b.verifierPub, algorithm: 'ECDSA/secp256k1+SHA-256', signature: b.signature,
+          },
+          chainAnchor: {
+            txHash: b.txHash, blockHeight: b.blockHeight, blockHash: b.blockHash, payloadHash: b.payloadHash,
+            consensusNodes: b.consensusNodes, consensusAt: b.consensusAt, deviceDid: b.deviceDid,
+            edgeChip: (b.device && b.device.chip) || null, edgeAlg: (b.device && b.device.alg) || null,
+          },
+          tamperEvidenceChain: ['物理表计采样', '边缘可信签名（国密 SM2）', '定点口径核算', '联盟链 PoA 共识确认', '链下重算绑定校验'],
+        };
+        const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'DPP-' + (b.dppNo || b.batchNo || 'export') + '-' + Date.now() + '.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        App.notify && App.notify.info && App.notify.info('数字护照数据包已导出（JSON，含链上锚点与核查签名，可离线复核）');
+      }
+
       /** 前端生成防伪二维码点阵（SVG，无外部依赖） */
       function qrSvg(matrix, size) {
         if (!matrix) return null;
@@ -162,7 +199,7 @@
           ]),
           footer: () => [
             h('button', { class: 'btn', onClick: () => { dppRef.value = null; } }, '关闭'),
-            h('button', { class: 'btn', onClick: () => App.notify.info('数字护照为链上存证数据的可核验呈现；申报数据包导出为演示占位，当前版本不落盘。') }, [h('x-icon', { name: 'download', size: 15 }), '导出数据包（演示）']),
+            h('button', { class: 'btn', onClick: () => exportDppPackage(b) }, [h('x-icon', { name: 'download', size: 15 }), '导出数据包（JSON）']),
             h('button', { class: 'btn chain', onClick: () => { dppRef.value = null; proofRef.value = b; } }, [h('x-icon', { name: 'search', size: 15 }), '穿透式验真']),
           ],
         });
@@ -287,16 +324,25 @@
       const vizBlocks = computed(() => {
         if (!stats.value) return [];
         const list = (blocks.rows || []).slice(0, 6).reverse();
-        const badSet = new Set((panel.value && panel.value.kind === 'tamper'
+        const badSet = new Set((panel.value && panel.value.kind === 'tamper' && panel.value.data.validation
           ? panel.value.data.validation.errors.map((e) => e.index) : []));
         return list.map((b) => ({ ...b, bad: badSet.has(Number(b.block_index)) }));
       });
 
       const chainStatus = computed(() => {
         if (!validation.value) return { cls: 'info', text: '正在校验全链完整性…' };
-        return validation.value.valid
-          ? { cls: 'ok', text: `全链完整性校验通过 —— 已校验 ${validation.value.checkedBlocks} 个区块，哈希链、PoA 出块签名、Merkle 根全部一致` }
-          : { cls: 'err', text: `全链校验失败 —— 发现 ${validation.value.errorCount} 处异常，链上数据已被篡改或存在未授权节点出块` };
+        const v0 = validation.value;
+        if (v0.valid) {
+          /* 出块节点事后被撤销属于治理事件，不反溯历史区块；
+             这里把它作为附注显示，避免"校验通过"把治理事实一起盖掉。 */
+          const w = v0.warningCount || 0;
+          return {
+            cls: 'ok',
+            text: `全链完整性校验通过 —— 已校验 ${v0.checkedBlocks} 个区块，哈希链、PoA 出块签名、Merkle 根全部一致`
+              + (w ? `（另有 ${w} 个历史区块由当前已撤销/停用的节点出块，属治理提示，不计入完整性异常）` : ''),
+          };
+        }
+        return { cls: 'err', text: `全链校验失败 —— 发现 ${v0.errorCount} 处异常，链上数据被篡改或出现身份不可识别的出块节点` };
       });
 
       return () => h('div', {}, [
@@ -393,17 +439,26 @@
                       ? `区块 #${panel.value.data.blockIndex} · 字段 ${panel.value.data.field}\n原值：${String(panel.value.data.before).slice(0, 72)}\n新值：${String(panel.value.data.after).slice(0, 72)}`
                       : `从区块 #${panel.value.data.fromIndex} 起重算 ${panel.value.data.repaired.length} 个区块哈希并重新完成 PoA 出块签名`,
                   ]),
-                  h('div', { class: ['alertbar', panel.value.data.validation.valid ? 'ok' : 'err', 'mb-12'] }, [
+                  /* 校验结果条只对「篡改」演示有意义：/chain/repair 的返回体是
+                   * { fromIndex, repaired }，**没有 validation 字段**。此前这里无条件读
+                   * panel.value.data.validation.valid，点"修复"即抛
+                   * "Cannot read properties of undefined (reading 'length')"
+                   * ——2026-10-28 用户截图报的正是这个错。按 kind 分支渲染。 */
+                  panel.value.kind === 'tamper' && h('div', { class: ['alertbar', panel.value.data.validation.valid ? 'ok' : 'err', 'mb-12'] }, [
                     h('x-icon', { name: panel.value.data.validation.valid ? 'check' : 'alert', size: 15 }),
                     panel.value.data.validation.valid
                       ? `校验通过：共校验 ${panel.value.data.validation.checkedBlocks} 个区块，未发现异常`
                       : `校验失败：发现 ${panel.value.data.validation.errors.length} 处异常`,
                   ]),
-                  panel.value.data.validation.errors.length > 0 && h('div', { class: 'col gap-8' },
+                  panel.value.kind === 'tamper' && panel.value.data.validation.errors.length > 0 && h('div', { class: 'col gap-8' },
                     panel.value.data.validation.errors.slice(0, 8).map((e) => h('div', { class: 'readout fail' }, [
                       h('span', { class: 'flag' }, e.type),
                       h('span', {}, e.message),
                     ]))),
+                  panel.value.kind === 'repair' && h('div', { class: 'alertbar ok mb-12' }, [
+                    h('x-icon', { name: 'check', size: 15 }),
+                    `链已按共识重新出块：重算 ${panel.value.data.repaired.length} 个区块，后缀哈希与 PoA 签名均已重建`,
+                  ]),
                   h('div', { class: 'alertbar info mt-12' }, [
                     h('x-icon', { name: 'info', size: 15 }),
                     h('div', {}, panel.value.kind === 'tamper'
@@ -518,7 +573,10 @@
                   'col-prev_hash': ({ value }) => h('x-hash', { value, len: 14 }),
                   'col-tx_count': ({ value }) => h('span', { class: 'tag t-chain plain' }, value + ' 笔'),
                   'col-nonce': ({ value }) => h('span', { class: 'mono dim' }, value),
-                  'col-mine_time': ({ value }) => h('span', { class: 'mono' }, value + ' ms'),
+                  /* mine_time=0 的块不是节点挖出来的（历史补锚/导入批次），
+                   * 显示 "0 ms" 会被读成"出块不耗时"（2026-10-29 巡检 P0-13），
+                   * 这类块如实标「补锚」而不是给一个假数字。 */
+                  'col-mine_time': ({ value }) => h('span', { class: 'mono' }, Number(value) > 0 ? value + ' ms' : h('span', { class: 'dim' }, '补锚')),
                   'col-block_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
                 }),
                 h('x-pager', { page: blocks.page, pages: blocks.pages, total: blocks.total, size: blocks.size, onChange: (p) => { blocks.page = p; loadBlocks(); } }),
@@ -611,7 +669,7 @@
                   default: () => h('div', {}, [
                     h('div', { class: 'tiny muted mb-8' }, '以区块内第 1 笔交易为例，其 Merkle 证明路径：'),
                     h('div', { class: 'col gap-6' }, m.samplePath.map((p, i) => h('div', { class: 'readout' }, [
-                      h('span', { class: 'flag', style: 'background:rgba(245,165,36,.16);color:#fcd34d' }, 'L' + (i + 1)),
+                      h('span', { class: 'flag', style: 'background:rgba(245,165,36,.16);color:var(--warn-tx)' }, 'L' + (i + 1)),
                       h('span', { class: 'k' }, p.position === 'left' ? '兄弟节点在左侧' : '兄弟节点在右侧'),
                       h('span', { class: 'mono tiny', style: 'margin-left:auto;color:var(--tx-3)' }, App.fmt.short(p.hash, 10)),
                     ]))),
@@ -736,44 +794,125 @@
   });
 
   /* ==================================================================
-   * 三·补、公告列表（公众）
+   * 三·补、公告列表（公众）—— 分类式真实消息聚合
    * ------------------------------------------------------------------
-   * 公开路由 /notice 的落地页：/api/public/notices 分页拉取，条目点击进入
-   * /notice/:id 详情。此前 OPEN_ROUTES 声明了 '/notice' 却未注册列表路由，
-   * 访问会落入 404 兜底 —— 本组件补齐该缺口。
+   * 公开路由 /notice 的落地页。消息来自权威源站实时聚合
+   * （生态环境部 / 上海环交所 / ICAP），分类 Tab 切换：
+   *   全部 · 官方通知 · 政策法规 · 市场动态 · 国际动态 · 平台公告
+   * 带 source_url 的条目为真实抓取消息，可在详情页跳转原文。
    * ================================================================== */
+  /* 分类 Tab 的**顺序**在这里定，**有哪些**由 /public/notices/summary 的
+   * 实际分类决定。原先写死六项（含「平台公告」），而库里根本没有 SYSTEM
+   * 类型 → 标签显示「平台公告 0」，点进去又是空的；同时服务端把无法识别
+   * 的类型一律折进 PLATFORM，导致「平台公告」里躺着市场通报
+   * （2026-10-29 巡检 P1-19）。改为按实际存在的分类渲染。 */
+  const NOTICE_TABS = [
+    ['', '全部'], ['OFFICIAL', '官方通知'], ['POLICY', '政策法规'],
+    ['MARKET', '市场动态'], ['INTERNATIONAL', '国际动态'], ['PLATFORM', '平台公告'],
+  ];
+  const TAB_ORDER = NOTICE_TABS.map(([k]) => k);
+
   const PageNoticeList = defineComponent({
     name: 'page-notice-list',
     setup() {
-      const pager = App.usePager((q) => App.API.get('/public/notices', q), { page: 1, size: 10 });
-      onMounted(() => pager.load());
-      return () => h('div', { style: 'max-width:900px;margin:0 auto' }, [
-        h('x-page', { title: '通知公告', desc: '平台政策法规、市场公告与系统通知的公开查阅入口' }, {
+      const category = ref('');
+      const pager = App.usePager(
+        (q) => App.API.get('/public/notices', { ...q, category: category.value || undefined }),
+        { page: 1, size: 12 },
+      );
+      const summary = ref(null);
+
+      async function load() { await pager.load(); }
+      function switchCat(c) {
+        if (category.value === c) return;
+        category.value = c;
+        pager.state.page = 1;
+        load();
+      }
+
+      onMounted(async () => {
+        load();
+        try { summary.value = await App.API.request('GET', '/public/notices/summary', null, { noAuth: true }); }
+        catch { /* 汇总失败不影响列表 */ }
+      });
+
+      const catCount = (key) => {
+        if (!summary.value) return null;
+        /* 云端 D1 配额回退模式下计数不可得（全 0 骨架）—— 不渲染误导性数字 */
+        if (summary.value.mode === 'live-fallback') return null;
+        const f = summary.value.categories.find((c) => c.key === key);
+        return f ? f.count : 0;
+      };
+
+      return () => h('div', { style: 'max-width:960px;margin:0 auto' }, [
+        h('x-page', { title: '通知公告', desc: '聚合生态环境部、上海环境能源交易所、ICAP 等权威平台的碳市场实时消息' }, {
           actions: () => h('button', { class: 'btn sm', onClick: () => App.go('/screen') }, '返回大屏'),
           default: () => {
             const st = pager.state;
-            if (st.loading && !st.rows.length) {
-              return h('div', { class: 'col gap-10' }, Array.from({ length: 6 }).map(() => h('div', { class: 'skel', style: 'height:56px' })));
-            }
-            if (st.error) return h('div', { class: 'alertbar err' }, [h('x-icon', { name: 'alert', size: 15 }), st.error]);
-            if (!st.rows.length) return h('div', { class: 'alertbar info' }, [h('x-icon', { name: 'info', size: 15 }), '暂无公告']);
-            return h('x-card', {}, {
-              default: () => h('div', { class: 'col gap-8' }, [
-                ...st.rows.map((n) => h('div', {
-                  class: 'readout', style: 'cursor:pointer',
-                  onClick: () => App.go('/notice/' + n.id),
+            /* 分类 Tab */
+            const cats = (summary.value && Array.isArray(summary.value.categories))
+              ? summary.value.categories.filter((c) => c.count > 0) : null;
+            const tabDefs = cats && cats.length
+              ? [['', '全部']].concat(
+                cats.slice()
+                  .sort((a, b) => TAB_ORDER.indexOf(a.key) - TAB_ORDER.indexOf(b.key))
+                  .map((c) => [c.key, c.label || c.key]),
+              )
+              : NOTICE_TABS.filter(([k]) => k !== 'PLATFORM');   /* 汇总未就绪时的保守回退 */
+            const tabs = h('div', { class: 'flex gap-6 mb-12', style: 'flex-wrap:wrap' }, [
+              ...tabDefs.map(([key, label]) => {
+                const active = category.value === key;
+                const n = key ? catCount(key) : null;
+                return h('button', {
+                  class: 'btn sm' + (active ? ' primary' : ' ghost'),
+                  onClick: () => switchCat(key),
                 }, [
-                  h('x-tag', { dict: App.DICT.noticeType, dictKey: n.notice_type }),
-                  n.is_top ? h('span', { class: 'tag t-danger' }, '置顶') : null,
-                  h('span', { class: 'k', style: 'flex:1;color:var(--tx-0)' }, n.title),
-                  h('span', { class: 'tiny dim' }, App.fmt.d(n.publish_time)),
-                ])),
-                h('x-pager', {
-                  page: st.page, pages: st.pages, total: st.total, size: st.size,
-                  onChange: (p) => pager.goto(p),
-                }),
-              ]),
-            });
+                  label,
+                  n != null && !active ? h('span', { class: 'tiny dim', style: 'margin-left:4px' }, String(n)) : null,
+                ]);
+              }),
+            ]);
+
+            let body;
+            if (st.loading && !st.rows.length) {
+              body = h('div', { class: 'col gap-10' }, Array.from({ length: 6 }).map(() => h('div', { class: 'skel', style: 'height:56px' })));
+            } else if (st.error) {
+              body = h('div', { class: 'alertbar err' }, [h('x-icon', { name: 'alert', size: 15 }), st.error]);
+            } else if (!st.rows.length) {
+              body = h('div', { class: 'alertbar info' }, [h('x-icon', { name: 'info', size: 15 }), '该分类暂无公告']);
+            } else {
+              body = h('x-card', {}, {
+                default: () => h('div', { class: 'col gap-8' }, [
+                  ...st.rows.map((n) => {
+                    const isReal = !!(n.source_url || n.fetched_at || n.sourceUrl || n.fetched);
+                    /* 云端实时模式（D1 配额回退）条目 id 为负 —— 无详情页，
+                     * 点击直接打开权威原文；正常条目仍进站内详情。 */
+                    const srcUrl = n.source_url || n.sourceUrl || null;
+                    const liveOnly = srcUrl && Number(n.id) < 0;
+                    return h('div', {
+                      class: 'readout', style: 'cursor:pointer;gap:10px',
+                      onClick: () => {
+                        if (liveOnly) { window.open(srcUrl, '_blank', 'noopener'); return; }
+                        App.go('/notice/' + n.id);
+                      },
+                    }, [
+                      /* 本地返回下划线 notice_type；云端 live 回退返回驼峰 noticeType */
+                      h('x-tag', { dict: App.DICT.noticeType, dictKey: n.notice_type || n.noticeType }),
+                      n.is_top ? h('span', { class: 'tag t-danger' }, '置顶') : null,
+                      h('span', { class: 'k', style: 'flex:1;color:var(--tx-0)' }, n.title),
+                      isReal ? h('span', { class: 'tag t-ok', title: '从权威源站实时聚合' }, '权威来源') : null,
+                      h('span', { class: 'tiny dim' }, App.fmt.d(n.publish_time || n.publishedAt)),
+                    ]);
+                  }),
+                  h('x-pager', {
+                    page: st.page, pages: st.pages, total: st.total, size: st.size,
+                    onChange: (p) => pager.goto(p),
+                  }),
+                ]),
+              });
+            }
+
+            return h('div', {}, [tabs, body]);
           },
         }),
       ]);
@@ -781,7 +920,7 @@
   });
 
   /* ==================================================================
-   * 四、公告详情（公众）
+   * 四、公告详情（公众）—— 展示权威来源与原文链接
    * ================================================================== */
   const PageNotice = defineComponent({
     name: 'page-notice',
@@ -795,22 +934,36 @@
       onMounted(load);
       return () => h('div', { style: 'max-width:900px;margin:0 auto' }, [
         h('x-page', { title: '通知公告', desc: '平台政策法规、市场公告与系统通知的公开查阅入口' }, {
-          actions: () => h('button', { class: 'btn sm', onClick: () => App.go('/screen') }, '返回大屏'),
+          actions: () => h('button', { class: 'btn sm', onClick: () => App.go('/notice') }, '返回列表'),
           default: () => {
             if (!n.value) return h('div', { class: 'skel', style: 'height:240px' });
+            const v = n.value;
+            /* 本地 MySQL 返回下划线字段；云端 Worker 返回驼峰 —— 兼容两者 */
+            const typeKey = v.notice_type || v.noticeType;
+            const pubTime = v.publish_time || v.publishedAt;
+            const srcUrl = v.source_url || v.sourceUrl || null;
+            const srcName = v.source_name || v.sourceName || null;
+            const isReal = !!(srcUrl || v.fetched_at || v.fetched);
             return h('x-card', {}, {
               default: () => h('div', {}, [
-                h('div', { class: 'flex gap-8 mb-12' }, [
-                  h('x-tag', { dict: App.DICT.noticeType, dictKey: n.value.notice_type }),
-                  n.value.is_top ? h('span', { class: 'tag t-danger' }, '置顶') : null,
+                h('div', { class: 'flex gap-8 mb-12', style: 'flex-wrap:wrap' }, [
+                  h('x-tag', { dict: App.DICT.noticeType, dictKey: typeKey }),
+                  v.is_top ? h('span', { class: 'tag t-danger' }, '置顶') : null,
+                  isReal ? h('span', { class: 'tag t-ok' }, '权威来源') : null,
                 ]),
-                h('h3', { style: 'font-size:19px;line-height:1.6' }, n.value.title),
-                h('div', { class: 'tiny dim mt-8' }, `${n.value.publisher || '平台'} · ${App.fmt.dt(n.value.publish_time)} · 浏览 ${n.value.views}`),
-                h('div', { class: 'alertbar info mt-16' }, [
-                  h('x-icon', { name: 'info', size: 15 }),
-                  '本公告由监管端发布，发布记录同步写入操作审计日志。',
-                ]),
-                h('pre', { class: 'mono-pre mt-16', style: 'max-height:none;font-family:var(--sans);font-size:13.4px;color:var(--tx-1)' }, n.value.content),
+                h('h3', { style: 'font-size:19px;line-height:1.6' }, v.title),
+                h('div', { class: 'tiny dim mt-8' }, `${srcName || v.publisher || '平台'} · ${App.fmt.dt(pubTime)} · 浏览 ${v.views}`),
+                isReal
+                  ? h('div', { class: 'alertbar ok mt-16', style: 'align-items:center;gap:8px;flex-wrap:wrap' }, [
+                    h('x-icon', { name: 'info', size: 15 }),
+                    h('span', { style: 'flex:1' }, `本消息聚合自权威渠道「${srcName || '权威平台'}」，平台不对原文内容作修改。`),
+                    h('a', { class: 'btn sm', href: srcUrl, target: '_blank', rel: 'noopener noreferrer' }, '查看原文 ↗'),
+                  ])
+                  : h('div', { class: 'alertbar info mt-16' }, [
+                    h('x-icon', { name: 'info', size: 15 }),
+                    '本公告由监管端发布，发布记录同步写入操作审计日志。',
+                  ]),
+                h('pre', { class: 'mono-pre mt-16', style: 'max-height:none;font-family:var(--sans);font-size:13.4px;color:var(--tx-1)' }, v.content),
               ]),
             });
           },

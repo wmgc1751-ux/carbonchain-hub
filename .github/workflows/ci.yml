@@ -1,0 +1,87 @@
+# =====================================================================
+#  碳链通 CarbonChain Hub —— CI 门禁
+#  push / PR 即跑：MySQL 8 服务容器 → initdb → 起服务 → verify:all（25 套件）
+#  UI 审计（platform-audit / console-audit）需无头 Chrome，暂留本地；
+#  CI 先把"数据一致性 + 协议 + 链 + 商业闭环 + ZK + LLM"这道最硬的门守住。
+# =====================================================================
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: carbonchain-ci
+          MYSQL_DATABASE: carbon_chain
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pcarbonchain-ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_unicode_ci
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: carbonchain-ci
+      DB_NAME: carbon_chain
+      JWT_SECRET: ci-secret-not-for-production-0123456789abcdef
+      CEMS_INTERVAL_MS: "86400000"
+      NO_PROXY: 127.0.0.1,localhost
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 语法门禁（server 全部 .js）
+        run: |
+          fails=0
+          while IFS= read -r f; do
+            node --check "$f" || fails=$((fails+1))
+          done < <(find server -name '*.js' -type f)
+          echo "语法失败数: $fails"
+          exit $fails
+
+      - name: 初始化数据库（建表 + 灌基准数据 + 建链，约 11s）
+        run: node server/scripts/init-db.js
+
+      - name: 启动服务（后台，health 探活 60s）
+        run: |
+          node server/app.js > server-ci.log 2>&1 &
+          echo $! > server.pid
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8300/api/health || true)
+            if [ "$code" = "200" ]; then echo "服务就绪（第 ${i} 次探测）"; exit 0; fi
+            sleep 1
+          done
+          echo "服务 60s 未就绪"; tail -50 server-ci.log; exit 1
+
+      - name: verify:all（25 套件全量）
+        run: node tools/verify-all.mjs
+
+      - name: 上传验证产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-artifacts
+          path: |
+            tools/out/verify-all.json
+            tools/out/verify-all.md
+            server-ci.log
+          retention-days: 14
