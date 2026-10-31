@@ -146,9 +146,22 @@ async function verifyBusinessBinding(opts = {}) {
   let checked = 0;
   let missing = 0;
 
+  /* 只评估每个业务单的**最新锚点**（按 block_index 取最大）。
+   * ⚠ 2026-10-31（CCD-011 修复轮）：reanchor 重锚后同一单存在新旧两条交易，
+   * 旧交易的 payload 是被替代的历史快照——把它当失配会把"重锚成功"误报成
+   * "绑定漂移"。绑定关系 = 业务行 chain_tx_id 指向的当前交易；历史交易
+   * 按链不可变语义保留，不参与比对。 */
+  const latest = new Map();
+  for (const t of txs) {
+    const k = `${t.tx_type}|${String(t.biz_no)}`;
+    const prev = latest.get(k);
+    if (!prev || Number(t.block_index) > Number(prev.block_index)) latest.set(k, t);
+  }
+  const deduped = [...latest.values()];
+
   /* 按类型分批取业务行，避免「每笔一次查询」的 N+1 */
   const groups = new Map();
-  for (const t of txs) {
+  for (const t of deduped) {
     const m = FIELD_MAP[t.tx_type];
     if (!m) continue;
     if (!groups.has(t.tx_type)) groups.set(t.tx_type, []);
