@@ -52,13 +52,36 @@ function verifyToken(token) {
   const b = Buffer.from(String(sig));
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
-    const body = JSON.parse(Buffer.from(p2, 'base64url').toString('utf8'));
-    if (body.exp && body.exp < Math.floor(Date.now() / 1000)) return null;
-    if (body.jti && revokedTokens.has(body.jti)) return null;   // 已吊销
-    return body;
+    const raw = JSON.parse(Buffer.from(p2, 'base64url').toString('utf8'));
+    if (raw.exp && raw.exp < Math.floor(Date.now() / 1000)) return null;
+    if (raw.jti && revokedTokens.has(raw.jti)) return null;   // 已吊销
+    return normalizeClaims(raw);
   } catch (e) {
     return null;
   }
+}
+
+/**
+ * 跨端 claims 归一（2026-10-31 两端账号互通）
+ * ------------------------------------------------------------------
+ * 平台签发的 claims 是 { id, username, role, realName, orgId, orgName }，
+ * 小程序签发的是 { uid, username, role, entId, name, org }。
+ * 两端共用同一个 JWT_SECRET 之后，平台会验到小程序签发的令牌 ——
+ * 若不做归一，业务代码读 req.user.id / orgId 会拿到 undefined，
+ * 表现为"登录成功、进页面全空"（比 401 更难查）。
+ *
+ * 归一方向：把小程序的键补齐成平台键，**原有的键全部保留**，
+ * 因此平台自己签发的令牌行为完全不变（幂等）。
+ */
+function normalizeClaims(raw) {
+  const c = { ...raw };
+  if (c.id === undefined && c.uid !== undefined) c.id = c.uid;
+  if (c.uid === undefined && c.id !== undefined) c.uid = c.id;
+  if (c.orgId === undefined && c.entId !== undefined) c.orgId = c.entId;
+  if (c.entId === undefined && c.orgId !== undefined) c.entId = c.orgId;
+  if (c.realName === undefined && c.name !== undefined) c.realName = c.name;
+  if (c.orgName === undefined && c.org !== undefined) c.orgName = c.org;
+  return c;
 }
 
 /** 吊销一个已签发的 token（登出时调用）。无效/过期的 token 静默忽略。 */
