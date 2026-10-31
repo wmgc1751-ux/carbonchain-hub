@@ -672,4 +672,49 @@ router.post('/anchor/run', authRequired, requireRole('REGULATOR'), wrap(async (r
     + `锚点交易 ${r.anchorTxId.slice(0, 16)}… 落于区块 #${r.anchorBlockIndex}`);
 }));
 
+/* 内部锚定入口（小程序 → 权威链） -------------------------------------
+ * 为什么需要它（2026-10-31 两端联调）：
+ *   小程序后端曾自持一条 SQLite 链并用 appendBlock 出块，而链路页/存证页
+ *   已经代理到本平台权威链 —— 结果是"写进 A 链、读的是 B 链"：
+ *   企业在小程序上报后拿到的块号（#160/161）在权威链上是**别的交易**，
+ *   平台端完全查不到这笔上报，两端口径永久分叉（违反约束③）。
+ *   修法不是让小程序自己继续出块（那仍是第二条链），而是让它把存证交给
+ *   权威链出块，本地只保留业务表并回写 chain_tx_id。
+ *
+ * 鉴权：共享密钥头 x-internal-token，比对 MINI_ANCHOR_TOKEN。
+ *   未配置该变量时接口**直接 403 关闭**（安全默认：没有密钥就没有入口），
+ *   避免公网任何人都能往链上写存证。
+ */
+const MINI_ANCHOR_TOKEN = process.env.MINI_ANCHOR_TOKEN || '';
+router.post('/internal/anchor', wrap(async (req, res) => {
+  if (!MINI_ANCHOR_TOKEN) {
+    return fail(res, '内部锚定入口未启用（未配置 MINI_ANCHOR_TOKEN）', 403);
+  }
+  const provided = String(req.headers['x-internal-token'] || '');
+  const a = Buffer.from(provided);
+  const b = Buffer.from(MINI_ANCHOR_TOKEN);
+  /* 定长比较：避免逐字节提前返回泄露前缀 */
+  const same = a.length === b.length && require('crypto').timingSafeEqual(a, b);
+  if (!same) return fail(res, '内部锚定凭据无效', 403);
+
+  const { txType, bizNo, payload, fromLabel, toLabel } = req.body || {};
+  if (!txType) return fail(res, '缺少 txType', 400);
+  if (!bizNo) return fail(res, '缺少 bizNo', 400);
+
+  const chain = await anchorSvc.anchor({
+    txType,
+    bizNo,
+    payload: payload || {},
+    fromLabel: fromLabel || 'regulator:system',
+    toLabel,
+  });
+  return ok(res, {
+    txId: chain.txId,
+    payloadHash: chain.payloadHash,
+    blockIndex: chain.blockIndex,
+    blockHash: chain.blockHash,
+    blockTime: chain.blockTime,
+  }, `存证已写入权威链区块 #${chain.blockIndex}`);
+}));
+
 module.exports = router;
