@@ -207,6 +207,24 @@ async function main() {
     r.ok ? usccValid++ : usccInvalid++;
   }
 
+  /* cn-only 口径（CCR-02，2026-10-31）：真实主体 = 被 REAL_OFFICIAL 数据
+   * 引用的企业（enterprise_activity / emission_calc 的 ent_code）。
+   * strict 只对真实主体强制校验位；合成企业数单列披露（CCD-008 口径）。 */
+  const realLinked = await db.query(
+    `SELECT DISTINCT ent_code FROM (
+       SELECT ent_code FROM enterprise_activity
+       UNION SELECT ent_code FROM emission_calc) t
+      WHERE ent_code IS NOT NULL`);
+  const realCodes = new Set(realLinked.map((r) => String(r.ent_code)));
+  let realUsccTotal = 0;
+  let realUsccInvalid = 0;
+  for (const e of allEnts) {
+    if (!realCodes.has(String(e.ent_code))) continue;
+    realUsccTotal += 1;
+    const r = checkUscc(e.ent_code);
+    if (!r.ok) realUsccInvalid += 1;
+  }
+
   push({
     tier: 'T3', kind: 'ENTERPRISE', id: 'enterprise',
     count: entCnt,
@@ -485,6 +503,14 @@ async function main() {
   }
 
   /* ---------- 落盘 ---------- */
+  /* cn-only 国内真实层计数（CCR-02，2026-10-31）：活动水平（REAL_OFFICIAL）
+   * 设施数/年度、官方统计核算排放合计、CEMS 小时实测行数 */
+  const cnReal = {
+    n: Number((await db.query('SELECT COUNT(*) n FROM enterprise_activity'))[0].n),
+    years: Number((await db.query('SELECT COUNT(DISTINCT year) n FROM enterprise_activity'))[0].n),
+    tonnes: Number((await db.query('SELECT COALESCE(SUM(total_tco2),0) t FROM emission_calc'))[0].t),
+    cemsRows: Number((await db.query('SELECT COUNT(*) n FROM cems_cn_hourly'))[0].n),
+  };
   const outDir = join(ROOT, 'tools', 'out');
   mkdirSync(outDir, { recursive: true });
   const report = {
@@ -525,8 +551,17 @@ async function main() {
     },
     summary: { t1Standards: t1, t2FactorsOk: t2ok, t2FactorsTotal: t2.filter((r) => r.comparable === true).length,
       t3Synthetic: t3, t4RealDevice: t4.realDeviceCount, cemsTotal,
-      realFacilities: facReal.n, realEmissionRows: facReal.rows, realYears: facReal.years,
-      realTonnes: Math.round(facReal.tonnes) },
+      realFacilities: facReal.n || cnReal.n,
+      realEmissionRows: facReal.rows || cnReal.n,
+      realYears: facReal.years || cnReal.years,
+      realTonnes: Math.round(facReal.tonnes || cnReal.tonnes),
+      /* cn-only 口径（CCR-02）：真实层主数据源切换。EPA 层为空时，
+       * real* 四个汇总字段回退为国内真实层口径（台账 real.* 期望区间已同步）。 */
+      layer: facReal.n ? 'EPA_GLOBAL' : 'CN_ONLY',
+      epaFacilities: facReal.n,
+      cnRealFacilities: cnReal.n, cnRealYears: cnReal.years,
+      cnRealTonnes: Math.round(cnReal.tonnes), cnCemsRows: cnReal.cemsRows,
+      usccSyntheticInvalid: usccInvalid, usccRealInvalid: realUsccInvalid },
     rows,
   };
   writeFileSync(join(outDir, 'real-data-audit.json'), JSON.stringify(report, null, 2), 'utf8');
@@ -574,16 +609,16 @@ async function main() {
 
   /* strict 模式：只在"口径错了"时失败。
    * ① 因子与官方值不一致（口径错）；
-   * ② 存在校验位不通过的企业（合成主体混入）。
+   * ② **真实主体**（被 REAL_OFFICIAL 数据引用的企业）校验位不通过。
    *
-   * ⚠ 2026-10-29 修正：原判定写的是 `usccInvalid === 0` 即失败，
-   * 其前提是"库里全是合成企业"（当时 60 家随机码，几乎没有全符的可能）。
-   * 现在合成企业已删除、只剩 4 家真实企业（信用代码全部合法），
-   * 该条件会把"数据已经变干净"误判成失败。改为：usccInvalid > 0 才失败。 */
-  if (strict && (t2ok !== t2.filter((r) => r.comparable === true).length || usccInvalid > 0)) {
+   * ⚠ 2026-10-31（CCR-02 cn-only）：usccInvalid 覆盖全量企业（含合成演示
+   * 主体，CCD-008 口径——合成样本按对外披露管理，不作为 strict 失败条件）；
+   * strict 只对真实主体强制：realUsccInvalid > 0 才失败。 */
+  if (strict && (t2ok !== t2.filter((r) => r.comparable === true).length || realUsccInvalid > 0)) {
     console.error('✘ --strict 检查未通过');
     console.error(`   因子一致 ${t2ok}/${t2.filter((r) => r.comparable === true).length}`
-      + ` | 信用代码校验位不通过 ${usccInvalid} 家`);
+      + ` | 真实主体校验位不通过 ${realUsccInvalid}/${realUsccTotal}`
+      + ` | 合成主体校验位不通过（披露项）${usccInvalid} 家`);
     process.exit(1);
   }
   process.exit(0);

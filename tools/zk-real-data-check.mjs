@@ -72,7 +72,11 @@ console.log('='.repeat(78));
 /* ------------------------------------------------------------------ */
 /* 一、取真实设施（同时具备 Activity 与 EmissionFactor 的）            */
 /* ------------------------------------------------------------------ */
-const facilities = await db.query(
+/* CCR-02（cn-only 口径，2026-10-31）：全球层（real_emission_year/real_facility）
+ * 在 cn-only 整改后为空，真实数据面切换为国内层 —— emission_calc（河北省发改委
+ * 官方统计核算批次，REAL_OFFICIAL）。A=处理量(吨)、EF=tCO2/t、E=total_tco2，
+ * 恒等式与标度约束不变；阈值按国内量级调整为 E > 10 万吨。 */
+let facilities = await db.query(
   `SELECT f.id, f.name, f.industry, e.total_co2e, e.process_json
      FROM real_emission_year e
      JOIN real_facility f ON f.id = e.facility_id
@@ -85,10 +89,26 @@ const facilities = await db.query(
     LIMIT ?`,
   [YEAR, LIMIT]
 );
+let SOURCE_TIER = 'EPA_CLIMATE_TRACE';
 
-console.log(`\n【一】取数：${facilities.length} 家真实设施（排放 > 50 万吨）`);
 if (!facilities.length) {
-  console.error('✘ 未取到真实设施数据。请先运行 npm run data:climate-trace 或检查年度参数。');
+  SOURCE_TIER = 'CN_ONLY_OFFICIAL';
+  facilities = await db.query(
+    `SELECT c.ent_code AS id, c.ent_name AS name, '垃圾焚烧发电' AS industry,
+            c.total_tco2 AS total_co2e,
+            JSON_OBJECT('activity', c.msw_t, 'activityUnit', '吨',
+                        'emissionFactor', c.factor_tco2_t) AS process_json
+       FROM emission_calc c
+      WHERE c.total_tco2 > 100000
+      ORDER BY c.total_tco2 DESC
+      LIMIT ?`, [LIMIT]);
+}
+
+console.log(`
+【一】取数：${facilities.length} 家真实设施`
+  + `（数据源=${SOURCE_TIER === 'CN_ONLY_OFFICIAL' ? '国内官方统计层 cn-only，排放 > 10 万吨' : 'Climate TRACE，排放 > 50 万吨'}）`);
+if (!facilities.length) {
+  console.error('✘ 未取到真实设施数据。请检查国内层 emission_calc 或全球层导入。');
   process.exit(1);
 }
 for (const f of facilities.slice(0, 3)) {
