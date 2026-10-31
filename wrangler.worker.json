@@ -15,5 +15,5 @@
     { "binding": "DB", "database_name": "carbonchain-platform", "database_id": "2f6b8d8d-4dad-4357-968f-0a31fc23c6ab" }
   ],
   "observability": { "enabled": true },
-  "triggers": { "crons": ["*/30 * * * *", "17 3 * * *"] }
+  "triggers": { "crons": [] }
 }
