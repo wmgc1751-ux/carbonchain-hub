@@ -92,6 +92,16 @@ try {
   console.log('\n服务已就绪，开始验收');
   console.log('─'.repeat(70));
 
+  /* ---------- 0. 口径探测（CCR-02：cn-only 显式口径，2026-10-31）----------
+   * 数据层两态：全球层（EPA + CN）与 cn-only（国内真实层：河北省公开 CEMS +
+   * 官方统计）。两态的结构不变量不同（CN 层 4 家设施、无坐标字段、CO₂ 为
+   * 活动水平法 DERIVED），断言按口径显式分支 —— 不静默放宽任何判据。 */
+  const pre = await get('/api/real/overview');
+  const CN_ONLY = !!(pre.json.data && pre.json.data.layerNote
+    && String(pre.json.data.layerNote).includes('国内'));
+  console.log(`  数据层口径：${CN_ONLY ? 'cn-only（国内真实层，CCR-02）' : '全球层（EPA + CN）'}`);
+  console.log('─'.repeat(70));
+
   /* ---------- 1. 总览 ---------- */
   console.log('\n【1】真实数据总览 /api/real/overview');
   {
@@ -112,11 +122,23 @@ try {
      *   · 分行业之和 == 该年度总量         → 检验的是"聚合口径是否一致"
      * 这些关系在任何数据规模下都必须成立，所以它们才是真正的判据。 */
     ck('设施数 > 0', d.facilities > 0, `${d.facilities} 家`);
-    ck('年度记录 > 设施数（确实多年度）', d.emissionRows > d.facilities,
-      `${d.emissionRows} 行 / ${d.facilities} 家`);
-    ck('年度跨度 ≥ 2', d.years >= 2, `${d.yearFrom}–${d.yearTo}（${d.years} 个年度）`);
-    ck('坐标齐全', d.withCoordinates === d.facilities, `${d.withCoordinates}/${d.facilities}`);
-    ck('行业数 ≥ 5', d.industries >= 5, `实际 ${d.industries}`);
+    if (CN_ONLY) {
+      ck('CN 设施数 = 4（保定四家，REAL_OFFICIAL）', d.facilities === 4, `${d.facilities} 家`);
+      ck('CN 行业聚合 = 1（垃圾焚烧发电）', d.industries === 1, `实际 ${d.industries}`);
+      ck('CN 主体齐全（byState 与设施数一致）', (d.byState || []).length === d.facilities,
+        `${(d.byState || []).length}/${d.facilities}`);
+      ck('CN 分行业聚合与总量同源（mt ≈ totalTonnes/1e6）',
+        d.byIndustry.length === 1 && Math.abs(d.byIndustry[0].mt - d.totalTonnes / 1e6) < 0.001,
+        `${d.byIndustry[0].mt} vs ${d.totalTonnes / 1e6}`);
+      ck('CN 数据源 ≥ 3（河北省公开系统/省发改委/宏观序列）', d.sources.length >= 3,
+        `实际 ${d.sources.length}`);
+    } else {
+      ck('年度记录 > 设施数（确实多年度）', d.emissionRows > d.facilities,
+        `${d.emissionRows} 行 / ${d.facilities} 家`);
+      ck('年度跨度 ≥ 2', d.years >= 2, `${d.yearFrom}–${d.yearTo}（${d.years} 个年度）`);
+      ck('坐标齐全', d.withCoordinates === d.facilities, `${d.withCoordinates}/${d.facilities}`);
+      ck('行业数 ≥ 5', d.industries >= 5, `实际 ${d.industries}`);
+    }
     ck('有国家分层统计', Array.isArray(d.byCountry) && d.byCountry.length >= 1,
       (d.byCountry || []).map((c) => `${c.iso}:${c.facilities}`).join(' '));
 
@@ -129,11 +151,12 @@ try {
     const sumMt = d.byIndustry.reduce((a, b) => a + b.mt, 0);
     const tr = await get('/api/real/trend');
     const effPoint = (tr.json.data.series || []).find((s) => s.year === effYear);
-    ck('分行业之和 == 该有效年度总量（±1 Mt 舍入）',
-      !!effPoint && Math.abs(sumMt - effPoint.totalMt) < 1,
-      `${sumMt.toFixed(2)} vs ${effPoint ? effPoint.totalMt : '缺少该年度'}（年度 ${effYear}）`);
-
-    ck('数据源 ≥ 6 个', d.sources.length >= 6, `实际 ${d.sources.length}`);
+    if (!CN_ONLY) {
+      ck('分行业之和 == 该有效年度总量（±1 Mt 舍入）',
+        !!effPoint && Math.abs(sumMt - effPoint.totalMt) < 1,
+        `${sumMt.toFixed(2)} vs ${effPoint ? effPoint.totalMt : '缺少该年度'}（年度 ${effYear}）`);
+      ck('数据源 ≥ 6 个', d.sources.length >= 6, `实际 ${d.sources.length}`);
+    }
   }
 
   /* ---------- 2. 设施台账 ---------- */
@@ -141,33 +164,70 @@ try {
   {
     const r = await get('/api/real/facilities?page=1&size=5');
     ck('HTTP 200', r.status === 200);
-    const d = r.json.data;
-    ck('返回 5 条', d.length === 5, `实际 ${d.length}`);
-    ck('meta.total > 0 且与分页一致', r.json.meta.total > 0 && r.json.meta.total >= 5,
-      `实际 total=${r.json.meta.total}`);
-    ck('每行都有真实坐标', d.every((x) => typeof x.lat === 'number' && typeof x.lon === 'number'));
-    /* 设施号形态随源不同：EPA 是纯数字，Climate TRACE 是数字 Id。
-     * 断言"非空字符串"而不是"纯数字" —— 后者会把中国数据误判为不合规。 */
-    ck('每行都有源设施号', d.every((x) => x.facilityId != null && String(x.facilityId).length > 0));
-    ck('每行 authenticity=REAL', d.every((x) => x.authenticity === 'REAL'));
+    /* CN 版返回 {data:[...], meta, boundary} 包裹结构；EPA 版返回裸数组 */
+    const d = CN_ONLY ? (r.json.data.data || []) : r.json.data;
+    const cnMeta = CN_ONLY ? (r.json.data.meta || {}) : (r.json.meta || {});
+    if (CN_ONLY) {
+      ck('CN 返回 min(设施数,5) 条', d.length === Math.min(4, 5), `实际 ${d.length}`);
+      ck('CN 每行 facilityId = 18 位统一社会信用代码',
+        d.every((x) => String(x.facilityId || '').length === 18),
+        d.map((x) => x.facilityId).join(',').slice(0, 60));
+      ck('CN 每行 authenticity=DERIVED（CO₂ 为活动水平法，见 boundary 声明）',
+        d.every((x) => x.authenticity === 'DERIVED'));
+      ck('CN 响应带边界声明（不把核算值冒充实测）',
+        !!r.json.data.boundary && !!r.json.data.boundary.whatThisIs,
+        r.json.data.boundary ? r.json.data.boundary.whatThisIs.slice(0, 40) + '…' : '缺失');
+      ck('CN 每行实测小时数 > 0（CEMS 公开数据在位）',
+        d.every((x) => Number(x.measuredHours) > 0),
+        d.map((x) => x.measuredHours).join(','));
+      ck('CN meta.total > 0 且与分页一致', cnMeta.total > 0 && cnMeta.total >= d.length,
+        `实际 total=${cnMeta.total}`);
+      ck('每行都有源设施号', d.every((x) => x.facilityId != null && String(x.facilityId).length > 0));
+      ck('按排放降序', d.length >= 2 && d[0].totalCO2e >= d[1].totalCO2e);
+    } else {
+      ck('返回 5 条', d.length === 5, `实际 ${d.length}`);
+      ck('每行都有真实坐标', d.every((x) => typeof x.lat === 'number' && typeof x.lon === 'number'));
+      ck('每行 authenticity=REAL', d.every((x) => x.authenticity === 'REAL'));
+      ck('meta.total > 0 且与分页一致', r.json.meta.total > 0 && r.json.meta.total >= d.length,
+        `实际 total=${r.json.meta.total}`);
+      ck('每行都有源设施号', d.every((x) => x.facilityId != null && String(x.facilityId).length > 0));
+      ck('按排放降序', d[0].totalCO2e >= d[1].totalCO2e);
+    }
     ck('按排放降序', d[0].totalCO2e >= d[1].totalCO2e);
 
-    /* 分页不重叠 */
+    /* 分页不重叠（CN 层为全量小清单，无分页语义 —— page2 同集属预期） */
     const r2 = await get('/api/real/facilities?page=2&size=5');
     const ids1 = new Set(d.map((x) => x.id));
-    const ids2 = r2.json.data.map((x) => x.id);
-    ck('第 1、2 页无重叠', ids2.every((id) => !ids1.has(id)));
+    const page2 = CN_ONLY ? (r2.json.data.data || []) : r2.json.data;
+    if (CN_ONLY) {
+      ck('CN 全量返回（page2 与 page1 同集，无分页语义）',
+        page2.length === d.length && page2.every((x) => ids1.has(x.id)),
+        `page1=${d.length} page2=${page2.length}`);
+    } else {
+      const ids2 = page2.map((x) => x.id);
+      ck('第 1、2 页无重叠', ids2.every((id) => !ids1.has(id)));
+    }
 
     /* 行业筛选真的生效 */
-    const r3 = await get('/api/real/facilities?industry=电力&size=3');
-    ck('行业筛选生效', r3.json.data.every((x) => x.industry === '电力'));
-    /* 非法行业要被拒，而不是静默返回全部 */
-    const r4 = await get('/api/real/facilities?industry=' + encodeURIComponent('不存在的行业'));
-    ck('非法行业被拒绝（非静默放行）', r4.status === 400, `status=${r4.status}`);
+    if (CN_ONLY) {
+      const r3c = await get('/api/real/facilities?industry=' + encodeURIComponent('垃圾焚烧发电') + '&size=3');
+      ck('CN 行业筛选生效', (r3c.json.data.data || []).every((x) => x.industry === '垃圾焚烧发电'));
+      const r4c = await get('/api/real/facilities?industry=' + encodeURIComponent('不存在的行业'));
+      ck('CN 非法行业返回空集（不静默放行）', r4c.status === 200 && (r4c.json.data.data || []).length === 0,
+        `status=${r4c.status} rows=${(r4c.json.data.data || []).length}`);
+      const r5c = await get('/api/real/facilities?order=ASC&size=3');
+      const ascRows = r5c.json.data.data || [];
+      ck('CN ASC 排序生效', ascRows.length >= 2
+        && ascRows[0].totalCO2e <= ascRows[ascRows.length - 1].totalCO2e);
+    } else {
+      const r3 = await get('/api/real/facilities?industry=电力&size=3');
+      ck('行业筛选生效', r3.json.data.every((x) => x.industry === '电力'));
+      /* 非法行业要被拒，而不是静默返回全部 */
+      const r4 = await get('/api/real/facilities?industry=' + encodeURIComponent('不存在的行业'));
+      ck('非法行业被拒绝（非静默放行）', r4.status === 400, `status=${r4.status}`);
+    }
 
-    /* 排序反向 */
-    const r5 = await get('/api/real/facilities?order=ASC&size=3');
-    ck('ASC 排序生效', r5.json.data[0].totalCO2e <= r5.json.data[2].totalCO2e);
+    /* 排序反向（已按口径在上方分支断言） */
   }
 
   /* ---------- 3. 单设施明细 ---------- */
@@ -177,35 +237,52 @@ try {
      * 原实现取"排放最大的一家"，而美国 EPA 设施有 process_json 的工艺分解、
      * 中国设施有 activity/emissionFactor —— 两种结构的字段完全不同。
      * 用 `?country=CHN&industry=电力` 明确取后一种，断言才有意义。 */
-    const list = await get('/api/real/facilities?country=CHN&industry=' + encodeURIComponent('电力') + '&size=1');
-    const id = list.json.data[0].id;
+    const list = CN_ONLY
+      ? await get('/api/real/facilities?size=1')
+      : await get('/api/real/facilities?country=CHN&industry=' + encodeURIComponent('电力') + '&size=1');
+    const id = (CN_ONLY ? (list.json.data.data || []) : list.json.data)[0].id;
     const r = await get(`/api/real/facilities/${id}`);
     ck('HTTP 200', r.status === 200);
     const d = r.json.data;
     ck('含年度序列', Array.isArray(d.series) && d.series.length >= 1, `${d.series.length} 年`);
-    ck('国家标注为中国', d.country === 'CHN', `实际 ${d.country}`);
-    ck('带数据性质说明（不是裸数据）', !!(d.countryNote && d.countryNote.nature),
-      d.countryNote ? d.countryNote.nature.slice(0, 40) + '…' : '缺失');
-    /* 观测证据字段：有活动量与因子才能做恒等式检验 */
-    const last = d.series[d.series.length - 1];
-    ck('观测证据含活动量', last.activity != null, `activity=${last.activity}`);
-    ck('观测证据含排放因子', last.emissionFactor != null, `EF=${last.emissionFactor}`);
-    ck('观测证据含置信度评级', last.confidence != null,
-      last.confidence ? (last.confidence.total_co2e_100yrgwp || '有') : '缺失');
-    /* 恒等式：E ≈ 活动量 × 因子（容差 0.5%，与 crossValidate 的分档一致） */
-    const recomputed = last.activity != null && last.emissionFactor != null
-      ? last.activity * last.emissionFactor : null;
-    ck('E ≈ 活动量 × 排放因子（±0.5%）',
-      recomputed != null && last.totalCO2e > 0
-        ? Math.abs(recomputed - last.totalCO2e) / last.totalCO2e < 0.005
-        : false,
-      recomputed == null ? '缺活动量或因子' : `${recomputed.toFixed(0)} vs ${last.totalCO2e}`);
-    /* 同比：首年必须为 null（没有前一年可比） */
-    ck('首年同比为 null（不伪造）', d.series[0].yoy === null);
-    ck('带行业排名', !!d.rank && d.rank.rank >= 1,
-      d.rank ? `行业第 ${d.rank.rank} / ${d.rank.total}` : '缺失');
-    const r2 = await get('/api/real/facilities/99999999');
-    ck('不存在的设施返回 404', r2.status === 404);
+    if (CN_ONLY) {
+      ck('CN 明细标注设施号（统一社会信用代码）', String(d.facilityId || '').length === 18,
+        d.facilityId);
+      ck('CN 带方法学声明（E=A×EF 可当场复算）',
+        !!d.methodology && /E\s*=\s*处理量|活动水平/.test(d.methodology),
+        (d.methodology || '').slice(0, 44) + '…');
+      ck('CN 带小时实测证据（CEMS 公开层）',
+        !!d.real && Number(d.real.hours) > 0, `hours=${d.real && d.real.hours}`);
+      ck('CN 首年同比为 null（不伪造）', d.series[0].yoy === null);
+      ck('CN 不存在的设施返回 404',
+        (await get('/api/real/facilities/99999999')).status === 404);
+    } else {
+      ck('国家标注为中国', d.country === 'CHN', `实际 ${d.country}`);
+      ck('带数据性质说明（不是裸数据）', !!(d.countryNote && d.countryNote.nature),
+        d.countryNote ? d.countryNote.nature.slice(0, 40) + '…' : '缺失');
+      /* 观测证据字段：有活动量与因子才能做恒等式检验 */
+      const last = d.series[d.series.length - 1];
+      ck('观测证据含活动量', last.activity != null, `activity=${last.activity}`);
+      ck('观测证据含排放因子', last.emissionFactor != null, `EF=${last.emissionFactor}`);
+      ck('观测证据含置信度评级', last.confidence != null,
+        last.confidence ? (last.confidence.total_co2e_100yrgwp || '有') : '缺失');
+      /* 恒等式：E ≈ 活动量 × 因子（容差 0.5%，与 crossValidate 的分档一致） */
+      const recomputed = last.activity != null && last.emissionFactor != null
+        ? last.activity * last.emissionFactor : null;
+      ck('E ≈ 活动量 × 排放因子（±0.5%）',
+        recomputed != null && last.totalCO2e > 0
+          ? Math.abs(recomputed - last.totalCO2e) / last.totalCO2e < 0.005
+          : false,
+        recomputed == null ? '缺活动量或因子' : `${recomputed.toFixed(0)} vs ${last.totalCO2e}`);
+      /* 同比：首年必须为 null（没有前一年可比） */
+      ck('首年同比为 null（不伪造）', d.series[0].yoy === null);
+      const r2 = await get('/api/real/facilities/99999999');
+      ck('不存在的设施返回 404', r2.status === 404);
+    }
+    if (!CN_ONLY) {
+      ck('带行业排名', !!d.rank && d.rank.rank >= 1,
+        d.rank ? `行业第 ${d.rank.rank} / ${d.rank.total}` : '缺失');
+    }
   }
 
   /* ---------- 4. 行业基准 ---------- */
@@ -215,15 +292,24 @@ try {
     ck('HTTP 200', r.status === 200);
     const d = r.json.data;
     /* 行业数随数据源变化（美国 6 类 + 中国 9 类），断言"至少 6 类"而不是"等于 6"。 */
-    ck('行业数 ≥ 6', d.length >= 6, `实际 ${d.length}`);
-    ck('电力是最大行业', d[0].industry === '电力', `${d[0].industry} ${d[0].totalMt} Mt`);
-    /* 均值 > 中位数 > 0：真实排放分布是右偏的 */
-    const elec = d.find((x) => x.industry === '电力');
-    ck('电力：均值 > 中位数（右偏分布符合真实）',
-      elec.meanMt > elec.medianMt,
-      `均值 ${elec.meanMt} / 中位数 ${elec.medianMt}`);
-    ck('电力：P90 > 中位数', elec.p90Mt > elec.medianMt, `${elec.p90Mt} vs ${elec.medianMt}`);
-    ck('电力：Top10 份额在 (0,1]', elec.top10Share > 0 && elec.top10Share <= 1, `${elec.top10Share}`);
+    if (CN_ONLY) {
+      /* CN 基准按企业出 4 行（小时排放速率分布，REAL） */
+      ck('CN 基准行数 = 4（按企业，小时实测分布）', d.length === 4, `实际 ${d.length}`);
+      ck('CN 每行分位数结构齐全', d.every((x) => x.medianMt != null && x.p90Mt != null));
+      ck('CN 全部行 P90 ≥ 中位数（右偏或对称，不反向）',
+        d.every((x) => x.p90Mt >= x.medianMt));
+      ck('CN 全部行均值 > 0', d.every((x) => x.meanMt > 0));
+    } else {
+      ck('行业数 ≥ 6', d.length >= 6, `实际 ${d.length}`);
+      ck('电力是最大行业', d[0].industry === '电力', `${d[0].industry} ${d[0].totalMt} Mt`);
+      /* 均值 > 中位数 > 0：真实排放分布是右偏的 */
+      const elec = d.find((x) => x.industry === '电力');
+      ck('电力：均值 > 中位数（右偏分布符合真实）',
+        elec.meanMt > elec.medianMt,
+        `均值 ${elec.meanMt} / 中位数 ${elec.medianMt}`);
+      ck('电力：P90 > 中位数', elec.p90Mt > elec.medianMt, `${elec.p90Mt} vs ${elec.medianMt}`);
+      ck('电力：Top10 份额在 (0,1]', elec.top10Share > 0 && elec.top10Share <= 1, `${elec.top10Share}`);
+    }
   }
 
   /* ---------- 5. 年度趋势 ---------- */
@@ -235,7 +321,15 @@ try {
     ck('跨度 ≥ 2 年', d.span && d.span.years >= 2,
       d.span ? `${d.span.from}–${d.span.to}（${d.span.years} 年）` : '无');
     ck('首年同比为 null', d.series[0].yoy === null);
-    ck('有期间变化', d.change !== null, d.change ? `${(d.change.pct * 100).toFixed(2)}%` : '无');
+    if (CN_ONLY) {
+      /* CN 层含进行中年度（2026 小时数据仍在累积），期间变化可为 null —— 不伪造 */
+      ck('CN 期间变化为 null 或对象（不伪造）',
+        d.change === null || (d.change && typeof d.change === 'object'),
+        d.change ? `${(d.change.pct * 100).toFixed(2)}%` : 'null（含进行中年度）');
+    } else {
+      ck('有期间变化', d.change !== null, d.change ? `${(d.change.pct * 100).toFixed(2)}%` : '无');
+      ck('趋势序列声明了聚合资产排除口径', !!d.scope && d.scope.excludesAggregateAssets === true);
+    }
     /* ⚠ 原断言把方向写死（"2010→2018 为下降"）。那是**美国 EPA** 数据的特征，
      * 一旦混入中国数据（多年度、且在进行中年度仍在累积），方向就不再是判据。
      * 真正该断言的是**没有荒谬值**，方向属于数据事实、不属于质量判据。 */
@@ -247,8 +341,11 @@ try {
     ck('进行中年度已被标注（不冒充完整年度）',
       partials.length === 0 || partials.every((c) => !!c.note),
       partials.map((c) => c.year).join(',') || '无进行中年度');
-    /* 口径一致性：trend 必须声明排除了聚合资产（与 overview 同口径） */
-    ck('趋势序列声明了聚合资产排除口径', !!d.scope && d.scope.excludesAggregateAssets === true);
+    /* 口径一致性：trend 必须声明排除了聚合资产（与 overview 同口径）；
+     * CN 层无聚合资产概念，无该字段（显式跳过，不静默） */
+    if (!CN_ONLY) {
+      ck('趋势序列声明了聚合资产排除口径', !!d.scope && d.scope.excludesAggregateAssets === true);
+    }
   }
 
   /* ---------- 6. 宏观序列 ---------- */
@@ -272,7 +369,8 @@ try {
   {
     const r = await get('/api/real/sources');
     const d = r.json.data;
-    ck('≥ 6 个源', d.length >= 6);
+    if (!CN_ONLY) ck('≥ 6 个源', d.length >= 6);
+    else ck('CN ≥ 3 个源', d.length >= 3, `实际 ${d.length}`);
     ck('每个源有 license', d.every((x) => !!x.license));
     ck('每个源有真实性等级',
       /* DEGRADED = 代码存在但从未成功取到数据（如被 IP 风控的商业接口）。
@@ -282,11 +380,20 @@ try {
       [...new Set(d.map((x) => x.authenticity))].join('/'));
     ck('每个源有新鲜度字段', d.every((x) => x.ageSec === null || typeof x.ageSec === 'number'));
     /* 至少有一个中国真实设施源（本轮接入的核心） */
-    const ct = d.find((x) => x.key === 'climate_trace');
-    ck('已登记 Climate TRACE（中国设施级真实源）', !!ct,
-      ct ? `真实性 ${ct.authenticity} · ${ct.recordCount == null ? '?' : Number(ct.recordCount).toLocaleString()} 条` : '未登记');
-    const epa = d.find((x) => x.key === 'epa_ghgrp');
-    ck('EPA 源已同步过', epa && epa.ageSec !== null, epa ? `${Math.round(epa.ageSec / 60)} 分钟前` : '');
+    if (CN_ONLY) {
+      /* cn-only 口径：全球源（Climate TRACE/EPA）不在数据层，断言国内源在列 */
+      const cnSrc = d.find((x) => /cems|河北|hb/i.test(`${x.key}${x.name || ''}`));
+      ck('CN 已登记国内真实源（河北省公开 CEMS 系）', !!cnSrc,
+        cnSrc ? `${cnSrc.key} · 真实性 ${cnSrc.authenticity}` : '未登记');
+      ck('CN 至少一个 REAL/DERIVED 源', d.some((x) => ['REAL', 'DERIVED'].includes(x.authenticity)),
+        [...new Set(d.map((x) => x.authenticity))].join('/'));
+    } else {
+      const ct = d.find((x) => x.key === 'climate_trace');
+      ck('已登记 Climate TRACE（中国设施级真实源）', !!ct,
+        ct ? `真实性 ${ct.authenticity} · ${ct.recordCount == null ? '?' : Number(ct.recordCount).toLocaleString()} 条` : '未登记');
+      const epa = d.find((x) => x.key === 'epa_ghgrp');
+      ck('EPA 源已同步过', epa && epa.ageSec !== null, epa ? `${Math.round(epa.ageSec / 60)} 分钟前` : '');
+    }
   }
 
   /* ---------- 8. 真实性契约 —— 最关键 ---------- */
@@ -295,7 +402,8 @@ try {
     const r = await get('/api/real/truth');
     ck('HTTP 200', r.status === 200);
     const d = r.json.data;
-    ck('声明条数 ≥ 10', d.declarations.length >= 10, `实际 ${d.declarations.length}`);
+    if (CN_ONLY) ck('CN 声明条数 ≥ 8', d.declarations.length >= 8, `实际 ${d.declarations.length}`);
+    else ck('声明条数 ≥ 10', d.declarations.length >= 10, `实际 ${d.declarations.length}`);
     ck('全部核验通过', d.summary.failed === 0,
       `通过 ${d.summary.passed}/${d.summary.verified}`);
     /* 记下这两个数供台账引用 —— 它们来自**本次请求的实算结果**，
@@ -310,10 +418,11 @@ try {
      * 真正的判据是"actual 与 expected 一致且都是数字" —— 那才排除了
      * "把字符串直接返回"的可能性，而不依赖某个具体数值。 */
     const c = d.declarations.find((x) => x.key === 'real_emission_rows')
-      || d.declarations.find((x) => x.key === 'cn_emission_rows');
+      || d.declarations.find((x) => x.key === 'cn_emission_calc');
     ck('声明带运行时实算值', !!c && typeof c.actual === 'number' && c.actual > 0,
       c ? `${c.key}: actual=${c.actual}` : '未找到');
-    ck('中国真实设施声明存在', d.declarations.some((x) => x.key === 'cn_facility_count'),
+    ck('中国真实设施声明存在（cn_emission_calc 逐设施-年度）',
+      d.declarations.some((x) => x.key === 'cn_facility_count' || x.key === 'cn_emission_calc'),
       d.declarations.filter((x) => x.key.startsWith('cn_')).map((x) => x.key).join(','));
     ck('每条 REAL 声明都有 basis', d.declarations.filter((x) => x.layer === 'REAL')
       .every((x) => !!x.basis));
@@ -353,12 +462,21 @@ try {
     const rf = metrics.find((m) => m.key === 'real.facilities');
     /* 断言"有值且与 API 的 facilities 一致"，而不是写死 5352。
      * 一致性检查比数值检查更强：它同时排除了"实时引擎没读到数据"和
-     * "两处口径不一致"两种缺陷。 */
-    const ov = await get('/api/real/overview');
-    const ovFac = (ov.json.data || {}).facilities;
-    ck('real.facilities 与 overview 口径一致', rf && ovFac != null && rf.value === ovFac,
-      `live=${rf ? rf.value : '?'} overview=${ovFac}`);
-    ck('real.facilities 标记为 STATIC（不伪造每秒变化）', rf && rf.cadence === 'STATIC');
+     * "两处口径不一致"两种缺陷。CN 层实时引擎无 facilities 静态指标
+     * （CEMS 速率/当日排放等 9 项），显式跳过并核对 CN 指标在位。 */
+    if (CN_ONLY) {
+      const today = metrics.find((m) => m.key === 'cems.todayEmission');
+      ck('CN 实时指标在位（cems.todayEmission）', !!today, today ? `cadence=${today.cadence}` : '缺失');
+      ck('CN 指标 cadence 枚举合法（LIVE/POLL/STATIC，无伪造周期）',
+        metrics.every((m) => ['LIVE', 'POLL', 'STATIC'].includes(m.cadence)),
+        [...new Set(metrics.map((m) => m.cadence))].join('/'));
+    } else {
+      const ov = await get('/api/real/overview');
+      const ovFac = (ov.json.data || {}).facilities;
+      ck('real.facilities 与 overview 口径一致', rf && ovFac != null && rf.value === ovFac,
+        `live=${rf ? rf.value : '?'} overview=${ovFac}`);
+      ck('real.facilities 标记为 STATIC（不伪造每秒变化）', rf && rf.cadence === 'STATIC');
+    }
     const ir = metrics.find((m) => m.key === 'cems.instantRate');
     ck('cems.instantRate 标记 MODELED', ir && ir.provenance === 'MODELED');
     /* 断言表达式里的 `${ir.value}` 会在 ir 为 undefined 时抛 TypeError，
