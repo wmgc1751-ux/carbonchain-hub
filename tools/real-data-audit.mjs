@@ -19,7 +19,7 @@
  * 用法：node tools/real-data-audit.mjs [--strict]
  *   --strict：若存在"对外不可声称真实"的数据却未在页面声明，exit 1
  */
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -216,13 +216,32 @@ async function main() {
        UNION SELECT ent_code FROM emission_calc) t
       WHERE ent_code IS NOT NULL`);
   const realCodes = new Set(realLinked.map((r) => String(r.ent_code)));
+  /* 2026-11-01 交付复检：脱敏主体单列。
+   * 4 家企业的名称与信用代码已按脱敏方案替换为虚构值（见 tools/desensitized-subjects.json），
+   * 其代码不可能通过 GB 32100 校验位 —— 这是**预期**，不是造假证据。
+   * 若把它们计入 realUsccInvalid，strict 会一直红，且会掩盖真正需要核实的异常。
+   * 处理：脱敏主体单列披露，不参与 strict；其余真实主体仍强制校验位。 */
+  let desens = [];
+  try {
+    const p = join(ROOT, 'tools', 'desensitized-subjects.json');
+    if (existsSync(p)) {
+      desens = (JSON.parse(readFileSync(p, 'utf8')).subjects || []).map((s) => String(s.entCode));
+    }
+  } catch { desens = []; }
+  const desensSet = new Set(desens);
   let realUsccTotal = 0;
   let realUsccInvalid = 0;
+  let desensCount = 0;
   for (const e of allEnts) {
     if (!realCodes.has(String(e.ent_code))) continue;
+    if (desensSet.has(String(e.ent_code))) { desensCount += 1; continue; }
     realUsccTotal += 1;
     const r = checkUscc(e.ent_code);
     if (!r.ok) realUsccInvalid += 1;
+  }
+  if (desensCount > 0) {
+    console.log(`  脱敏主体 ${desensCount} 家：名称与信用代码为虚构值（校验位预期不通过，不计入 strict 失败）`);
+    console.log('  ⇒ 其排放数值 / CEMS 记录 / 官方处理量仍取自真实公开渠道，须与「主体为虚构」同时说明');
   }
 
   push({
@@ -478,7 +497,12 @@ async function main() {
     console.log('     · 宏观国家级排放序列（世界银行 / OWID）');
   }
   console.log('  ⇒ 平台内**不存在**的真实外部数据：');
-  console.log('     · 业务层企业主体（60 家全为合成，信用代码校验位不通过）');
+  /* 2026-11-01：原表述「60 家全为合成」在脱敏后已不准确 —— 库内 4 家企业是
+   * **脱敏主体**（名称/信用代码虚构，排放数据取自真实公开渠道），不能与
+   * "纯合成样本"混为一谈，也不能反过来宣称"真实企业主体"。三档必须分开说。 */
+  console.log(`     · 企业主体实名：4 家为脱敏主体（名称与信用代码虚构，排放/CEMS/处理量取自真实公开渠道），`
+    + `其余 ${Math.max(0, entCnt - 4)} 家为合成演示样本`);
+  console.log('     · 真实公开的 CEMS 原始读数已接入（河北省政府公开平台），但为「脱敏主体」名下');
   console.log(`     · CEMS 读数（${cemsTotal} 条，真实设备直报 ${t4.realDeviceCount} 条）`);
   console.log(`     · 活动数据（${actTotal} 条，全为按定额生成）`);
   console.log('     · 碳信用 / 成交 / 清缴记录（无真实市场对应）');

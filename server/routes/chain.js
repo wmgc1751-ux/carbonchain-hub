@@ -80,9 +80,11 @@ function demoOnly(req, res, next) {
  *                        文件缺失时如实返回 null，不编造）；
  *   ④ metrics        —— 指标溯源台账的关键条目（存证笔数 / PoA 倍数 /
  *                       设备数等全部来自台账，台账缺证时为 null）；
- *   ⑤ deployMode     —— 部署形态的如实声明：云端=前后端分离部署
- *                       （静态资产与 API 分离托管），本地=同端口合并托管
- *                       （开发便利，不改变运行时契约）。
+ *   ⑤ deployMode     —— 部署形态的如实声明：云端=静态资产与 API 分属不同
+ *                       托管产品（**托管层**拆分），本地=同端口合并托管；
+ *                       两者运行时同为单一进程，共用同一套 API 契约。
+ *                       ⚠ 本平台**不采用**"前后端分离架构"这一表述：前端是
+ *                       运行期编译的 Vue、无独立构建产物，谈不上架构层分离。
  *
  * 只读接口；除 information_schema 元数据外不触碰任何业务数据。 */
 router.get('/trust-model', wrap(async (req, res) => {
@@ -321,6 +323,190 @@ router.get('/stats', wrap(async (req, res) => {
     totalSize: Number(size.s),
     totalTxInBlocks: Number(size.t),
     topAccounts: holders,
+  });
+}));
+
+/* 链身份自证 -------------------------------------------------------- */
+/**
+ * GET /api/chain/identity[?peer=<origin>]
+ *
+ * 存在的理由：「你到底有几个链」这个问题，任何口头解释都不如让链自己报身份。
+ * 判定依据是**创世块哈希**——创世块 prev_hash 全零、没有前序可继承，
+ * 它的哈希由创世参数唯一决定。两个环境创世哈希相同 ⇒ 同一条链（或逐块可验的
+ * 完整拷贝）；不同 ⇒ 各自独立引导，任何高度上的块都无法互验。
+ *
+ * 带 ?peer= 时额外拉取对端的 /api/chain/identity 做同源比对，
+ * 并在同源前提下进一步比对创世之后的首个不同块（forkHeight），
+ * 区分「同一条链、只是快照时差」与「同一种子、已分叉」这两种完全不同的性质。
+ *
+ * 只读、无副作用、不依赖任何缓存。
+ */
+router.get('/identity', wrap(async (req, res) => {
+  const g = await db.ledgerOne(
+    `SELECT block_index, block_hash, UNIX_TIMESTAMP(block_time) AS ts, proposer
+       FROM chain_block ORDER BY block_index ASC LIMIT 1`
+  );
+  const t = await db.ledgerOne(
+    `SELECT block_index, block_hash FROM chain_block ORDER BY block_index DESC LIMIT 1`
+  );
+  const n = await db.ledgerOne('SELECT COUNT(*) AS c FROM chain_block');
+  const sep = typeof db.separationFacts === 'function' ? db.separationFacts() : null;
+
+  const self = {
+    genesisHash: g ? g.block_hash : null,
+    genesisTime: g && g.ts ? new Date(Number(g.ts) * 1000).toISOString() : null,
+    genesisProposer: g ? g.proposer : null,
+    /* chainId 取创世哈希前 16 位，人读友好；完整判定仍以 genesisHash 为准 */
+    chainId: g ? `cch-${String(g.block_hash).slice(0, 16)}` : null,
+    tipHeight: t ? Number(t.block_index) : null,
+    tipHash: t ? t.block_hash : null,
+    blocks: n ? Number(n.c) : 0,
+    separation: sep,
+    writable: true,
+    role: 'authority',
+  };
+
+  const peerRaw = req.query.peer;
+  if (!peerRaw) return ok(res, self);
+
+  /* 对端比对：只允许 http/https，且超时 8s —— 不能让一个坏 peer 拖死答辩现场 */
+  let peerUrl;
+  try {
+    peerUrl = new URL(String(peerRaw));
+    if (!/^https?:$/.test(peerUrl.protocol)) throw new Error('protocol');
+  } catch {
+    return fail(res, 'peer 必须是 http/https 地址', 400);
+  }
+  const base = `${peerUrl.origin}${peerUrl.pathname.replace(/\/+$/, '')}`.replace(/\/api\/chain\/identity$/, '');
+
+  const jget = async (url) => {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 8000);
+    try {
+      const r = await fetch(url, { headers: { accept: 'application/json' }, signal: ac.signal });
+      if (!r.ok) return { ok: false, status: r.status };
+      const j = await r.json();
+      return { ok: true, data: j && j.data ? j.data : j };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  let peer = null;
+  let peerError = null;
+  let peerProbeMode = 'identity';
+  try {
+    const r = await jget(`${base}/api/chain/identity`);
+    if (r.ok && r.data && r.data.genesisHash) {
+      peer = r.data;
+    } else {
+      /* 对端还没升级到带 /identity 的版本（VPS / Pages 均可能如此）——
+       * 降级用「stats 的 tip」+「blocks/0 的创世」拼出等价身份。
+       * 这两个接口任何版本都有，答辩现场不能因为对端旧就比不了。 */
+      peerProbeMode = 'stats+blocks0';
+      const [s, b0] = await Promise.all([
+        jget(`${base}/api/chain/stats`),
+        jget(`${base}/api/chain/blocks/0`),
+      ]);
+      if (!s.ok || !b0.ok) {
+        peerError = `对端不可用（stats HTTP ${s.status || '-'}，blocks/0 HTTP ${b0.status || '-'}）`;
+      } else {
+        const sd = s.data || {};
+        const bd = b0.data || {};
+        const blk = bd.block || bd;
+        peer = {
+          genesisHash: blk.hash || blk.block_hash || null,
+          chainId: blk.hash ? `cch-${String(blk.hash).slice(0, 16)}` : null,
+          tipHeight: sd.height != null ? Number(sd.height) : null,
+          tipHash: sd.tipHash || sd.head && sd.head.hash || null,
+          blocks: sd.totalBlocks != null ? Number(sd.totalBlocks) : (sd.blocks != null ? Number(sd.blocks) : null),
+        };
+      }
+    }
+  } catch (e) {
+    peerError = e && e.name === 'AbortError' ? '对端超时（8s）' : String(e && e.message);
+  }
+
+  if (!peer) {
+    return ok(res, { ...self, peer: { url: base, reachable: false, error: peerError } });
+  }
+
+  const sameGenesis = !!self.genesisHash && self.genesisHash === peer.genesisHash;
+
+  /* 同源前提下找分叉点：从两端共同的最小 tip 往下扫，
+   * 首个哈希不一致的高度就是分叉高度；扫到创世都一致则为「同一链、纯时差」。
+   * 只在同源时做，跨链扫块没有意义（必然全不等，且浪费请求）。 */
+  let forkHeight = null;
+  let scanned = 0;
+  if (sameGenesis) {
+    const top = Math.min(Number(self.tipHeight), Number(peer.tipHeight));
+    const probe = async (h) => {
+      const [a, b] = await Promise.all([
+        db.ledgerOne('SELECT block_hash FROM chain_block WHERE block_index = ?', [h]),
+        fetch(`${base}/api/chain/blocks/${h}`, { headers: { accept: 'application/json' } })
+          .then((r) => r.json()).then((j) => (j && j.data && j.data.block) || null)
+          .catch(() => null),
+      ]);
+      const ah = a && a.block_hash;
+      const bh = b && (b.hash || b.block_hash);
+      if (!ah || !bh) return null;
+      return ah === bh ? 'same' : 'diff';
+    };
+    /* 二分 + 端点校准：先测 tip，再测创世上方第 1 块，都不等则二分定位 */
+    const lo0 = 1;
+    const hi0 = top;
+    let lo = lo0;
+    let hi = hi0;
+    const topR = await probe(hi0);
+    scanned += 1;
+    if (topR === 'diff') {
+      const firstR = await probe(lo0);
+      scanned += 1;
+      if (firstR === 'diff') {
+        forkHeight = lo0;
+      } else {
+        /* 端点二分：找最后一个 same 与第一个 diff 的边界 */
+        while (hi - lo > 1) {
+          const mid = (lo + hi) >> 1;
+          const r = await probe(mid);
+          scanned += 1;
+          if (r === null) break;
+          if (r === 'same') lo = mid; else hi = mid;
+        }
+        forkHeight = hi;
+      }
+    } else if (topR === 'same') {
+      forkHeight = null; /* 公共高度内逐块一致：纯时差 */
+    }
+  }
+
+  return ok(res, {
+    ...self,
+    peer: {
+      url: base,
+      reachable: true,
+      probeMode: peerProbeMode,
+      genesisHash: peer.genesisHash,
+      chainId: peer.chainId,
+      tipHeight: peer.tipHeight,
+      tipHash: peer.tipHash,
+      blocks: peer.blocks,
+    },
+    compare: {
+      sameChain: sameGenesis,
+      /* 结论只有三种：跨链 / 同一链纯时差 / 同种子已分叉 */
+      verdict: !sameGenesis
+        ? 'DIFFERENT_CHAIN'
+        : (forkHeight === null ? 'SAME_CHAIN_SNAPSHOT_LAG' : 'SAME_SEED_FORKED'),
+      heightLag: Number(peer.tipHeight) - Number(self.tipHeight),
+      forkHeight,
+      scannedBlocks: scanned,
+      note: !sameGenesis
+        ? '创世哈希不同：两条独立引导的链，任何高度上的块都无法互验。'
+        : (forkHeight === null
+          ? '创世同哈希且公共高度内逐块一致：同一条链，仅快照时差。'
+          : `创世同哈希但自 #${forkHeight} 起块哈希不同：同一链种子、已分叉（常见成因是数据重算或双写）。`),
+    },
   });
 }));
 

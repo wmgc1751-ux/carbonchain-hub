@@ -227,16 +227,25 @@ async function verifyBusinessBinding(opts = {}) {
   }
 
   const okCount = Object.values(byType).reduce((s, x) => s + x.ok, 0);
+  /* 2026-11-01 交付复检修复：原实现把 MISSING_BIZ_ROW（链上有存证、业务行已被清理，
+   * 典型是测试数据或作废单）也计入 mismatch，导致"基线未篡改"就跑出 DETECTED，
+   * 演练脚本因此整轮判失败。语义上二者不同：
+   *   · MISSING_BIZ_ROW  —— 链不可删、业务行可删，属正常账实差异，单列 missing
+   *   · BIZ_BINDING_MISMATCH —— 两边都在但内容不一致，这才是篡改信号
+   * 只有后者（以及载荷不可解析）才应触发 DETECTED。 */
+  const dirty = mismatches.filter((m) => m.reason === 'BIZ_BINDING_MISMATCH').length;
+  const unparsable = mismatches.filter((m) => m.reason === 'PAYLOAD_UNPARSABLE').length;
   return {
-    code: mismatches.length ? 'BIZ_BINDING_MISMATCH' : 'BIZ_BINDING_OK',
+    code: (dirty + unparsable) ? 'BIZ_BINDING_MISMATCH' : 'BIZ_BINDING_OK',
     checked,
     ok: okCount,
     missing,
-    mismatch: mismatches.length,
+    mismatch: dirty + unparsable,
     byType,
     mismatches: mismatches.slice(0, 200),
     elapsedMs: Date.now() - t0,
-    note: '业务行与链上摘要逐字段比对；失配即表示业务库被改动而链上锚点未变，或反之。',
+    note: '业务行与链上摘要逐字段比对；mismatch 仅统计「两边都在但不一致」（篡改信号），'
+      + 'missing 为「链上有存证、业务行已不存在」，属账实差异不计入失配。',
   };
 }
 

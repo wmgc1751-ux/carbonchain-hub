@@ -133,6 +133,30 @@ import { createClient } from '@libsql/client/web';
  * createClient 是同步工厂（HTTP 请求本身异步），isolate 存活期内复用
  * 同一 client 可复用其内部连接池。
  */
+/* ==================================================================================
+ * 二·五、账本库路由（院审意见①的线上形态整改）
+ * ==================================================================================
+ * 线上原架构：业务数据与链上 5 表同在一个 Turso 库 —— 拿到该库凭据的人，
+ * 一条 UPDATE 就能同时改掉链下明文与链上锚点，这正是评审说的「信任模型硬伤」。
+ *
+ * 整改后：链上 5 表迁到 **独立的 Cloudflare D1 实例**（另一个云厂商、另一套
+ * 凭据体系）。业务侧凭据在物理上触达不到账本，跨库 UPDATE 不可能成立。
+ *
+ * 为什么用 SQL 文本判定而不是给每个调用点加参数：
+ *   全仓有 105 处引用 chain_* 表，分散在 8 个文件。逐个改调用点既容易漏，
+ *   也会让业务代码感知存储拓扑。在唯一的数据访问层做一次判定，
+ *   业务代码零改动，拓扑变化只影响这一个文件。
+ *
+ * 判定精度：`\bchain_(block|tx|node|node_replica|payload_backup)\b`
+ *   —— `chain_tx_id` 这类**列名**不会被误判（`_` 是词字符，`\b` 不成立）。
+ */
+const LEDGER_TABLE_RE = /\bchain_(block|tx|node|node_replica|payload_backup)\b/i;
+
+/** 该 SQL 是否只操作账本表 */
+export function isLedgerSql(sql) {
+  return LEDGER_TABLE_RE.test(String(sql || ''));
+}
+
 export function selectBackend(env) {
   if (env.TURSO_URL && env.TURSO_AUTH_TOKEN) {
     if (!env.__tursoClient) {
@@ -206,6 +230,21 @@ export function createUsageMeter() {
 }
 
 /**
+ * 选择**账本**后端。
+ *   LEDGER_BACKEND=d1 且绑定了 env.LEDGER_DB → 用独立 D1 账本实例（推荐）
+ *   否则                                → 返回 null，账本与业务同后端（旧行为）
+ *
+ * 为什么用开关而不是直接硬切：
+ *   D1 免费层每 UTC 日 500 万行读取，账本切换后链查询的读量会落到 D1 上。
+ *   额度打光时 D1 直接返回 7500 错误 —— 线上会 503。因此切换必须是
+ *   **可回退的一步操作**，而不是改代码重发布。
+ */
+export function selectLedgerBackend(env) {
+  if (String(env.LEDGER_BACKEND || '').toLowerCase() !== 'd1') return null;
+  return env.LEDGER_DB || null;
+}
+
+/**
  * 建一个 db 句柄。签名与 server/db.js 保持一致：
  *   query / one / value / tx
  *
@@ -215,15 +254,13 @@ export function createUsageMeter() {
  * 两者的 SQL 方言同为 SQLite，上层的 toSqliteSql 改写对两者通用；
  * 只是执行 API 与返回结构不同，在此分支吸收。
  *
- * 【为什么加 Turso 后端】D1 免费层 500 万行读/天有"打光即 503 到午夜"
- * 的硬切断；Turso 免费层 5 亿行读/**月**（≈1666 万/天，3.3 倍）且为
- * 月度池。配置 env.TURSO_URL + env.TURSO_AUTH_TOKEN 即整体切换后端，
- * 其余三层缓存/KV 回退/登录快照不受影响。
+ * 【账本分离】第三参 ledgerBackend 非空时，命中 chain_* 表的语句改走它。
  *
  * @param {D1Database|LibSQLClient} backend  env.DB 或 Turso client
  * @param {object} [meter]  用量记账对象
+ * @param {D1Database} [ledgerBackend]  独立账本实例（env.LEDGER_DB）
  */
-export function makeDb(backend, meter) {
+export function makeDb(backend, meter, ledgerBackend) {
   if (!backend) throw new Error('[db] 后端未绑定 —— 检查 wrangler.json（D1）或 TURSO_URL（Turso）');
 
   const isTurso = typeof backend.prepare !== 'function' && typeof backend.execute === 'function';
@@ -235,53 +272,69 @@ export function makeDb(backend, meter) {
     meter.rowsWritten += Number(meta.rows_written || 0);
   };
 
-  /* ---------- D1 后端 ---------- */
-  async function d1Query(sql, params = []) {
-    const stmt = backend.prepare(toSqliteSql(sql));
-    const bound = params && params.length ? stmt.bind(...normalizeParams(params)) : stmt;
-    const res = await bound.all();
-    track(res.meta);
-    return res.results || [];
-  }
-  async function d1Run(sql, params = []) {
-    const stmt = backend.prepare(toSqliteSql(sql));
-    const bound = params && params.length ? stmt.bind(...normalizeParams(params)) : stmt;
-    const res = await bound.run();
-    track(res.meta);
-    return { changes: Number(res.meta && res.meta.changes || 0), lastRowId: res.meta && res.meta.last_row_id };
-  }
+  /* ---------- 执行器工厂：同一个 be 上产出 query/run ---------- */
+  function execFor(be) {
+    const turso = typeof be.prepare !== 'function' && typeof be.execute === 'function';
 
-  /* ---------- libSQL（Turso）后端 ----------
-   * execute({sql, args}) 返回 { columns, rows, rowsAffected, lastInsertRowid }：
-   * rows 是**按列序的数组**，需要与 columns zip 成对象 —— 这层zip后
-   * 上层业务代码拿到的结构与 D1 完全一致。
-   * libSQL 原生支持交互式事务（BEGIN/COMMIT），比 D1 的 batch 语义更强，
-   * 但为保持两端行为一致，tx() 仍实现为批量原子提交。 */
-  async function libsqlExecute(sql, params = [], mode = 'all') {
-    const res = await backend.execute({ sql: toSqliteSql(sql), args: normalizeParams(params) });
-    meter && (meter.queries += 1);
-    if (mode === 'write') {
-      const changes = Number(res.rowsAffected || 0);
-      meter && (meter.rowsWritten += changes);
-      const lastId = res.lastInsertRowid != null ? Number(res.lastInsertRowid) : undefined;
-      return { changes, lastRowId: lastId };
+    async function d1QueryOn(sql, params) {
+      const stmt = be.prepare(toSqliteSql(sql));
+      const bound = params && params.length ? stmt.bind(...normalizeParams(params)) : stmt;
+      const res = await bound.all();
+      track(res.meta);
+      return res.results || [];
     }
-    meter && (meter.rowsRead += res.rows ? res.rows.length : 0);
-    const cols = res.columns || [];
-    return (res.rows || []).map((row) => {
-      const obj = {};
-      for (let i = 0; i < cols.length; i++) obj[cols[i]] = row[i];
-      return obj;
-    });
+    async function d1RunOn(sql, params) {
+      const stmt = be.prepare(toSqliteSql(sql));
+      const bound = params && params.length ? stmt.bind(...normalizeParams(params)) : stmt;
+      const res = await bound.run();
+      track(res.meta);
+      return { changes: Number(res.meta && res.meta.changes || 0), lastRowId: res.meta && res.meta.last_row_id };
+    }
+
+    /* libSQL（Turso）后端
+     * execute({sql, args}) 返回 { columns, rows, rowsAffected, lastInsertRowid }：
+     * rows 是**按列序的数组**，需要与 columns zip 成对象 —— 这层 zip 后
+     * 上层业务代码拿到的结构与 D1 完全一致。
+     * libSQL 原生支持交互式事务（BEGIN/COMMIT），比 D1 的 batch 语义更强，
+     * 但为保持两端行为一致，tx() 仍实现为批量原子提交。 */
+    async function libsqlOn(sql, params, mode) {
+      const res = await be.execute({ sql: toSqliteSql(sql), args: normalizeParams(params) });
+      meter && (meter.queries += 1);
+      if (mode === 'write') {
+        const changes = Number(res.rowsAffected || 0);
+        meter && (meter.rowsWritten += changes);
+        const lastId = res.lastInsertRowid != null ? Number(res.lastInsertRowid) : undefined;
+        return { changes, lastRowId: lastId };
+      }
+      meter && (meter.rowsRead += res.rows ? res.rows.length : 0);
+      const cols = res.columns || [];
+      return (res.rows || []).map((row) => {
+        const obj = {};
+        for (let i = 0; i < cols.length; i++) obj[cols[i]] = row[i];
+        return obj;
+      });
+    }
+
+    return {
+      backend: be,
+      isTurso: turso,
+      query: turso ? (sql, p) => libsqlOn(sql, p, 'all') : d1QueryOn,
+      run: turso ? (sql, p) => libsqlOn(sql, p, 'write') : d1RunOn,
+    };
   }
 
-  const query = isTurso
-    ? (sql, params) => libsqlExecute(sql, params, 'all')
-    : d1Query;
+  /* 主执行器 + 账本执行器（未配置时二者相同） */
+  const main = execFor(backend);
+  const ledger = ledgerBackend ? execFor(ledgerBackend) : null;
 
-  const run = isTurso
-    ? (sql, params) => libsqlExecute(sql, params, 'write')
-    : d1Run;
+  /** 按 SQL 文本选执行器 */
+  function pick(sql) {
+    return ledger && isLedgerSql(sql) ? ledger : main;
+  }
+
+  /** 顶层 query/run：逐条语句判定路由 */
+  const query = (sql, params) => pick(sql).query(sql, params);
+  const run = (sql, params) => pick(sql).run(sql, params);
 
   async function one(sql, params = []) {
     const rows = await query(sql, params);
@@ -302,12 +355,21 @@ export function makeDb(backend, meter) {
    */
   async function tx(ops) {
     if (!Array.isArray(ops) || !ops.length) return [];
-    if (isTurso) {
+    /* 账本路由：事务必须整体落在同一个实例上。
+     * 跨库没有原子性 —— 混合提交会一半成功一半失败，且失败后无法回滚，
+     * 因此这里显式拒绝，不静默降级成"两次独立提交"。 */
+    const ledgerOps = ops.filter((o) => isLedgerSql(o.sql)).length;
+    if (ledger && ledgerOps > 0 && ledgerOps < ops.length) {
+      throw new Error('[db] 事务内混用账本表与业务表：账本在独立实例上，无跨库事务。请拆成两次调用。');
+    }
+    const target = (ledger && ledgerOps === ops.length) ? ledger : main;
+    const be = target.backend;
+    if (target.isTurso) {
       const stmts = ops.map((o) => ({
         sql: toSqliteSql(o.sql),
         args: normalizeParams(o.params || []),
       }));
-      const results = await backend.batch(stmts, 'write');
+      const results = await be.batch(stmts, 'write');
       meter && (meter.queries += 1);
       let written = 0;
       for (const r of results) written += Number(r && r.rowsAffected || 0);
@@ -317,14 +379,22 @@ export function makeDb(backend, meter) {
     const stmts = ops.map((o) => {
       const s = toSqliteSql(o.sql);
       const p = o.params || [];
-      return p.length ? backend.prepare(s).bind(...normalizeParams(p)) : backend.prepare(s);
+      return p.length ? be.prepare(s).bind(...normalizeParams(p)) : be.prepare(s);
     });
-    const results = await backend.batch(stmts);
+    const results = await be.batch(stmts);
     results.forEach((r) => track(r && r.meta));
     return results;
   }
 
-  return { query, one, value, run, tx, raw: backend, backend: isTurso ? 'turso' : 'd1' };
+  return {
+    query, one, value, run, tx,
+    raw: backend,
+    backend: isTurso ? 'turso' : 'd1',
+    /* 账本分离状态：供 /api/chain/trust-model 如实报告，不靠文案 */
+    ledgerRaw: ledger ? ledger.backend : null,
+    ledgerBackend: ledger ? (ledger.isTurso ? 'turso' : 'd1') : null,
+    ledgerSplit: !!ledger,
+  };
 }
 
 /**

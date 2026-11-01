@@ -622,12 +622,19 @@ async function submitAndAssign(reportId, entId) {
    * 审核岗"的机构，再按在办任务数升序取。没有这样的机构才降级到有任意核查
    * 账号的，最后才用全部 ACTIVE 机构 —— 每一级降级都要留下痕迹。 */
   const v = await pickVerifier(/河北|保定/);
+  /* 与 routes/enterprise.js#assignVerifier 同一修法：承办账号必须是该机构真实存在的
+   * 登录名（见该处注释），不再拼 "verNNN"。 */
+  const acc = await db.one(
+    `SELECT username FROM sys_user
+      WHERE role='VERIFIER' AND org_id=? AND status IN (1,'ACTIVE')
+      ORDER BY FIELD(post,'VER_CLERK','VER_REVIEWER','ORG_ADMIN'), id LIMIT 1`, [v.id]
+  );
   const taskNo = cu.bizNo('VT');
   const [t] = await db.pool.query(
     `INSERT INTO verify_task (task_no, report_id, ent_id, verifier_id, verifier_user, task_type,
        priority, status, assign_time, deadline, created_at)
      VALUES (?,?,?,?,?,?,'NORMAL','PENDING',NOW(),DATE_ADD(NOW(), INTERVAL 30 DAY),NOW())`,
-    [taskNo, reportId, entId, v.id, 'ver' + String(v.id).padStart(3, '0'), 'ROUTINE']
+    [taskNo, reportId, entId, v.id, acc ? acc.username : ('ver' + String(v.id).padStart(3, '0')), 'ROUTINE']
   );
   await db.query('UPDATE emission_report SET verifier_id = ? WHERE id = ?', [v.id, reportId]);
   return { chain, taskId: t.insertId, taskNo, verifier: v.org_name, verifierRegion: v.region };
@@ -651,7 +658,8 @@ async function pickVerifier(regionPattern, opts = {}) {
             COUNT(DISTINCT CASE WHEN u.post='VER_REVIEWER' THEN u.id END) AS reviewers,
             COUNT(DISTINCT t.id) AS open_load
        FROM verifier_org v
-       LEFT JOIN sys_user u ON u.role='VERIFIER' AND u.org_id=v.id AND u.status='ACTIVE'
+       LEFT JOIN sys_user u ON u.role='VERIFIER' AND u.org_id=v.id
+            AND u.status IN (1,'ACTIVE')
        LEFT JOIN verify_task t ON t.verifier_id=v.id AND t.status IN ('PENDING','ACCEPTED','IN_PROGRESS')
       WHERE v.status='ACTIVE'
       GROUP BY v.id, v.org_name, v.region
@@ -679,7 +687,12 @@ async function pickVerifier(regionPattern, opts = {}) {
   const best = Number(pick.open_load);
   const tied = pool.filter((o) => Number(o.open_load) === best
     && (o.clerks > 0 && o.reviewers > 0) === (pick.clerks > 0 && pick.reviewers > 0));
-  pick = tied[0] || pick;
+  /* 2026-11-01 交付复检修复：这里原来直接取 tied[0]。
+   * tied 是按 open_load 升序的候选，若刚选出的机构其实"有账号"，而 tied 首位
+   * 是一家零账号机构（load 也是 0），取 tied[0] 会把有能力的那家换掉 ——
+   * 表现为派单落到没有登录账号的机构，核查端永远接不到单，主闭环断在这里。
+   * 因此先在 tied 里挑有岗位账号的，挑不到才退回 tied[0]。 */
+  pick = tied.find((o) => o.clerks > 0 || o.reviewers > 0) || tied[0] || pick;
 
   if (!(pick.clerks > 0 && pick.reviewers > 0)) {
     console.warn(`⚠ 核查机构 #${pick.id} ${pick.org_name} 不具备完整双岗位`

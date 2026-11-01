@@ -87,7 +87,9 @@
     "agg:refresh": "node tools/agg-refresh.mjs",
     "agg:verify": "node tools/agg-refresh.mjs --verify",
     "migrate:agg": "node tools/apply-agg-migrations.mjs",
-    "qa:contract": "node tools/metrics-consistency.mjs --strict"
+    "qa:contract": "node tools/metrics-consistency.mjs --strict",
+    "qa:deliverables": "node tools/audit-deliverables.cjs",
+    "qa:deliverables:strict": "node tools/audit-deliverables.cjs --strict"
   },
   "engines": {
     "node": ">=18"

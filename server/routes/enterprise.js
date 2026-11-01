@@ -364,12 +364,22 @@ async function assignVerifier(reportId, id, year, quarter) {
   const exclude = isRealFour ? [] : SEALED_ORG_IDS;
   const v = await require('../services/derive').pickVerifier(/河北|保定/, { exclude });
   if (!v) return null;
+  /* 2026-11-01 交付复检修复：verifier_user 原来按 "ver"+机构id 拼接（如 ver045），
+   * 而库里真实账号是 ver_ts_review 这类名字 —— 派单落点本身没问题（任务按 verifier_id
+   * 归属），但"承办账号"字段指向一个不存在的用户名，界面显示与可登录账号对不上。
+   * 改为落库前查该机构的真实核查账号，查不到才退回旧命名。 */
+  const acc = await db.one(
+    `SELECT username FROM sys_user
+      WHERE role='VERIFIER' AND org_id=? AND status IN (1,'ACTIVE')
+      ORDER BY FIELD(post,'VER_CLERK','VER_REVIEWER','ORG_ADMIN'), id LIMIT 1`, [v.id]
+  );
+  const verifierUser = acc ? acc.username : ('ver' + String(v.id).padStart(3, '0'));
   const taskNo = cu.bizNo('VT');
   const [ins] = await db.pool.query(
     `INSERT INTO verify_task (task_no, report_id, ent_id, verifier_id, verifier_user, task_type,
        priority, status, assign_time, deadline, created_at)
      VALUES (?,?,?,?,?,?,?,'PENDING',NOW(),DATE_ADD(NOW(), INTERVAL 30 DAY),NOW())`,
-    [taskNo, reportId, id, v.id, 'ver' + String(v.id).padStart(3, '0'), 'ROUTINE',
+    [taskNo, reportId, id, v.id, verifierUser, 'ROUTINE',
       Number(quarter) <= 1 ? 'HIGH' : 'NORMAL']
   );
   await db.query('UPDATE emission_report SET verifier_id = ? WHERE id = ?', [v.id, reportId]);
