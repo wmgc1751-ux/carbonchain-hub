@@ -29,7 +29,38 @@ for (const line of fs.readFileSync(path.join(ROOT, '.env'), 'utf8').split(/\r?\n
   const m = line.match(/^([A-Z_]+)=(.*)$/);
   if (m) env[m[1]] = m[2].trim();
 }
-const db = createTurso({ url: env.TURSO_URL, token: env.TURSO_AUTH_TOKEN });
+
+/* 数据源选择（2026-11-01）：
+ *   默认        Turso（云端 L0 演示链）—— 历史行为，与早期论文锚点对应；
+ *   CC_ANCHOR_DB=mysql  自托管权威链（L3，账本库独立 MySQL 实例）——
+ *   论文表 6-3 的锚点自 #2184 起改为权威链截面，复核必须打同一条链，
+ *   否则「论文锚定 A 链、复核查 B 链」本身就是一次口径混用。
+ * mysql2 与 libSQL 的 prepare/bind/first 形状不同，这里做一层最小适配。 */
+let db;
+if (process.env.CC_ANCHOR_DB === 'mysql') {
+  const mysqlmod = await import('mysql2/promise');
+  const conn = await mysqlmod.createConnection({
+    host: env.LEDGER_DB_HOST || '127.0.0.1',
+    port: Number(env.LEDGER_DB_PORT || 3307),
+    user: env.LEDGER_DB_USER,
+    password: env.LEDGER_DB_PASSWORD,
+    database: env.LEDGER_DB_NAME,
+  });
+  db = {
+    prepare(sql) {
+      const run = async (params) => {
+        const [rows] = await conn.execute(sql, params);
+        return rows[0] ?? null;
+      };
+      return {
+        bind(...params) { return { first: () => run(params) }; },
+        first() { return run([]); },
+      };
+    },
+  };
+} else {
+  db = createTurso({ url: env.TURSO_URL, token: env.TURSO_AUTH_TOKEN });
+}
 
 const args = process.argv.slice(2);
 const verifyMode = args[0] === '--verify';
@@ -41,14 +72,29 @@ async function snapshot() {
   ).first();
   const txs = await db.prepare('SELECT COUNT(*) AS c FROM chain_tx').first();
   const blocks = await db.prepare('SELECT COUNT(*) AS c FROM chain_block').first();
-  const cems = await db.prepare('SELECT COUNT(*) AS c FROM cems_reading').first();
+  /* cems_reading 在 L0 同库；在权威链形态下账本库没有业务表，读数走业务库或如实置 0 */
+  let cemsReadings = 0;
+  try {
+    const cems = await db.prepare('SELECT COUNT(*) AS c FROM cems_reading').first();
+    cemsReadings = Number(cems.c);
+  } catch {
+    try {
+      const bconn = await (await import('mysql2/promise')).createConnection({
+        host: env.DB_HOST || '127.0.0.1', port: Number(env.DB_PORT || 3306),
+        user: env.DB_USER, password: env.DB_PASSWORD, database: env.DB_NAME,
+      });
+      const [rows] = await bconn.query('SELECT COUNT(*) AS c FROM cems_cn_hourly');
+      cemsReadings = Number(rows[0].c);
+      await bconn.end();
+    } catch { cemsReadings = 0; }
+  }
   return {
     height: Number(tip.h),
     hash: String(tip.hash),
     blockTime: String(tip.t),
     totalTx: Number(txs.c),
     totalBlocks: Number(blocks.c),
-    cemsReadings: Number(cems.c),
+    cemsReadings,
   };
 }
 
@@ -83,8 +129,13 @@ async function verify(h, expectedTx, expectedDate) {
     `截至 #${h} 累计存证 = ${expectedTx}`,
     `实算 ${atBlock.c} 笔${Number(atBlock.c) === expectedTx ? '' : ' ← 不符'}`);
   if (expectedDate) {
-    ok(String(blk && blk.t).slice(0, 10) === expectedDate,
-      `该块时间 = ${expectedDate}`, `实际 ${String(blk && blk.t).slice(0, 10)}`);
+    /* mysql2 把 DATETIME 映射成 Date 对象；libSQL 给字符串。统一成 YYYY-MM-DD 再比。 */
+    const rawT = blk && blk.t;
+    const day = rawT instanceof Date
+      ? rawT.toISOString().slice(0, 10)
+      : String(rawT ?? '').slice(0, 10);
+    ok(day === expectedDate,
+      `该块时间 = ${expectedDate}`, `实际 ${day}`);
   }
 
   console.log(`\n锚点校验：#${h} / ${expectedTx} 笔 / ${expectedDate || '（未指定日期）'}`);
