@@ -101,7 +101,7 @@ function main() {
   console.log(`\n  PoW  单块中位耗时 ${fmt(powMed)} ms（平均尝试 nonce ${Math.round(powAvgNonce).toLocaleString('en-US')} 次）`);
   console.log(`  PoA  单块中位耗时 ${fmt(poaMed)} ms（哈希 + ECDSA 出块签名）`);
   console.log(`  ⇒ 同难度下 PoW 出块耗时约为 PoA 的 ${fmt(ratio, 1)} 倍`);
-  console.log(`  ⇒ PoA 单节点名义出块速率 ${Math.round(tps).toLocaleString('en-US')} TPS（不含网络广播与落库）`);
+  console.log(`  ⇒ PoA 单节点名义出块速率 ${Math.round(tps).toLocaleString("en-US")} 块/秒（不含网络广播与落库）`);
 
   const out = {
     generatedAt: new Date().toISOString(),
