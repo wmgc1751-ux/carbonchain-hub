@@ -1142,9 +1142,36 @@ class Blockchain {
               IFNULL(MAX(mine_time),0) AS max_mine_time,
               SUM(mine_time > 0) AS mine_samples,
               IFNULL(MAX(difficulty),0) AS difficulty,
-              IFNULL(SUM(size_bytes),0) AS total_size
+              IFNULL(SUM(size_bytes),0) AS total_size,
+              IFNULL(MAX(block_index),-1) AS max_block_index
        FROM chain_block`
     );
+
+    /* ⚠「链高度」与「总区块」必须说同一件事。
+     *
+     * height 取内存链顶（this.blocks），totalBlocks 取库里 COUNT(*)。
+     * 单进程正常出块时两者恒等；但**只要有第二个进程往同一本账本写过块**
+     * （测试脚本、导入工具、另一个 dev 实例），内存链就不会自动跟上，
+     * 于是同一屏出现「链高度 2181 / 总区块 2185 / 最新区块 #2184」——
+     * 和院审点名过的「链高度 -1 而同屏 1,545 笔存证」是同一类自相矛盾。
+     *
+     * alignHeight()/reloadAll() 本来就是为这种情况写的，只是没接到读路径上。
+     * 这里就地校正：MAX(block_index) 已经和聚合查询一起取回，**不增加往返**；
+     * 只有真的不一致时才整链重载，并节流 5s，避免库被外部反复灌时把库打满。
+     * 重载失败不影响本次返回（height 退化为按库高度展示，仍是自洽的）。 */
+    const dbMaxIndex = blk.max_block_index == null ? -1 : Number(blk.max_block_index);
+    const memMaxIndex = this.blocks.length ? Number(this.blocks[this.blocks.length - 1].index) : -1;
+    if (dbMaxIndex !== memMaxIndex && !this._aligning && Date.now() - (this._lastAlignAt || 0) > 5000) {
+      this._aligning = true;
+      this._lastAlignAt = Date.now();
+      try {
+        await this.reloadAll();
+      } catch (e) {
+        /* 重载失败：下面用 dbMaxIndex 兜底，height 仍与 totalBlocks 自洽 */
+      } finally {
+        this._aligning = false;
+      }
+    }
     const [[tx]] = await this.db.query(
       `SELECT COUNT(*) AS total, SUM(status='CONFIRMED') AS confirmed, SUM(status='PENDING') AS pending
        FROM chain_tx`
@@ -1162,8 +1189,12 @@ class Blockchain {
     let tip = this.blocks[this.blocks.length - 1] || null;
     /* ⚠ 内存链在进程重启后为空（区块从 DB 独立可查），此时 tip=null 会让
      * stats() 返回 height:-1，与同屏的 totalBlocks:1139 自相矛盾
-     * （/admin/overview"链高度 -1 块"就是它）。内存没有 tip 时回查 DB 链顶。 */
-    if (!tip && this.db) {
+     * （/admin/overview"链高度 -1 块"就是它）。内存没有 tip 时回查 DB 链顶。
+     *
+     * 上面 reloadAll() 若因库抖动失败，内存链顶仍可能低于库顶（tip.index < dbMaxIndex）；
+     * 那种情况下同样回查 DB，保证 height 与 tipHash **成对**取自同一行。
+     * 绝不能出现「高度取内存、摘要取数据库」的拼装结果 —— 那样的链顶摘要无法自证。 */
+    if ((!tip || Number(tip.index) < dbMaxIndex) && this.db) {
       try {
         /* 列名必须是 block_index / block_hash —— 账本表（00_schema_ledger.sql）的
          * 真实列名，不是内存区块对象的 index/hash。原先写成 `index`/`hash`，
@@ -1209,6 +1240,10 @@ class Blockchain {
       height: tip ? tip.index : -1,
       tipHash: tip ? tip.hash : null,
       totalBlocks: Number(blk.total_blocks),
+      /* 库内最大 block_index。与 totalBlocks 的差 = 缺号块数（正常应为 0，
+       * 即 totalBlocks === maxBlockIndex + 1）。放在这里是为了让
+       * 「链高度 / 总区块 / 最新块号」三个数能在同一响应里被对照验证。 */
+      maxBlockIndex: dbMaxIndex,
       /* 兼容字段：历史代码大量引用 totalTxs 表示"累计打包笔数"，语义保持不变。 */
       totalTxs,
       avgMineTime: Math.round(Number(blk.avg_mine_time)),

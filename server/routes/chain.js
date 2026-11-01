@@ -656,6 +656,34 @@ router.get('/tx/:txId', wrap(async (req, res) => {
   const payload = typeof tx.payload_json === 'string' ? safeParse(tx.payload_json) : tx.payload_json;
   const payloadIntact = cu.hashObject(payload) === tx.payload_hash;
 
+  /* 存证明文只对已认证主体开放（2026-11-01 P0 修复）。
+   * ---------------------------------------------------------------
+   * 原实现无条件回传 payload 全文，而这个接口是**匿名可访问**的。
+   * 链上 payload 里带着 entName（真实企业名）与排放数值 —— 等价于把
+   * 排污单位清单连同排放量挂成公开接口。哈希链的意义是"存证不可改"，
+   * 不是"存证明文对全世界公开"：可公开的是 payloadHash 与签名，
+   * 明文应受访问控制。
+   *
+   * 未认证时返回 null，并置 payloadRedacted 让前端能明确区分
+   * "没有明文"与"明文为空对象"，同时保留 payloadHash / payloadIntact，
+   * 因此第三方仍可自行重算哈希来验真 —— 验真能力不因脱敏而损失。
+   *
+   * ⚠ 内部服务豁免（2026-11-01 补，修 D8）：小程序后端经 chainProxy 匿名
+   * 转发本接口，P0 收紧后它拿到的 payload 恒为 null —— 验真页的
+   * 「载荷本地复算」从此必挂，存证详情页只剩哈希没有内容。内部服务不是
+   * "匿名公众"，是持共享密钥的可信组件（与 /internal/anchor 同一把
+   * MINI_ANCHOR_TOKEN），凭 x-internal-token 即可读取明文；定长比较，
+   * 不给公众侧新增任何可达性。 */
+  const providedTok = String(req.headers['x-internal-token'] || '');
+  let internalOk = false;
+  if (MINI_ANCHOR_TOKEN && providedTok) {
+    const a = Buffer.from(providedTok);
+    const b = Buffer.from(MINI_ANCHOR_TOKEN);
+    internalOk = a.length === b.length && require('crypto').timingSafeEqual(a, b);
+  }
+  const authed = !!req.user || internalOk;
+  const payloadOut = authed ? payload : null;
+
   ok(res, {
     tx: {
       txId: tx.tx_id, txType: tx.tx_type, txTypeCn: TX_TYPE_CN[tx.tx_type] || tx.tx_type,
@@ -665,7 +693,11 @@ router.get('/tx/:txId', wrap(async (req, res) => {
       /* created_at 与 block_time 同为 UTC 字面量，统一转本地时区再给前端 */
       createdAt: localFromUtcLiteral(tx.created_at),
     },
-    payload,
+    payload: payloadOut,
+    payloadRedacted: !authed,
+    payloadRedactedReason: authed
+      ? null
+      : '存证明文需登录后查看；payloadHash 与签名始终公开，可据此独立验真。',
     block: block && {
       index: Number(block.block_index), hash: block.block_hash, prevHash: block.prev_hash,
       merkleRoot: block.merkle_root, nonce: Number(block.nonce), difficulty: Number(block.difficulty),
