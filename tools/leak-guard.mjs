@@ -19,23 +19,43 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-/** 真实企业标识（名称 / 统一社会信用代码 / 认证机构）。脱敏环境下一律不应出现。 */
-export const REAL_LEAK = new RegExp(
-  [
-    '河北恒能（保定）',
-    '河北恒能（涞水）',
-    '中节能\\(保定\\)',
-    '中节能\\(涞水\\)',
-    '保定瑞丰环保',
-    '保定易州恒新',
-    '91130605MA0H2K7L3R',
-    '91130607MA0N8T5Q2W',
-    '华信联合',
-  ].join('|'),
-);
+/** 真实企业标识（名称 / 统一社会信用代码 / 认证机构）。脱敏环境下一律不应出现。
+ *
+ * ⚠ 2026-11-01 交付复检：模式清单**不能硬编码在本文件里** —— 守卫本身成了泄漏源，
+ *   交付包（含源码仓库）里堂而皇之写着 9 条真实标识，等于把脱敏白做了。
+ *   现改为从仓库外部的模式文件读取（默认在脱敏备份目录，不随交付分发）。
+ *
+ * 安全默认：模式文件缺失时**拒绝放行**（exit 2），而不是静默跳过 ——
+ *   守卫失效却报告"干净"，比没有守卫更危险。
+ */
+const PATTERN_FILE = process.env.CC_LEAK_FILE
+  || path.resolve(path.dirname(fileURLToPath(import.meta.url)),
+    '..', '..', '..', '..', '_carbonchain-sensitive-backup-20261101', 'leak-patterns.json');
+
+let REAL_LEAK = null;
+let PATTERN_SOURCE = null;
+try {
+  if (existsSync(PATTERN_FILE)) {
+    const j = JSON.parse(readFileSync(PATTERN_FILE, 'utf8'));
+    const pats = (j.patterns || []).filter((s) => typeof s === 'string' && s.trim());
+    if (pats.length) { REAL_LEAK = new RegExp(pats.join('|')); PATTERN_SOURCE = PATTERN_FILE; }
+  }
+} catch { REAL_LEAK = null; }
+
+/** 模式未加载时的统一处置：出实情报错，绝不假装通过。 */
+export function requirePatterns() {
+  if (!REAL_LEAK) {
+    console.error('✘ 防回流模式清单未加载，守卫无法工作。');
+    console.error(`   期望路径：${PATTERN_FILE}`);
+    console.error('   可用环境变量 CC_LEAK_FILE 指定，或从脱敏备份目录恢复该文件。');
+    process.exit(2);
+  }
+  return PATTERN_SOURCE;
+}
 
 /** 扫描单个文件，返回命中行号（空数组 = 干净）。文件不存在返回 null。 */
 export function scanFile(file) {
+  requirePatterns();          // 模式缺失时直接失败，不返回"干净"
   if (!existsSync(file)) return null;
   const text = readFileSync(file, 'utf8');
   const hits = [];
