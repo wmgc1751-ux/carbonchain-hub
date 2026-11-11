@@ -730,7 +730,9 @@ async function propagate(entId, opts = {}) {
     key: 'cems',
     name: 'CEMS 实测（范围一）',
     relative: uCems,
-    basis: `HJ 75/76 在线监测系统准确度要求；本企业**年度**有效时间覆盖率 ${(covAnnual * 100).toFixed(1)}%`
+    /* 【2026-11-03】此处是纯文本（前端按 innerText 渲染，不走 markdown），
+     * 原来写成 **年度** 会原样印出星号。改为「」强调。 */
+    basis: `HJ 75/76 在线监测系统准确度要求；本企业「年度」有效时间覆盖率 ${(covAnnual * 100).toFixed(1)}%`
       + `（cems_coverage 口径，与监管预警同源；重算窗口覆盖度 ${(cov * 100).toFixed(1)}% 仅反映最近 ${ds.coverage.windowSpanDays || '?'} 天）`
       + `（≥95% 取 ±${(TIER_UNCERTAINTY.cemsHigh * 100).toFixed(0)}%，80~95% 取 ±${(TIER_UNCERTAINTY.cemsMid * 100).toFixed(0)}%，<80% 取 ±${(TIER_UNCERTAINTY.cemsLow * 100).toFixed(0)}%）`,
   });

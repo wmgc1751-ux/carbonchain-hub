@@ -45,6 +45,18 @@ const path = require('path');
  *   note      选型提示（免费额度、中文能力等实测观感）
  */
 const PROVIDERS = [
+  /* 优先级即数组顺序。DeepSeek 排首（效果优先：中文推理与碳政策问答质量更高、
+   * 单价极低），智谱 glm-4-flash 免费额度排第二作兜底——两家都配 key 时，
+   * 主用 DeepSeek，故障自动换到智谱，而不是反过来。 */
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-flash',
+    keys: ['DEEPSEEK_API_KEY'],
+    docs: 'https://platform.deepseek.com/',
+    note: '中文推理与结构化输出稳定，价格低；碳政策类问题表现好',
+  },
   {
     id: 'zhipu',
     name: '智谱 GLM',
@@ -53,15 +65,6 @@ const PROVIDERS = [
     keys: ['ZHIPU_API_KEY', 'GLM_API_KEY', 'BIGMODEL_API_KEY'],
     docs: 'https://open.bigmodel.cn/',
     note: 'glm-4-flash 有免费额度，中文常识与政策解读可用，适合演示起步',
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
-    keys: ['DEEPSEEK_API_KEY'],
-    docs: 'https://platform.deepseek.com/',
-    note: '中文推理与结构化输出稳定，价格低；碳政策类问题表现好',
   },
   {
     id: 'dashscope',
@@ -173,11 +176,18 @@ function loadEnvFile() {
   }
 }
 
+/* 测试隔离开关：置真后 readEnv 只看 process.env，不回退 .env 文件。
+ * 自测需要模拟"没有任何密钥"，而 delete process.env.X 挡不住文件回退 ——
+ * 只要开发机上 .env 填了真 key，"全部不可用"这类用例就永远走不到分支。 */
+let ignoreEnvFile = false;
+function setIgnoreEnvFile(v) { ignoreEnvFile = !!v; }
+
 /** 读取一个环境变量（进程环境优先，其次 .env 文件） */
 function readEnv(name) {
   if (typeof process !== 'undefined' && process.env && process.env[name]) {
     return String(process.env[name]).trim();
   }
+  if (ignoreEnvFile) return null;
   const v = loadEnvFile()[name];
   return v ? String(v).trim() : null;
 }
@@ -406,4 +416,5 @@ function snapshot() {
 module.exports = {
   PROVIDERS, readEnv, findProvider, resolveChain, snapshot,
   applyRuntime, describeRuntime, refreshLocal, localState,
+  setIgnoreEnvFile,
 };

@@ -201,7 +201,7 @@ async function forecast(entId, horizonDays = 30) {
   }
 
   /* 期末预测：与 dynamic 同口径（基准速率 × 8760）。
-   * 若实测覆盖已足够长（覆盖率 > 10%），用实测速率×8760；
+   * 若实测覆盖已足够长（年度覆盖率 > 10%），用实测速率×8760；
    * 否则用实测量 + 基准速率×剩余小时，等价于 annualFrom 的形式，
    * 避免"用 3 天数据外推出整年"这种看似精确的假象。 */
   const hoursElapsed = Math.max(1, (now - new Date(year, 0, 1)) / 3600000);
@@ -209,6 +209,13 @@ async function forecast(entId, horizonDays = 30) {
   const predictedEoy = coverage > 0.1
     ? baseHourly * 365 * 24
     : achieved + baseHourly * Math.max(0, 365 * 24 - totalHours);
+  /* 【2026-11-03】coveragePct 的分母是"年初至今"，但页面卡片把它读成
+   * "近 30 天覆盖率"（实测 159.6h / 720h = 22.17%，接口却给 2.17%，
+   * 差 10 倍，读者会以为数据几乎全缺）。
+   * 两个口径分别给：coveragePct = 年度覆盖率（预测可用性判据），
+   * coverage30dPct = 近 30 天覆盖率（置信度评估用）。 */
+  const windowHours = horizonDays * 24;
+  const coverage30d = windowHours > 0 ? Math.min(1, Math.min(totalHours, windowHours) / windowHours) : 0;
 
   const offset = Number(await db.value(
     'SELECT IFNULL(SUM(amount),0) FROM credit_offset WHERE ent_id = ? AND year = ?', [entId, year]
@@ -227,6 +234,9 @@ async function forecast(entId, horizonDays = 30) {
       dataPoints: recent.length,
       coveredHours: Number(totalHours.toFixed(1)),
       coveragePct: Number((coverage * 100).toFixed(2)),
+      /* 近 30 天覆盖率（与 coveredHours/720 自洽），置信度评估用这个 */
+      coverage30dPct: Number((coverage30d * 100).toFixed(2)),
+      windowHours,
       baseHourly: Number(baseHourly.toFixed(4)),
       achieved: Number(achieved.toFixed(2)),
     },
@@ -315,7 +325,10 @@ async function overQuotaRisk(entId) {
   const { mean: mu, std: sig } = meanStd(recent);
   const achieved = [...byDay.values()].reduce((a, x) => a + x.tonnes, 0);
   const offset = f.offset;
-  const coveragePct = f.stats.coveragePct;
+  /* 【2026-11-03】置信度必须按"近 30 天覆盖率"判，数据量也来自近 30 天
+   * （recent = daily.slice(-30)）。原来取的是年度覆盖率，
+   * 导致 30 天内有 22% 数据的场景被判成 LOW 置信度。 */
+  const coveragePct = f.stats.coverage30dPct != null ? f.stats.coverage30dPct : f.stats.coveragePct;
 
   let exceedProbability = null;
   let ci = null;

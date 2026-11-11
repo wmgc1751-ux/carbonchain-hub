@@ -833,7 +833,11 @@ async function pma(o = {}) {
 
   const overallNormal = points.reduce((s, p) => s + p.normalCount, 0);
   const overallExpected = points.reduce((s, p) => s + p.expectedCount, 0);
-  const overall = overallExpected ? overallNormal / overallExpected : 0;
+  /* 【2026-11-03】分母为 0（窗口内无应得数据，实测 24h 内 0 个测点）时
+   * 原实现落到 0，前端显示「全场数据获取率 0%」——0% 是"数据全丢"的强断言，
+   * 与"没有数据可算"是两回事。改为 null，前端渲染「—」。 */
+  const assessable = overallExpected > 0;
+  const overall = assessable ? overallNormal / overallExpected : 0;
 
   return {
     windowHours: hours,
@@ -842,8 +846,9 @@ async function pma(o = {}) {
     expectedPerPoint: nominal,   // 兼容旧字段名
     denominatorRule: 'max(按间隔推算的应得数, 窗口内实际收到数)：既不把"超发"当满分，也不放过"缺数"',
     points: points.length,
-    overallAvailability: Number(Math.min(overall, 1).toFixed(4)),
-    overallPct: Number((Math.min(overall, 1) * 100).toFixed(2)),
+    assessable,
+    overallAvailability: assessable ? Number(Math.min(overall, 1).toFixed(4)) : null,
+    overallPct: assessable ? Number((Math.min(overall, 1) * 100).toFixed(2)) : null,
     worst: points.slice(0, 10),
     detail: points,
   };

@@ -28,6 +28,33 @@
  */
 'use strict';
 
+/**
+ * 递归收集源文本中**字面带百分号**的数字（"5%" → 5）。
+ *
+ * 与 collectNumbers 的区别是语义性的：collectNumbers 只关心"这个数出现过"，
+ * 本函数还要求它出现时**带了 % 记法**。用于放行规则引擎原话里的
+ * 「抵销上限为主体配额的 5%」这类合法百分比，同时不放行公式里的裸整数
+ * （如 × 44/12 的 12），后者一旦进白名单就会合法化任意编造的整数百分比。
+ */
+function percentLiteralsOf(node, out = new Set(), depth = 0) {
+  if (depth > 6 || node == null) return out;
+  if (typeof node === 'string') {
+    for (const m of node.matchAll(/(-?\d+(?:\.\d+)?)\s*%/g)) {
+      const v = Number(m[1]);
+      if (Number.isFinite(v)) out.add(v);
+    }
+    return out;
+  }
+  if (Array.isArray(node)) {
+    for (const x of node.slice(0, 200)) percentLiteralsOf(x, out, depth + 1);
+    return out;
+  }
+  if (typeof node === 'object') {
+    for (const k of Object.keys(node)) percentLiteralsOf(node[k], out, depth + 1);
+  }
+  return out;
+}
+
 /** 从任意结构中递归收集数字（含数组/对象/字符串里的数字） */
 function collectNumbers(node, out = new Set(), depth = 0) {
   if (depth > 6 || node == null) return out;
@@ -59,6 +86,15 @@ function variantsOf(v) {
   const push = (x) => { if (Number.isFinite(x)) set.add(Number(x.toFixed(6))); };
   push(v);
   for (const d of [0, 1, 2, 3, 4]) push(Number(v.toFixed(d)));
+  /* 符号 ↔ 语义记账互通：库里的 gap 存负数表示"富余"（-68873 意味着没有缺口、
+   * 反而多出 68873 吨），模型按人话写成"富余 68,873.14"是正数 —— 同一事实的
+   * 两种记法，不是编造。绝对值因此必须进同一个变体集合。
+   * ⚠ 只加绝对值，不加"任意符号翻转"：若允许 -X ↔ +X 无限制互通，
+   *   那么把"缺口 100"写成"富余 100"就无法被区分出来。 */
+  if (v < 0) {
+    push(-v);
+    for (const d of [0, 1, 2, 3, 4]) push(Number((-v).toFixed(d)));
+  }
   /* 单位换算：模型爱把 222877 写成 22.29 万吨 / 22 万吨 */
   for (const k of [1e4, 1e8]) {
     push(v / k);
@@ -107,6 +143,13 @@ function verify(answer, facts, opts = {}) {
        * 有出处 —— 一个常数合法化了任意一个小整数百分比。 */
       if (!Number.isInteger(v)) for (const x of vs) pctAllowed.add(x);
     }
+    /* 但源头**字面写了百分号**的整数必须放行：规则引擎自己的结论里就有
+     * 「CCER 抵销上限为主体配额的 5%」，模型照抄 5% 是忠实引用，不是编造。
+     * 判据是"源文本里该数紧跟 %"，与上面 44/12 那种裸整数区分开。 */
+    for (const pv of percentLiteralsOf(s)) {
+      pctAllowed.add(Number(pv.toFixed(6)));
+      for (const x of variantsOf(pv)) pctAllowed.add(x);
+    }
   }
 
   /* 问题里的数字：用户自己给的，不算模型编造 */
@@ -119,7 +162,13 @@ function verify(answer, facts, opts = {}) {
     }
   }
 
-  const tol = opts.tolerance ?? 0.005;
+  /* 容差 0.01%（原为 0.5%）。
+   * 实测反例：真实期末预测 293,687.71，模型写成 293,739.94 —— 差 52 tCO₂e，
+   * 在 0.5% 容差（±1,468）下被判为"四舍五入"放行。对碳数据平台，这不是舍入，
+   * 是另一个数；截图引用后无法与原数据对上。
+   * 0.01% 仍能覆盖一切真实舍入记法：variantsOf 已预展开到 4 位小数与
+   * 万/亿换算，容差只为兜住"再多保留一位"这类边角，不需要宽容到能藏住偏差。 */
+  const tol = opts.tolerance ?? 0.0001;
   const unverified = [];
   let total = 0;
   let verified = 0;

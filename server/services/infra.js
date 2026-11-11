@@ -149,23 +149,33 @@ async function reconcile() {
     ['trade_deal', 'chain_tx_id', 'deal_no'],
   ];
 
-  const result = { tables: [], inconsistent: 0, total: 0, at: new Date().toISOString() };
+  const result = {
+    tables: [], inconsistent: 0, unanchored: 0, total: 0, at: new Date().toISOString(),
+  };
   for (const [table, txCol, bizCol] of tables) {
+    /* 【2026-11-03】原来只查 `chain_tx_id IS NOT NULL` 的行，
+     * 于是「根本没有上链锚定」的记录完全不在分母里，对账永远显示"干净"，
+     * 而业务页却承诺"每笔分配/抵销均生成链上存证" —— 账实两张皮。
+     * 现在把三类分开：matched（已锚定且链上存在）、
+     * missing（写了 txid 但链上查无此交易 = 真失配，必须查）、
+     * unanchored（业务行从未锚定 = 待补锚，可修复）。 */
     const rows = await db.query(
-      `SELECT id, ${bizCol} AS biz, ${txCol} AS txid FROM ${table} WHERE ${txCol} IS NOT NULL`
+      `SELECT id, ${bizCol} AS biz, ${txCol} AS txid FROM ${table}`
     );
-    let matched = 0, missing = 0;
+    let matched = 0, missing = 0, unanchored = 0;
     for (const r of rows) {
-      if (!r.txid) continue;
+      if (!r.txid) { unanchored++; continue; }
       const exists = await db.ledgerOne('SELECT tx_id FROM chain_tx WHERE tx_id = ?', [r.txid]);
       if (exists) matched++; else missing++;
     }
     result.tables.push({
-      table, anchored: rows.length, matched, missing,
+      table, total: rows.length, anchored: matched, missing, unanchored,
+      /* 一致性只由「写了 txid 却查不到」决定；未锚定单列，不混入失配 */
       consistent: missing === 0,
     });
     result.total += rows.length;
     result.inconsistent += missing;
+    result.unanchored += unanchored;
   }
 
   // 落库对账结果（供 A4 对账中心展示历史）

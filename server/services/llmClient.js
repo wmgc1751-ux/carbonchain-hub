@@ -181,7 +181,11 @@ async function once(c, body, timeoutMs) {
       throw new Error(`HTTP ${res.status}: ${t.slice(0, 160)}`);
     }
     const j = await res.json();
-    return j.choices?.[0]?.message?.content || j.choices?.[0]?.text || '';
+    /* 推理类模型（如 DeepSeek V4-Pro）把思考过程放在 reasoning_content、
+     * 正文仍可能为空（尤其是 max_tokens 被思考吃光时）。仅当正文为空才回退，
+     * 避免把思考过程混进正常回答。 */
+    const m = j.choices?.[0]?.message;
+    return m?.content || m?.reasoning_content || j.choices?.[0]?.text || '';
   } catch (e) {
     if (e.name === 'AbortError') throw new Error(`超时 ${timeoutMs}ms`);
     throw e;
@@ -279,7 +283,8 @@ async function streamOnce(c, messages, opts, onChunk) {
      * 此时若按 SSE 解析会得到空字符串，看起来像"模型没回答"。 */
     if (!ctype.includes('event-stream') || !res.body) {
       const j = await res.json();
-      const text = j.choices?.[0]?.message?.content || j.choices?.[0]?.text || '';
+      const m = j.choices?.[0]?.message;
+      const text = m?.content || m?.reasoning_content || j.choices?.[0]?.text || '';
       if (text) onChunk(text);
       return text;
     }
@@ -288,6 +293,10 @@ async function streamOnce(c, messages, opts, onChunk) {
     const dec = new TextDecoder();
     let full = '';
     let buf = '';
+    /* 推理模型的思考流先于正文到达：先缓存不发出，等正文首字到达即丢弃缓存，
+     * 只有整段都没有正文时才回退输出思考内容（否则用户会先看到一段"内心独白"）。 */
+    let reasoning = '';
+    let sawContent = false;
 
     for (;;) {
       const { done, value } = await reader.read();
@@ -303,11 +312,19 @@ async function streamOnce(c, messages, opts, onChunk) {
         if (payload === '[DONE]') { buf = ''; break; }
         try {
           const j = JSON.parse(payload);
-          const delta = j.choices?.[0]?.delta?.content;
-          if (delta) { full += delta; onChunk(delta); }
+          const d = j.choices?.[0]?.delta || {};
+          if (d.content) {
+            sawContent = true;
+            reasoning = '';
+            full += d.content;
+            onChunk(d.content);
+          } else if (d.reasoning_content) {
+            reasoning += d.reasoning_content;
+          }
         } catch { /* 心跳行 / 半包，跳过 */ }
       }
     }
+    if (!sawContent && reasoning) { full = reasoning; onChunk(reasoning); }
     return full;
   } catch (e) {
     if (e.name === 'AbortError') throw new Error(`流式超时 ${(opts.timeoutMs || c.timeoutMs) * 2}ms`);
@@ -374,13 +391,22 @@ function buildSystemPrompt(platformContext) {
     '你是「碳链通 CarbonChainHub」平台的 AI 碳资产顾问。',
     '',
     '## 回答边界',
-    '1. 用户消息中可能附带【平台实时数据】。**凡引用数字，必须与其中完全一致**，',
-    '   不得四舍五入后改写、不得由已知数推算出新数（如自行算增长率）。',
-    '2. 平台数据能回答的，优先用平台数据，并在结论后用（来源：平台实时数据）标注。',
-    '3. 平台数据回答不了的（政策法规、CBAM、CCER 方法学、国际碳市场），',
-    '   用你的知识回答，并注明"据公开资料"；不要假装这些数据来自本平台。',
-    '4. 不确定就明说"我不确定"，不编造数字、不编造政策文号与生效日期。',
-    '5. 本平台数据为**演示数据**时（上下文会说明），不要说成"你企业的真实排放"。',
+    '1. **若用户消息附带【平台实时数据】：正文里出现的每一个数字，都必须是其中原样存在的**。',
+    '   禁止一切自行推算 —— 不求和、不求差、不乘除、不算占比、不算增长率、不做年化折算、',
+    '   不做单位换算后改写。例如数据里有「配额 8293.24」和「CCER 抵销上限 5%」，',
+    '   **不要**自行给出「即 414.66 tCO₂e」；需要推算值时，只写公式并说明"具体数值请看平台计算页"。',
+    '   **尤其注意「富余/缺口」这类派生值**：数据块里通常已直接给出结论（如"预计富余 68,925.37"），',
+    '   请原样引用这个数，**不要**用「配额 − 期末预测」自己再算一遍 —— 你的算法与平台口径',
+    '   （含抵销、扣减项）不同，算出的数会与原值差几百吨，看起来像编造。',
+    '2. 同样在附带平台数据时：**公开资料里的具体数字也不要写**（如"60~100 欧元""2023 年 10 月"），',
+    '   改为定性表述（"区间震荡""近年发布"）。理由：回答中一旦混入平台外数字，',
+    '   数字溯源校验会把它们判为无出处，读者无法分辨哪个数可信。',
+    '3. 平台数据能回答的，用平台数据作答，并在每个结论后紧邻标注（来源：平台实时数据）；',
+    '   不要在整段末尾统一标一次。',
+    '4. **未附带平台数据时**（纯政策/概念/方法学问答）：可以引用你的知识，',
+    '   数字照常给，但必须注明"据公开资料"；不要假装这些数据来自本平台。',
+    '5. 不确定就明说"我不确定"，不编造数字、不编造政策文号与生效日期。',
+    '6. 本平台数据为**演示数据**时（上下文会说明），不要说成"你企业的真实排放"。',
     '',
     '## 表达要求',
     '· 中文，简洁，300 字内；关键数字用 **加粗**；分点优于长段。',
