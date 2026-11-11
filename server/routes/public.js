@@ -81,6 +81,11 @@ async function resolveReportYear(requested) {
 /* 公示大屏总览 ------------------------------------------------------ */
 router.get('/dashboard', wrap(async (req, res) => {
   const YEAR = await resolveReportYear(req.query.year);
+  /* 【2026-11-11】统一未来年度上限，供趋势线与年度清单共用同一把尺子。
+   * 联调自测会在库里留下 year 远大于当前的测试单（实测 2031Q2/2031Q4/2032Q1），
+   * 它们已经上链、不能删也不能改状态（改了业务与链就对不上），
+   * 所以只在「面向公众的展示口径」上挡住：默认年度、趋势线、年度下拉。 */
+  const yearCap = new Date().getFullYear() + 1;
   const chain = await anchorSvc.getChain();
   const stats = await chain.stats();
 
@@ -142,14 +147,13 @@ router.get('/dashboard', wrap(async (req, res) => {
    * 但联调自测写进来的 2031Q2/2032Q1 测试单也被画了上去 ——
    * 曲线在 2026 之后掉到 0 再窜到 2031，看起来像"排放崩了"。
    * 上限取系统时钟 +1，与 resolveReportYear 的默认年度约束保持同一把尺子。 */
-  const trendYearCap = new Date().getFullYear() + 1;
   const trend = await db.query(
     `SELECT period,
             IFNULL(SUM(total_emission),0) AS total,
             IFNULL(SUM(output_value),0) AS grid
      FROM emission_report WHERE status <> 'DRAFT' AND year <= ?
      GROUP BY period ORDER BY period`,
-    [trendYearCap]
+    [yearCap]
   );
 
   const latestBlocks = await db.ledgerQuery(
@@ -173,10 +177,13 @@ router.get('/dashboard', wrap(async (req, res) => {
      FROM emission_report WHERE year = ?`, [YEAR]
   );
 
-  /* 可选回溯年度清单 —— 前端据此提供年份切换，也让"这一屏是哪一年"可辨 */
+  /* 可选回溯年度清单 —— 前端据此提供年份切换，也让"这一屏是哪一年"可辨。
+   * 【2026-11-11】同样按 yearCap 过滤：下拉里若出现"2032 年度"，
+   * 访客点进去只会看到 1 条测试单，比不提供该选项更伤可信度。 */
   const availableYears = (await db.query(
-    `SELECT year, COUNT(*) n FROM emission_report WHERE status <> 'DRAFT'
-      GROUP BY year ORDER BY year DESC`
+    `SELECT year, COUNT(*) n FROM emission_report WHERE status <> 'DRAFT' AND year <= ?
+      GROUP BY year ORDER BY year DESC`,
+    [yearCap]
   )).map((r) => ({ year: Number(r.year), reports: Number(r.n) }));
 
   ok(res, {
