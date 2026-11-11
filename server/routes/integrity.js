@@ -34,12 +34,23 @@ router.get('/members', authRequired, wrap(async (req, res) => {
   /* 只有企业管理员/机构管理员能看全员；普通岗位只能看到自己 */
   const duty = req.user.post ? await integrity.postDuty(req.user.post) : null;
   const canAdmin = !req.user.post || (duty && duty.can_admin);
+  /* 【2026-11-03】user_post_dict 在线上存在同一 post 的多行历史数据
+   * （建表时 PRIMARY KEY 未生效的历史插入，ENT_ADMIN 有 can_entry=0/1 两条）。
+   * 直接 LEFT JOIN 会把一个账号放大成两行，实测表现为「机构账号（2）」
+   * 下同一账号 ent_zjbd 出现两次、且权限列一排「—」一排「✔」。
+   * 这里按 post 取权限最全的一行（MAX 聚合），保证一个账号只出现一次；
+   * 同时把参数字面量顺序改回与 SQL 中占位符一致的顺序。 */
   const rows = await db.query(
     `SELECT u.id, u.username, u.real_name, u.role, u.post, u.cert_no, u.status,
-            u.parent_user_id, p.label AS post_label, p.can_entry, p.can_review, p.can_admin,
-            u.created_at
+            u.parent_user_id, p.label AS post_label,
+            p.can_entry, p.can_review, p.can_admin, u.created_at
        FROM sys_user u
-       LEFT JOIN user_post_dict p ON p.post = u.post
+       LEFT JOIN (
+         SELECT post, MAX(label) AS label,
+                MAX(can_entry) AS can_entry, MAX(can_review) AS can_review,
+                MAX(can_admin) AS can_admin
+           FROM user_post_dict GROUP BY post
+       ) p ON p.post = u.post
       WHERE u.org_id = ? ${canAdmin ? '' : 'AND u.id = ?'}
       ORDER BY u.id`,
     canAdmin ? [req.user.orgId] : [req.user.orgId, req.user.id]

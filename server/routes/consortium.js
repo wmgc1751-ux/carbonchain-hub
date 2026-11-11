@@ -48,7 +48,7 @@ router.post('/nodes/:nodeId/revoke', authRequired, requireRole('REGULATOR'), wra
 }));
 
 /* 同步单节点副本（监管/管理角色） ------------------------------------ */
-router.post('/nodes/:nodeId/sync', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
+router.post('/nodes/:nodeId/sync', authRequired, requireRole('REGULATOR', 'ADMIN'), wrap(async (req, res) => {
   const r = await cons.syncNode(req.params.nodeId, req.body || {});
   ok(res, r, r.synced > 0
     ? `节点 ${r.nodeId} 已同步 ${r.synced} 个区块，副本追平至高度 #${r.height}`
@@ -56,7 +56,7 @@ router.post('/nodes/:nodeId/sync', authRequired, requireRole('REGULATOR'), wrap(
 }));
 
 /* 全部节点同步（监管/管理角色） --------------------------------------- */
-router.post('/sync', authRequired, requireRole('REGULATOR'), wrap(async (req, res) => {
+router.post('/sync', authRequired, requireRole('REGULATOR', 'ADMIN'), wrap(async (req, res) => {
   const rs = await cons.syncAll();
   const total = rs.reduce((a, b) => a + b.synced, 0);
   ok(res, rs, `已完成 ${rs.length} 个节点的副本同步，共补拉 ${total} 个区块`);

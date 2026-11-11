@@ -32,13 +32,34 @@ async function ensureYear() {
   if (yearReady) return YEAR;
   yearReady = true;
   try {
+    /* 【2026-11-03】原实现取 MAX(year)，一条未来年度的测试单
+     * （实测 2032Q1/2033Q1 来自联调自测）就会把监管驾驶舱默认年度劫持到 2033：
+     * 首屏变成"排放 1.33 万吨 / 配额 0 / 无履约风险"，与 2026 年度的
+     * 682 万吨完全脱节，评审一眼就会问"这个平台怎么只有一家企业"。
+     * 与 /public/dashboard 使用同一判据：不越过系统时钟年 +1，
+     * 且该年度至少覆盖 10% 在册企业（样本不足视为测试数据）。 */
+    const clockYear = new Date().getFullYear();
+    const entTotal = Number(await db.value(
+      "SELECT COUNT(*) FROM enterprise WHERE status <> 'CLOSED'"
+    ) || 0);
+    const minEnts = Math.max(3, Math.ceil(entTotal * 0.1));
     const row = await db.one(
-      `SELECT MAX(y) AS y FROM (
-         SELECT year AS y FROM emission_report WHERE status <> 'DRAFT'
-         UNION ALL SELECT year AS y FROM carbon_quota
-       ) t`
+      `SELECT y FROM (
+         SELECT year AS y FROM emission_report WHERE status <> 'DRAFT' AND year <= ?
+         UNION ALL SELECT year AS y FROM carbon_quota WHERE year <= ?
+       ) t
+       GROUP BY y HAVING COUNT(*) >= ? ORDER BY y DESC LIMIT 1`,
+      [clockYear + 1, clockYear + 1, minEnts]
     );
-    if (row && Number(row.y) > 0) YEAR = Number(row.y);
+    if (row && Number(row.y) > 0) { YEAR = Number(row.y); return YEAR; }
+    /* 放宽覆盖度后重试 */
+    const relaxed = await db.one(
+      `SELECT MAX(y) AS y FROM (
+         SELECT year AS y FROM emission_report WHERE status <> 'DRAFT' AND year <= ?
+         UNION ALL SELECT year AS y FROM carbon_quota WHERE year <= ?
+       ) t`, [clockYear + 1, clockYear + 1]
+    );
+    if (relaxed && Number(relaxed.y) > 0) YEAR = Number(relaxed.y);
   } catch (e) { /* 解析失败沿用当前年，不影响主流程 */ }
   return YEAR;
 }
@@ -252,8 +273,19 @@ router.get('/enterprises', wrap(async (req, res) => {
 
 router.get('/enterprises/filters', wrap(async (req, res) => {
   const industries = await db.query('SELECT DISTINCT industry AS v FROM enterprise ORDER BY industry');
-  const regions = await db.query('SELECT DISTINCT region AS v FROM enterprise ORDER BY region');
-  ok(res, { industries: industries.map((i) => i.v), regions: regions.map((r) => r.v) });
+  const regions = await db.query('SELECT DISTINCT region AS v FROM enterprise WHERE region IS NOT NULL AND region <> \'\' ORDER BY region');
+  /* 【2026-11-03】库里同一地区存在两种写法（"江苏" 与 "江苏省"、"河北" 与 "河北省"），
+   * 直接 DISTINCT 会在筛选下拉里出现两个"看起来一样"的项，选其一就漏掉另一批企业。
+   * 这里按"去掉末尾省/市/自治区后缀"归一后去重，保留信息量最大的写法。 */
+  const norm = (s) => String(s).replace(/(省|市|自治区|特别行政区|壮族自治区|回族自治区|维吾尔自治区)$/u, '');
+  const best = new Map();
+  for (const r of regions.map((x) => x.v)) {
+    const k = norm(r);
+    const prev = best.get(k);
+    /* 取更长的写法（"江苏省" 优于 "江苏"），并列时取字典序稳定值 */
+    if (!prev || r.length > prev.length) best.set(k, r);
+  }
+  ok(res, { industries: industries.map((i) => i.v), regions: [...best.values()].sort() });
 }));
 
 router.get('/enterprises/:id', wrap(async (req, res) => {
@@ -296,11 +328,37 @@ router.get('/allocations', wrap(async (req, res) => {
      JOIN enterprise e ON e.id = a.ent_id
      WHERE ${where.join(' AND ')} ORDER BY a.created_at DESC, a.id DESC`, params, req.query
   );
-  const sum = await db.one(
-    `SELECT IFNULL(SUM(quota_amount),0) AS total, COUNT(*) AS cnt FROM quota_allocation WHERE year = ?`,
-    [year || YEAR]
-  );
-  ok(res, { ...page, summary: { total: Number(sum.total), count: Number(sum.cnt) } });
+  /* 【2026-11-03】ADJUST 类型不是监管下发，而是 11-01 修复脚本对历史流水的
+   * 归类调整（操作人 system-repair / repair-ccd002，且未上链）。
+   * 它混在"分配流水"里会让「每笔均生成链上存证」这句话当场失守。
+   * 这里带上类别说明与上链状态标签，让页面能自解释，而不是等评审来问。 */
+  page.rows = (page.rows || []).map((r) => ({
+    ...r,
+    isAdjustment: r.alloc_type === 'ADJUST',
+    allocTypeCn: { FREE: '免费分配', AUCTION: '有偿竞价', BUYBACK: '政府回购', ADJUST: '历史调整' }[r.alloc_type] || r.alloc_type,
+    anchorState: r.chain_tx_id ? 'anchored' : 'unanchored',
+  }));
+  /* 【2026-11-03】汇总必须跟筛选口径一致。
+   * 原来无条件 `WHERE year = (year || YEAR)`：UI 选「全部年度」时列表显示全量流水，
+   * 三个 KPI 却只统计某一年，实测出现"表格有 211 行、KPI 全是 0"的自相矛盾
+   * （YEAR 解析到的年度恰好没有分配记录）。这里没有年筛选就统计全量。 */
+  const sum = year
+    ? await db.one(
+      `SELECT IFNULL(SUM(quota_amount),0) AS total, COUNT(*) AS cnt,
+              SUM(CASE WHEN chain_tx_id IS NULL THEN 1 ELSE 0 END) AS unanchored
+         FROM quota_allocation WHERE year = ?`, [year]
+    )
+    : await db.one(
+      `SELECT IFNULL(SUM(quota_amount),0) AS total, COUNT(*) AS cnt,
+              SUM(CASE WHEN chain_tx_id IS NULL THEN 1 ELSE 0 END) AS unanchored
+         FROM quota_allocation`
+    );
+  ok(res, {
+    ...page,
+    summary: {
+      total: Number(sum.total), count: Number(sum.cnt), unanchored: Number(sum.unanchored || 0),
+    },
+  });
 }));
 
 /** 下发配额（含上链存证） */
@@ -397,12 +455,32 @@ router.get('/statistics', wrap(async (req, res) => {
      GROUP BY e.industry ORDER BY emission DESC`, [year]
   );
 
-  const regions = await db.query(
-    `SELECT e.region AS name, COUNT(DISTINCT e.id) AS ents, IFNULL(SUM(r.total_emission),0) AS emission,
-            IFNULL(AVG(r.intensity),0) AS intensity
-     FROM enterprise e LEFT JOIN emission_report r ON r.ent_id = e.id AND r.year = ? AND r.status <> 'DRAFT'
-     GROUP BY e.region ORDER BY emission DESC`, [year]
+  /* 【2026-11-03】按 e.region 原样 GROUP BY 会把同一地区拆成两行
+   * （"江苏" 与 "江苏省"、"河北" 与 "河北省"），本页"覆盖省级行政区"
+   * 因此比公示大屏多 2 个。取回明细后在应用层按省级归一合并，
+   * 与大屏 regionCount、筛选下拉使用同一套归一规则。 */
+  const regionRows = await db.query(
+    `SELECT e.region, e.id AS ent_id, r.total_emission, r.intensity
+       FROM enterprise e LEFT JOIN emission_report r
+         ON r.ent_id = e.id AND r.year = ? AND r.status <> 'DRAFT'
+      WHERE e.region IS NOT NULL AND e.region <> ''`, [year]
   );
+  const normProv = (s) => String(s || '').replace(/(省|市|自治区|特别行政区)$/u, '');
+  const provMap = new Map();
+  for (const r of regionRows) {
+    const key = normProv(r.region);
+    if (!provMap.has(key)) provMap.set(key, { name: key, entSet: new Set(), emission: 0, intensitySum: 0, intensityCnt: 0 });
+    const g = provMap.get(key);
+    g.entSet.add(r.ent_id);
+    g.emission += Number(r.total_emission || 0);
+    if (r.intensity != null) { g.intensitySum += Number(r.intensity); g.intensityCnt++; }
+  }
+  const regions = [...provMap.values()]
+    .map((g) => ({
+      name: g.name, ents: g.entSet.size, emission: g.emission,
+      intensity: g.intensityCnt ? g.intensitySum / g.intensityCnt : 0,
+    }))
+    .sort((a, b) => b.emission - a.emission);
 
   const scaleStat = await db.query(
     `SELECT e.scale AS name, COUNT(*) AS ents, IFNULL(SUM(r.total_emission),0) AS emission

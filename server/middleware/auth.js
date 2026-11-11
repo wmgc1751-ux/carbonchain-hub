@@ -107,6 +107,24 @@ function authRequired(req, res, next) {
   next();
 }
 
+/**
+ * 可选登录：有有效 token 就解析出身份，没有/无效则按访客放行（req.user = null）。
+ *
+ * 用于 AI 顾问这类**访客也能用、但登录后要认得自己企业**的接口。
+ * 曾经 /api/copilot/ask 完全不挂鉴权，后果是 req.user 恒为 undefined ——
+ * 企业账号问"我的配额"时拿不到 orgId，工具只能报"未指定企业"，
+ * 而模型被迫围绕一个空数据答，看起来像 AI 不会用，实际是身份丢了。
+ *
+ * ⚠ 不得用它替代 authRequired：需要身份才能做的操作（改配置、查他人数据）
+ *   必须用 authRequired，否则等于把权限校验变成"有就查、没有就跳过"。
+ */
+function authOptional(req, res, next) {
+  const h = req.headers.authorization || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : null;
+  req.user = token ? verifyToken(token) : null;
+  next();
+}
+
 /** 角色白名单
  *
  * ⚠ 2026-10-29 P1 权限收缩：移除了 ADMIN 的"超级用户"旁路。
@@ -189,4 +207,4 @@ function wrap(fn) {
   return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 }
 
-module.exports = { signToken, verifyToken, revokeToken, authRequired, requireRole, writeLog, ok, fail, wrap };
+module.exports = { signToken, verifyToken, revokeToken, authRequired, authOptional, requireRole, writeLog, ok, fail, wrap };

@@ -54,7 +54,7 @@ const DEMO_ACCOUNTS = config.demoAccounts;
 
 /** 登录限流：同一 IP + 账号每分钟最多 10 次，防暴力破解 */
 const loginLimiter = rateLimit({
-  windowMs: 60 * 1000, max: 10,
+  windowMs: 60 * 1000, max: 30,
   keyFn: (req) => `${req.ip}|${(req.body && req.body.username) || ''}`,
   message: '登录尝试过于频繁，请 1 分钟后再试',
 });

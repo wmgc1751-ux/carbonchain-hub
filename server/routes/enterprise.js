@@ -114,9 +114,12 @@ router.get('/overview', wrap(async (req, res) => {
      WHERE x.t < (SELECT IFNULL(SUM(total_emission),0) FROM emission_report WHERE ent_id = ? AND year = ? AND status <> 'DRAFT')`,
     [YEAR, ent.industry, id, YEAR]
   );
+  /* 【2026-11-03】分母必须与分子同口径：上面的「优于本企业数」只统计
+   * 非草稿上报单，这里却把只有草稿单的同行业企业也算进了总数，
+   * 会出现「排名 3 / 2」这种分母小于分子的情况。 */
   const industryTotal = Number(await db.value(
     `SELECT COUNT(DISTINCT r.ent_id) FROM emission_report r JOIN enterprise e2 ON e2.id = r.ent_id
-     WHERE r.year = ? AND e2.industry = ?`, [YEAR, ent.industry]
+     WHERE r.year = ? AND e2.industry = ? AND r.status <> 'DRAFT'`, [YEAR, ent.industry]
   ) || 1);
 
   /* content/handle_note 一并回传：总览页预警表只有标题，用户看到
@@ -516,11 +519,29 @@ router.get('/analytics', wrap(async (req, res) => {
      GROUP BY month ORDER BY month`, [id, YEAR]
   );
   const peers = await db.query(
-    `SELECT e.ent_name AS name, SUM(r.total_emission) AS value
+    `SELECT r.ent_id AS entId, e.ent_name AS name, SUM(r.total_emission) AS value
      FROM emission_report r JOIN enterprise e ON e.id = r.ent_id
      WHERE e.industry = (SELECT industry FROM enterprise WHERE id = ?) AND r.year = ? AND r.status <> 'DRAFT'
      GROUP BY r.ent_id ORDER BY value DESC LIMIT 10`, [id, YEAR]
   );
+  /* 【2026-11-03】isMe 原来被写死为 false —— 前端「同行业排放对标 TOP10」
+   * 图例明写"橙色为本企业"，但接口从来不告诉前端哪一行是本企业，
+   * 于是本企业永远不高亮：读者只能靠自己从一串公司名里认出自己。
+   * 这里按 ent_id 比对真实标记；peers 里若没有本企业（如行业唯一），
+   * 额外把本企业补进去，保证对标图始终能定位到自己。 */
+  const myId = Number(id);
+  const myName = await db.value('SELECT ent_name FROM enterprise WHERE id = ?', [id]);
+  const peerRows = peers.map((p) => ({
+    name: p.name, value: Number(p.value), isMe: Number(p.entId) === myId,
+  }));
+  if (!peerRows.some((p) => p.isMe)) {
+    const own = await db.value(
+      `SELECT IFNULL(SUM(total_emission),0) FROM emission_report
+        WHERE ent_id = ? AND year = ? AND status <> 'DRAFT'`, [myId, YEAR]
+    );
+    peerRows.push({ name: myName, value: Number(own || 0), isMe: true });
+    peerRows.sort((a, b) => b.value - a.value);
+  }
   ok(res, {
     reportYear: YEAR,
     trend, mix,
@@ -548,8 +569,8 @@ router.get('/analytics', wrap(async (req, res) => {
       }
       : null,
     monthly: monthly.map((m) => ({ ...m, amount: Number(m.amount) })),
-    peers: peers.map((p) => ({ ...p, value: Number(p.value), isMe: false })),
-    myName: (await db.value('SELECT ent_name FROM enterprise WHERE id = ?', [id])),
+    peers: peerRows,
+    myName,
   });
 }));
 

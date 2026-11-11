@@ -34,7 +34,7 @@
 'use strict';
 
 const express = require('express');
-const { authRequired, requireRole, ok, fail, wrap } = require('../middleware/auth');
+const { authRequired, authOptional, requireRole, ok, fail, wrap } = require('../middleware/auth');
 const CP = require('../services/carbonCopilot');
 const LLM = require('../services/llmClient');
 const G = require('../services/grounding');
@@ -147,7 +147,7 @@ function slimTools(tools) {
 /* ---------------------------------------------------------------------------------
  * 提问（JSON）
  * --------------------------------------------------------------------------------- */
-router.post('/ask', wrap(async (req, res) => {
+router.post('/ask', authOptional, wrap(async (req, res) => {
   const b = req.body || {};
   const question = String(b.question || '').slice(0, 500);
   try {
@@ -226,7 +226,7 @@ router.post('/ask', wrap(async (req, res) => {
  *   event: done     结束（含 tools / grounding / backend）
  *   event: error    出错
  */
-router.post('/stream', async (req, res) => {
+router.post('/stream', authOptional, async (req, res) => {
   const b = req.body || {};
 
   res.writeHead(200, {

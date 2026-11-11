@@ -131,7 +131,12 @@ router.get('/overview', wrap(async (req, res) => {
     org: {
       name: org.org_name, code: org.org_code, level: org.level, region: org.region,
       rating: Number(org.rating), passRate: Number(org.pass_rate),
-      staff: org.staff_count, doneTasks: org.done_tasks, status: org.status,
+      staff: org.staff_count,
+      /* 【2026-11-03】done_tasks 是 init-db 随机种子值（18~420），
+       * 又在每次上链时 +1 累加，实测 org45 冗余字段写着 321，
+       * 而该机构真实的 DONE 任务只有 123 —— 与同屏「累计完成 123」直接打架。
+       * 一律用实时计数，不再读这个会漂移的冗余列。 */
+      doneTasks: sm.DONE || 0, status: org.status,
       wallet: org.wallet_address,
     },
     kpi: {
@@ -293,9 +298,17 @@ router.post('/tasks/:id/verify', wrap(async (req, res) => {
   const verified = Number(vr.verified_value);
   const deviation = Number(vr.deviation_rate);
   const vReportNo = vr.report_no;
-  const auditor = req.user.realName || '核查员';
+  /* 【2026-11-03】「主核查员」必须保留**经办人**，不能被批准人覆盖。
+   * 原实现 `const auditor = req.user.realName` 在第二阶段执行，
+   * 于是复核岗一批准，报告的主核查员就从"某某核查复核员"变成了批准人，
+   * 台账里同一份报告前后两次看到的经办人对不上（实测：VRD202611011040485961
+   * 批准后主核查员变成"核查录入员"，而同批历史报告仍是复核员姓名）。
+   * 经办人姓名在阶段①已写入 vr.auditor，这里沿用；只有缺失时才回退当前用户。 */
+  const auditor = vr.auditor || (req.user.realName || '核查员');
+  const approver = req.user.realName || '复核人';
   const finalConclusion = conclusion === 'FAIL' ? 'FAIL' : (Math.abs(deviation) > 3 ? 'CONDITIONAL' : conclusion);
-  const seal = cu.sha256(`${vReportNo}|${verified}|${auditor}|${finalConclusion}|${t.verifier_id}`);
+  /* 签章覆盖值与批准人：批准动作本身要进签章，否则"谁批准的"无签名背书 */
+  const seal = cu.sha256(`${vReportNo}|${verified}|${auditor}|${approver}|${finalConclusion}|${t.verifier_id}`);
 
   await db.query(
     `UPDATE verify_report SET conclusion=?, opinion=?, auditor=?, seal_hash=?,
@@ -314,6 +327,8 @@ router.post('/tasks/:id/verify', wrap(async (req, res) => {
       verifyReportNo: vReportNo, emissionReportNo: t.report_no, entId: t.ent_id,
       entName: t.ent_name, verifierId: vId(req), declared, verified,
       deviationRate: deviation, conclusion: finalConclusion, sealHash: seal, auditor,
+      /* auditor = 经办人（主核查员）；approver 单独记名，两者都不许混成一个人 */
+      approver,
       submittedBy: vr.submitted_by, approvedBy: req.user.id,
       dualControl: '经办与批准为不同账号（系统强制）',
     },
@@ -336,10 +351,13 @@ router.post('/tasks/:id/verify', wrap(async (req, res) => {
         `核查机构认定排放量 ${verified} tCO2e，与企业申报值 ${declared} tCO2e 偏差 ${deviation}%，已触发预警。`]
     );
   }
-  await db.query('UPDATE verifier_org SET done_tasks = done_tasks + 1 WHERE id = ?', [vId(req)]);
+  /* 【2026-11-03】不再维护 verifier_org.done_tasks 这个冗余列。
+   * 它以随机种子值起步、又被每次上链 +1 累加，值只会离真实数越来越远
+   * （实测 org45：列值 321 vs 真实 DONE 123）。统计一律实时 COUNT，
+   * 冗余列保留但不再写入，避免两处口径继续漂移。 */
 
-  await writeLog(req, '核查作业', '出具核查报告', vReportNo,
-    `企业申报 ${declared} / 核查认定 ${verified} / 偏差 ${deviation}% / 结论 ${finalConclusion}，已上链 #${chain.blockIndex}`);
+  await writeLog(req, '核查作业', '复核批准核查报告', vReportNo,
+    `经办 ${auditor} / 批准 ${approver} / 偏差 ${deviation}% / 结论 ${finalConclusion}，已上链 #${chain.blockIndex}`);
 
   ok(res, {
     verifyReportId: vrId, verifyReportNo: vReportNo, declared, verified, deviation,
