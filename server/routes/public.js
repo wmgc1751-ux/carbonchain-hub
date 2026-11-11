@@ -34,12 +34,48 @@ const router = express.Router();
 async function resolveReportYear(requested) {
   const want = Number(requested);
   if (Number.isInteger(want) && want >= 2000 && want <= 2100) return want;
+  /* ⚠ 2026-11-01 修复：不能取「最新非草稿年份」——联调自测会往库里写
+   * 未来年份的测试报告（如 2032Q1/2033Q1），把公示默认年度劫持到 2033，
+   * 整块大屏只剩那 1 条测试数据（覆盖省份 1 个、配额 0、核查率 0%）。
+   *
+   * 【2026-11-03 加固】只按"有 VERIFIED 数据"排序仍不够：一条被核查通过的
+   * 未来测试单就能劫持默认年度（实测 2033 年度 1 份上报单把 2026 年度的
+   * 682 万吨挤出首屏）。现在加两条硬约束：
+   *   ① 年度不超过系统时钟年 +1（未来年度只能显式 ?year= 查看）；
+   *   ② 同年度至少覆盖 max(3, 企业总数 10%) 家企业，否则视为样本不足的
+   *      测试数据，不参与默认年度竞争。
+   * 这样"体量真实的那一年"才会成为默认口径。 */
+  const clockYear = new Date().getFullYear();
+  const entTotal = Number(await db.value(
+    "SELECT COUNT(*) FROM enterprise WHERE status <> 'CLOSED'"
+  ) || 0);
+  const minEnts = Math.max(3, Math.ceil(entTotal * 0.1));
+
   const row = await db.one(
     `SELECT year FROM emission_report
-      WHERE status <> 'DRAFT'
-      GROUP BY year ORDER BY year DESC LIMIT 1`
-  );
-  return row ? Number(row.year) : new Date().getFullYear();
+      WHERE status = 'VERIFIED' AND year <= ?
+      GROUP BY year HAVING COUNT(DISTINCT ent_id) >= ?
+      ORDER BY year DESC LIMIT 1`,
+    [clockYear + 1, minEnts]
+  ).catch(() => null);
+  if (row) return Number(row.year);
+
+  /* 退回：放宽覆盖度要求，但仍不越过系统时钟 */
+  const relaxed = await db.one(
+    `SELECT year FROM emission_report
+      WHERE status = 'VERIFIED' AND year <= ?
+      GROUP BY year ORDER BY year DESC LIMIT 1`,
+    [clockYear + 1]
+  ).catch(() => null);
+  if (relaxed) return Number(relaxed.year);
+
+  const fallback = await db.one(
+    `SELECT year FROM emission_report
+      WHERE status <> 'DRAFT' AND year <= ?
+      GROUP BY year ORDER BY year DESC LIMIT 1`,
+    [clockYear + 1]
+  ).catch(() => null);
+  return fallback ? Number(fallback.year) : clockYear;
 }
 
 /* 公示大屏总览 ------------------------------------------------------ */
@@ -53,7 +89,16 @@ router.get('/dashboard', wrap(async (req, res) => {
    * 监管驾驶舱「纳入控排企业 60 家」，差的 3 家是状态为 CLOSED 的测试主体。
    * 公开看板是未登录访客看到的第一屏，口径错了比数字少更伤可信度。 */
   const entCount = Number(await db.value("SELECT COUNT(*) FROM enterprise WHERE status <> 'CLOSED'") || 0);
-  const regionCount = Number(await db.value("SELECT COUNT(DISTINCT region) FROM enterprise WHERE status <> 'CLOSED'") || 0);
+  /* 【2026-11-03】原来用 COUNT(DISTINCT region)，而库里同一地区有两种写法
+   * （"江苏"/"江苏省"、"河北"/"河北省"），于是大屏显示 28 省、
+   * 而 /reg/stats 用 regions.length 显示 30 —— 同一个事实两个数。
+   * 统一按"去掉省/市/自治区后缀"归一去重，与监管端筛选下拉同源。 */
+  const regionRows = await db.query(
+    "SELECT DISTINCT region FROM enterprise WHERE status <> 'CLOSED' AND region IS NOT NULL AND region <> ''"
+  );
+  const regionKeys = new Set(regionRows.map((r) => String(r.region)
+    .replace(/(省|市|自治区|特别行政区|壮族自治区|回族自治区|维吾尔自治区)$/u, '')));
+  const regionCount = regionKeys.size;
 
   const emission = await db.one(
     `SELECT IFNULL(SUM(total_emission),0) AS total, COUNT(*) AS cnt,
@@ -92,11 +137,19 @@ router.get('/dashboard', wrap(async (req, res) => {
    * 分母为 0 的期间返回 null，前端折线断开而不是掉到 0 ——
    * 掉到 0 会被读成"那个季度零碳"。全部期间都算，不受 reportYear 限制，
    * 这样趋势图能看到完整的 2024→2025 走势。 */
+  /* 【2026-11-11】趋势同样要挡住未来年度。
+   * 这里原本是「全部期间都算」，本意是让趋势图不被 reportYear 截断，
+   * 但联调自测写进来的 2031Q2/2032Q1 测试单也被画了上去 ——
+   * 曲线在 2026 之后掉到 0 再窜到 2031，看起来像"排放崩了"。
+   * 上限取系统时钟 +1，与 resolveReportYear 的默认年度约束保持同一把尺子。 */
+  const trendYearCap = new Date().getFullYear() + 1;
   const trend = await db.query(
     `SELECT period,
             IFNULL(SUM(total_emission),0) AS total,
             IFNULL(SUM(output_value),0) AS grid
-     FROM emission_report WHERE status <> 'DRAFT' GROUP BY period ORDER BY period`
+     FROM emission_report WHERE status <> 'DRAFT' AND year <= ?
+     GROUP BY period ORDER BY period`,
+    [trendYearCap]
   );
 
   const latestBlocks = await db.ledgerQuery(
