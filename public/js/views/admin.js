@@ -63,6 +63,12 @@
              * 是在加载还是已经卡死。改为按真实版式铺骨架屏（KPI×4 + 结论行 + 摘要行），
              * 加载完成时版面不会跳动。 */
             : !s ? h('div', { class: 'col gap-16' }, [
+              /* 【2026-11-03】线上实测首屏仍有 5~10 秒纯灰块：骨架屏色值接近背景，
+               * 读者分不清"在加载"和"页面坏了"。补一行文字说明正在做什么。 */
+              h('div', { class: 'alertbar info' }, [
+                h('x-icon', { name: 'refresh', size: 15 }),
+                '正在读取链状态与因子版本（首次访问需执行全链校验，约需数秒）…',
+              ]),
               h('x-skeleton', { type: 'kpi', rows: 4 }),
               h('div', { class: 'card' }, [h('div', { class: 'card-body' }, [h('x-skeleton', { type: 'table', rows: 3 })])]),
               h('div', { class: 'card' }, [h('div', { class: 'card-body' }, [h('x-skeleton', { type: 'table', rows: 2 })])]),
@@ -115,7 +121,7 @@
       const modal = ref(false);
       const pubModal = ref(false);
       const busy = ref(false);
-      const form = reactive({ id: null, energyType: 'COAL', factor: '', unit: 'tCO2e/单位', scope: 1, source: '', industry: '', remark: '' });
+      const form = reactive({ id: null, energyType: 'COAL', factor: '', unit: 'tCO₂e/单位', scope: 1, source: '', industry: '', remark: '' });
       const pubForm = reactive({ version: '', effectiveFrom: '' });
 
       const ENERGY = { COAL: '原煤', COKE: '焦炭', GAS: '天然气', DIESEL: '柴油', FUEL_OIL: '燃料油', POWER: '电力', HEAT: '热力' };
@@ -129,7 +135,7 @@
       onMounted(load);
 
       function add() {
-        Object.assign(form, { id: null, energyType: 'COAL', factor: '', unit: 'tCO2e/单位', scope: 1, source: '', industry: '', remark: '' });
+        Object.assign(form, { id: null, energyType: 'COAL', factor: '', unit: 'tCO₂e/单位', scope: 1, source: '', industry: '', remark: '' });
         modal.value = true;
       }
       function edit(f) {
@@ -449,7 +455,11 @@
         busy.value = true;
         try {
           result.value = await App.API.request('POST', '/admin/reconcile');
-          App.notify.ok(result.value.inconsistent === 0 ? '对账完成，链上链下全部一致' : `发现 ${result.value.inconsistent} 条不一致`);
+          const bad = result.value.inconsistent || 0;
+          const gap = result.value.unanchored || 0;
+          App.notify.ok(bad === 0 && gap === 0
+            ? '对账完成，链上链下全部一致'
+            : `对账完成：${bad} 条失配，${gap} 条未锚定`);
           await loadHistory();
         } catch (e) { App.notify.err(e.message); }
         finally { busy.value = false; }
@@ -459,21 +469,25 @@
         default: () => [
           result.value && h('div', { class: 'grid g3 mb-16' }, [
             h('x-kpi', { label: '核对记录', value: App.fmt.num(result.value.total, 0), unit: '条', icon: 'db', tone: 'sky' }),
-            h('x-kpi', { label: '不一致', value: App.fmt.num(result.value.inconsistent, 0), unit: '条', icon: 'alert', tone: result.value.inconsistent > 0 ? 'rose' : 'carbon' }),
-            h('x-kpi', { label: '结论', value: result.value.inconsistent === 0 ? '全部一致' : '需修复', icon: 'check', tone: result.value.inconsistent === 0 ? 'carbon' : 'rose' }),
+            h('x-kpi', { label: '失配（写了 txid 查无此交易）', value: App.fmt.num(result.value.inconsistent, 0), unit: '条', icon: 'alert', tone: result.value.inconsistent > 0 ? 'rose' : 'carbon' }),
+            /* 【2026-11-03】未锚定单列：业务行从未上链，属"待补锚"，
+             * 与失配（链上查无此 txid，可能是篡改）性质不同，不能混成一个数。 */
+            h('x-kpi', { label: '未锚定（待补锚）', value: App.fmt.num(result.value.unanchored || 0, 0), unit: '条', icon: 'chain', tone: (result.value.unanchored || 0) > 0 ? 'amber' : 'carbon' }),
           ]),
-          result.value && h('x-card', { title: '分表核对明细', flush: true }, {
+          result.value && h('x-card', { title: '分表核对明细', sub: '失配需排查篡改；未锚定为尚未上链的业务行，可补锚', flush: true }, {
             default: () => h('x-table', {
               columns: [
                 { key: 'table', title: '业务表' },
+                { key: 'total', title: '业务行', align: 'right' },
                 { key: 'anchored', title: '已锚定', align: 'right' },
-                { key: 'matched', title: '链上命中', align: 'right' },
-                { key: 'missing', title: '缺失', align: 'right' },
+                { key: 'missing', title: '失配', align: 'right' },
+                { key: 'unanchored', title: '未锚定', align: 'right' },
                 { key: 'consistent', title: '一致', width: '80px' },
               ],
               rows: result.value.tables,
             }, {
               'col-missing': ({ value }) => h('span', { style: `color:${value > 0 ? '#fda4af' : '#6ee7b7'}` }, value),
+              'col-unanchored': ({ value }) => h('span', { style: `color:${value > 0 ? '#fcd34d' : '#6ee7b7'}` }, value),
               'col-consistent': ({ value }) => h('span', { class: value ? 't-ok' : 't-danger' }, value ? '✓' : '✗'),
             }),
           }),

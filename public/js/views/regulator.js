@@ -432,7 +432,15 @@
           default: () => [
             summary.value && h('div', { class: 'grid g3 mb-16' }, [
               h('x-kpi', { label: filters.year ? `${filters.year} 年度累计分配配额` : '累计分配配额（全部年度）', value: App.fmt.big(summary.value.total), unit: 'tCO₂e', icon: 'coin', tone: 'carbon' }),
-              h('x-kpi', { label: '分配流水笔数', value: App.fmt.num(summary.value.count), unit: '笔', icon: 'report', tone: 'sky', foot: '每笔均生成链上存证' }),
+              /* 【2026-11-03】原来写死「每笔均生成链上存证」，而库中有一批
+               * 历史 ADJUST 调整行未上链（对账中心可见），这句话与明细当场冲突。
+               * 改为如实报出未上链笔数。 */
+              h('x-kpi', {
+                label: '分配流水笔数', value: App.fmt.num(summary.value.count), unit: '笔', icon: 'report', tone: 'sky',
+                foot: summary.value.unanchored > 0
+                  ? `其中 ${summary.value.unanchored} 笔为历史调整/未上链`
+                  : '每笔均生成链上存证',
+              }),
               h('x-kpi', { label: '平均单笔分配量', value: App.fmt.big(summary.value.count ? summary.value.total / summary.value.count : 0), unit: 'tCO₂e', icon: 'chart', tone: 'violet' }),
             ]),
 
@@ -572,7 +580,10 @@
       return () => h('div', {}, [
         h('x-page', {
           title: '预警与风险处置',
-          desc: '平台自动监测配额超限、数据异常、漏报、价格异动与链上风险五类情形并生成预警。处置过程全程留痕，可追溯至具体经办人与处置说明。',
+          /* 【2026-11-03】原文写死「五类情形」，而类型分布与筛选实际有 8 类
+           * （配额超限/数据异常/漏报/价格异动/链上风险 + 数据质量/派生核算风险/履约缺口），
+           * 同屏图文自相矛盾。改为按字典实时计数，今后增删类型不用再改文案。 */
+          desc: `平台自动监测${Object.keys(App.DICT.alertType).length}类风险情形（配额超限、数据异常、漏报、价格异动、链上风险、数据质量、派生核算风险、履约缺口）并生成预警。处置过程全程留痕，可追溯至具体经办人与处置说明。`,
         }, {
           default: () => [
             h('div', { class: 'grid g-2-1 mb-16' }, [
@@ -612,16 +623,20 @@
               ]),
               default: () => [
                 h('x-table', {
+                  /* 【2026-11-03】固定列宽合计原为 940px，加上「预警事项」的最小宽度
+                   * 在 1440 视口（侧栏 240 后仅 ~1180）会横向溢出，
+                   * 「操作」列被推到视口外 —— 预警看得见、点不了处置。
+                   * 收窄编号/企业列，只让最能伸展的「预警事项」吃掉剩余宽度。 */
                   columns: [
-                    { key: 'alert_no', title: '预警编号', width: '150px' },
-                    { key: 'alert_type', title: '类型', width: '115px' },
-                    { key: 'level', title: '级别', width: '75px' },
+                    { key: 'alert_no', title: '预警编号', width: '132px' },
+                    { key: 'alert_type', title: '类型', width: '104px' },
+                    { key: 'level', title: '级别', width: '68px' },
                     { key: 'title', title: '预警事项' },
-                    { key: 'ent_name', title: '相关企业', width: '200px' },
-                    { key: 'status', title: '状态', width: '95px' },
-                    { key: 'handler', title: '处理人', width: '90px' },
-                    { key: 'created_at', title: '产生时间', width: '125px' },
-                    { key: '_act', title: '操作', width: '90px' },
+                    { key: 'ent_name', title: '相关企业', width: '180px' },
+                    { key: 'status', title: '状态', width: '88px' },
+                    { key: 'handler', title: '处理人', width: '82px' },
+                    { key: 'created_at', title: '产生时间', width: '118px' },
+                    { key: '_act', title: '操作', width: '82px' },
                   ],
                   rows: pager.state.rows, loading: pager.state.loading,
                 }, {
@@ -759,8 +774,13 @@
               'aria-label': '年度筛选',
               onChange: (e) => { year.value = e.target.value; load(); },
             }, (() => {
+              /* 【2026-11-03】原逻辑把 year.value 无条件并进选项集合再倒序排列：
+               * 只要上一页记忆里带着 2033（联调自测留下的未来年度），
+               * 下拉首项就是 "2033 年度" 且被选中，整页 KPI 变成 0。
+               * 现在只列「业务年度及其前两年」，历史年份仍可通过显式
+               * URL ?year= 访问，但不污染默认选项。 */
               const set = new Set([String(YEAR), String(YEAR - 1), String(YEAR - 2)]);
-              if (year.value) set.add(String(year.value));
+              if (year.value && Number(year.value) <= Number(YEAR)) set.add(String(year.value));
               return Array.from(set).sort((a, b) => Number(b) - Number(a)).map((y) => h('option', { value: y }, y + ' 年度'));
             })()),
             h('button', { class: 'btn sm', onClick: load }, [h('x-icon', { name: 'refresh', size: 14 }), '刷新']),
@@ -921,7 +941,25 @@
 
       return () => {
         if (err.value) return h('div', {}, [h('x-page', { title: '系统概况' }), h('div', { class: 'alertbar err' }, [h('x-icon', { name: 'alert', size: 15 }), err.value])]);
-        if (!d.value) return h('div', { class: 'skel', style: 'height:300px' });
+        /* 【2026-11-03】全链复算接口实测 3.5~4s，期间原来只渲染一个 300px 空灰块，
+         * 读者以为页面坏了（/admin/overview 同因）。改成带节点与说明的骨架屏，
+         * 明确"正在校验 N 块"，让等待有解释。 */
+        if (!d.value) {
+          return h('div', {}, [h('x-page', { title: '系统运行状况与数据规模', desc: '平台数据规模、运行环境与区块链节点状态自检。' }, {
+            default: () => h('div', {}, [
+              h('div', { class: 'alertbar info mb-16', style: 'margin-bottom:16px' }, [
+                h('x-icon', { name: 'refresh', size: 15 }),
+                '正在执行全链完整性复算与数据规模统计，区块较多时需要数秒…',
+              ]),
+              h('div', { class: 'skel', style: 'height:120px;margin-bottom:16px' }),
+              h('div', { class: 'grid g3' }, [
+                h('div', { class: 'skel', style: 'height:90px' }),
+                h('div', { class: 'skel', style: 'height:90px' }),
+                h('div', { class: 'skel', style: 'height:90px' }),
+              ]),
+            ]),
+          })]);
+        }
         const rt = d.value.runtime, ch = d.value.chain, v = d.value.validation;
         return h('div', {}, [
           h('x-page', { title: '系统运行状况与数据规模', desc: '平台数据规模、运行环境与区块链节点状态自检。' }, {

@@ -395,6 +395,22 @@
           ? h('div', { class: 'mrv-ok' }, `数据质量 ${p.value.quality.code}（${p.value.quality.reason}），可用于履约清缴。`)
           : h('div', { class: 'mrv-warn' }, `不可用于履约：${(p.value.notUsableReason || []).join('；')}`);
 
+        /* 【2026-11-03】必须写清"这个数为什么与总览差几个量级"。
+         * /ent/overview 的累计排放来自**上报单**（企业按季度申报的能源消耗），
+         * 本页只算**活动数据台账**里已录入的明细。台账几乎空白时（实测易州恒新
+         * 只有 1 条柴油 10t），本页 29.5 t 与总览 12.1 万 t 会并排出现，
+         * 读者第一反应是"数据串了"。这里给出两处数字的来源与差额解释。 */
+        const crossNote = h('div', {
+          style: 'font-size:11.6px;color:var(--tx-3);line-height:1.7;padding:8px 12px;'
+            + 'border-left:2px solid var(--hair);background:rgba(255,255,255,.02);border-radius:4px;margin-top:8px',
+        }, [
+          h('b', { style: 'color:var(--tx-2)' }, '与「企业总览」累计排放的口径差异：'),
+          '总览的年度排放来自碳排放上报单（按季度申报的能源消耗），',
+          '本页只汇总活动数据台账中已录入的月度明细。',
+          '台账未录满时，本页数值会显著小于总览 —— 这是"未录入"，不是"未排放"。',
+          '两处都只统计本企业；要补齐差额，请在「活动数据台账」按月录入。',
+        ]);
+
         /* 分源明细 —— 一个总数变 N 条可核对推导 */
         const rowsCard = h('x-card', { title: '分源明细（逐项可核对）' }, {
           default: () => h('x-table', {
@@ -471,7 +487,7 @@
           ]),
         });
 
-        return h('div', {}, [kpis, h('div', { class: 'card' }, [h('div', { class: 'card-body' }, [banner, usable])]), rowsCard, uCard, checkCard]);
+        return h('div', {}, [kpis, h('div', { class: 'card' }, [h('div', { class: 'card-body' }, [banner, usable, crossNote])]), rowsCard, uCard, checkCard]);
       }
 
       function verifyTab() {

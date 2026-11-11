@@ -767,6 +767,23 @@ table.tbl th {
 }
 /* 数据行 13px 内边距（原 15px）· 细分割线 · 悬停整行高显 + 左侧品牌绿指示条 */
 table.tbl td { padding: 13px 14px; border-bottom: 1px solid rgba(255, 255, 255, .05); color: var(--tx-1); vertical-align: middle; }
+/* 【2026-11-03】长表格的最后一列（通常是「操作」）要固定在右侧。
+ * 实测 /reg/alerts：1366~1440 视口下预警编号+类型+级别+事项+企业+状态+
+ * 处理人+时间合计已超容器宽度，「操作」列被推到可视区外，
+ * 预警看得见却点不了「处置」——必须横向滚动才发现按钮存在。
+ * 这里把表格末列粘在右侧，配合 .tbl-wrap 的横向滚动，
+ * 任何宽度的长表格都能直接看到操作按钮。 */
+.tbl-wrap table.tbl th:last-child,
+.tbl-wrap table.tbl td:last-child {
+  position: sticky; right: 0; z-index: 3;
+  background: var(--bg-1, #12161c);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, .06);
+}
+.tbl-wrap table.tbl th:last-child {
+  z-index: 4;
+  background: linear-gradient(180deg, rgba(28, 34, 42, .98), rgba(22, 27, 34, .98));
+}
+.tbl-wrap table.tbl tbody tr:hover td:last-child { background: #1a2028; }
 table.tbl tbody tr { transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 table.tbl tbody tr:nth-child(even) { background: rgba(255, 255, 255, .014); }
 table.tbl tbody tr:hover { background: rgba(255, 255, 255, .05); box-shadow: inset 2px 0 0 var(--brand); }

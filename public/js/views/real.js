@@ -1554,7 +1554,7 @@
             if (!cs.hours) return null;
             return h('div', {}, [
               h('h3', { style: 'font-size:14px;margin:22px 0 8px;color:var(--tx-0)' },
-                '三、中国控排企业 CEMS 排放量（小时级 · 河北省公开系统）'),
+                '二、中国控排企业 CEMS 排放量（小时级 · 河北省公开系统）'),
               h('div', { style: 'font-size:12px;color:var(--tx-3);margin-bottom:8px' },
                 '辖区：' + (cn.jurisdiction || '') + ' —— ' + (cn.jurisdictionNote || '')),
               h('table', { class: 'rl-table' }, [
@@ -1584,7 +1584,7 @@
             ]);
           })(),
 
-          h('h3', { style: 'font-size:14px;margin:22px 0 8px;color:var(--tx-0)' }, '四、真实 CEMS 浓度数据（ljgk 日均值）（逐排口 · 可溯源）'),
+          h('h3', { style: 'font-size:14px;margin:22px 0 8px;color:var(--tx-0)' }, '三、真实 CEMS 浓度数据（ljgk 日均值）（逐排口 · 可溯源）'),
           h('table', { class: 'rl-table' }, [
             h('thead', {}, [h('tr', {}, ['企业', '排放口', '记录', '天数', '污染物', '时段', '超限', '批次'].map((x) => h('th', {}, x)))]),
             h('tbody', {}, (c.outlets || []).map((o) => h('tr', {}, [

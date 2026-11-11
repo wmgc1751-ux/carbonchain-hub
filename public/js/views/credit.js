@@ -22,12 +22,27 @@
       const form = ref({ assetId: null, amount: '' });
       const pick = ref(null);
 
+      /* 【2026-11-03】原来四个请求串行 await，status 是最后一个回来；
+       * 这期间页面已经用 `st.x || 0` 渲染出 5 张 KPI，全屏显示 0。
+       * 网络稍慢（线上实测即如此）就会长时间停在"可用碳信用 0 / 年度配额 0"，
+       * 而同页资产表却是 1,287 t —— 读者只会认为数据错了。
+       * 改为并行取数 + loaded 标记：未就绪时显示「—」而不是 0。 */
+      const loaded = ref(false);
+
       async function load() {
+        loaded.value = false;
         try {
-          summary.value = await App.API.request('GET', '/credit/summary');
-          assets.value = await App.API.request('GET', '/credit/assets');
-          offsets.value = await App.API.request('GET', '/credit/offsets', null);
-          if (isEnt.value) status.value = await App.API.request('GET', '/credit/status');
+          const [sum, ast, offs, st] = await Promise.all([
+            App.API.request('GET', '/credit/summary'),
+            App.API.request('GET', '/credit/assets'),
+            App.API.request('GET', '/credit/offsets', null),
+            isEnt.value ? App.API.request('GET', '/credit/status') : Promise.resolve(null),
+          ]);
+          summary.value = sum;
+          assets.value = ast;
+          offsets.value = offs;
+          if (st) status.value = st;
+          loaded.value = true;
         } catch (e) { App.notify.err(e.message); }
       }
       onMounted(load);
@@ -109,13 +124,15 @@
       return () => {
         const s = summary.value || { byType: [] };
         const st = status.value || {};
+        /* 未就绪 → 显示「—」；0 必须是真实读数，不能是占位符 */
+        const n = (v) => (loaded.value ? App.fmt.num(Math.round(v || 0)) : '—');
         const kpis = isEnt.value
           ? [
-            h('x-kpi', { label: '可用碳信用', value: App.fmt.num(Math.round(st.availableCredit || 0)), unit: 'tCO₂e', icon: 'leaf', tone: 'chain', foot: 'CCER / 碳汇 / 绿证' }),
-            h('x-kpi', { label: '年度配额', value: App.fmt.num(Math.round(st.quota || 0)), unit: 'tCO₂e', icon: 'target', tone: 'sky', foot: '碳配额资产' }),
-            h('x-kpi', { label: '抵销额度上限', value: App.fmt.num(Math.round(st.limit || 0)), unit: 'tCO₂e', icon: 'shield', tone: 'violet', foot: '配额 × 5%' }),
-            h('x-kpi', { label: '剩余可抵销', value: App.fmt.num(Math.round(st.offsetLimitRemaining || 0)), unit: 'tCO₂e', icon: 'chart', tone: 'carbon', foot: `已抵销 ${App.fmt.num(Math.round(st.used || 0))}` }),
-            h('x-kpi', { label: '当前预计缺口', value: App.fmt.num(Math.round(st.gap || 0)), unit: 'tCO₂e', icon: 'alert', tone: (st.gap > 0 ? 'rose' : 'chain'), foot: '动态核算净缺口' }),
+            h('x-kpi', { label: '可用碳信用', value: n(st.availableCredit), unit: 'tCO₂e', icon: 'leaf', tone: 'chain', foot: 'CCER / 碳汇 / 绿证' }),
+            h('x-kpi', { label: '年度配额', value: n(st.quota), unit: 'tCO₂e', icon: 'target', tone: 'sky', foot: '碳配额资产' }),
+            h('x-kpi', { label: '抵销额度上限', value: n(st.limit), unit: 'tCO₂e', icon: 'shield', tone: 'violet', foot: '配额 × 5%' }),
+            h('x-kpi', { label: '剩余可抵销', value: n(st.offsetLimitRemaining), unit: 'tCO₂e', icon: 'chart', tone: 'carbon', foot: `已抵销 ${loaded.value ? App.fmt.num(Math.round(st.used || 0)) : '—'}` }),
+            h('x-kpi', { label: '当前预计缺口', value: n(st.gap), unit: 'tCO₂e', icon: 'alert', tone: (st.gap > 0 ? 'rose' : 'chain'), foot: '动态核算净缺口' }),
           ]
           : [
             h('x-kpi', { label: '碳信用资产总量', value: App.fmt.num(Math.round(s.totalAmount || 0)), unit: 'tCO₂e', icon: 'leaf', tone: 'chain', foot: `持有企业 ${s.holders || 0} 家` }),

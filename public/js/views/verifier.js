@@ -218,6 +218,13 @@
         } catch (e) { App.notify.err(e.message); } finally { busy.value = false; }
       }
 
+      /* 【2026-11-03】出具结论是两阶段流程（经办提交 → 另一人批准才生效上链）。
+       * 原实现只调第一阶段，却直接读 r.chain.blockIndex —— 第一阶段返回体里
+       * 根本没有 chain 字段（见 server/routes/verifier.js「阶段①」），
+       * 于是每次出具都会抛 "Cannot read properties of undefined (reading 'blockIndex')"，
+       * 报告已在服务端生成并签章、任务却停在 VERIFYING 且无上链，界面上还没有任何补救入口。
+       * 现在按 stage 分支：SUBMITTED 提示待复核（不再假装已上链），
+       * 已上链分支才提示区块号并打开存证核验。 */
       async function issue() {
         busy.value = true;
         try {
@@ -226,10 +233,16 @@
             verifiedValue: Number(form.verifiedValue),
             opinion: form.opinion,
           });
-          App.notify.ok(`核查报告 ${r.verifyReportNo} 已出具并上链存证（区块 #${r.chain.blockIndex}）`);
+          if (r.stage === 'SUBMITTED' || !r.chain) {
+            App.notify.ok(`核查结论 ${r.verifyReportNo} 已提交，等待复核人批准后生效并上链`);
+          } else {
+            App.notify.ok(`核查报告 ${r.verifyReportNo} 已出具并上链存证（区块 #${r.chain.blockIndex}）`);
+          }
           showWork.value = false;
           load();
-          App.showChainProof('核查报告链上存证核验 · ' + r.verifyReportNo, `/verifier/reports/${r.verifyReportId}/chain`);
+          if (r.chain) {
+            App.showChainProof('核查报告链上存证核验 · ' + r.verifyReportNo, `/verifier/reports/${r.verifyReportId}/chain`);
+          }
         } catch (e) { App.notify.err(e.message); } finally { busy.value = false; }
       }
 
@@ -438,8 +451,26 @@
     setup() {
       const pager = App.usePager((p) => App.API.get('/verifier/reports', p), { page: 1, size: 10 });
       const filters = reactive({ conclusion: '', keyword: '' });
+      const busy = ref(false);
       function load() { pager.load({ conclusion: filters.conclusion, keyword: filters.keyword }); }
       onMounted(load);
+
+      /* 复核批准（两阶段流程第二阶段）：同一接口带 approveReportId。
+       * 服务端强制 approved_by ≠ submitted_by；单账号机构会收到明确拒绝提示。 */
+      async function approveReport(row) {
+        busy.value = true;
+        try {
+          const r = await App.API.post(`/verifier/tasks/${row.task_id}/verify`, {
+            conclusion: row.conclusion,
+            verifiedValue: Number(row.verified_value),
+            opinion: row.opinion || '',
+            approveReportId: row.id,
+          });
+          App.notify.ok(`报告 ${r.verifyReportNo} 已批准生效并上链（区块 #${r.chain.blockIndex}）`);
+          load();
+          App.showChainProof('核查报告链上存证核验 · ' + r.verifyReportNo, `/verifier/reports/${r.verifyReportId}/chain`);
+        } catch (e) { App.notify.err(e.message); } finally { busy.value = false; }
+      }
 
       return () => h('div', {}, [
         h('x-page', { title: '核查报告台账', desc: '本机构历次出具的核查报告。每份报告均有唯一的电子签章摘要与链上存证交易号，可供监管与公众独立核验。' }, {
@@ -467,7 +498,7 @@
                   { key: 'auditor', title: '主核查员', width: '100px' },
                   { key: 'chain_block_index', title: '链上存证', width: '110px' },
                   { key: 'issue_time', title: '签发时间', width: '150px' },
-                  { key: '_act', title: '操作', width: '90px' },
+                  { key: '_act', title: '操作', width: '170px' },
                 ],
                 rows: pager.state.rows, loading: pager.state.loading,
               }, {
@@ -479,9 +510,22 @@
                 'col-conclusion': ({ row }) => h('x-tag', { dict: App.DICT.conclusion, dictKey: row.conclusion }),
                 'col-chain_block_index': ({ row }) => h('x-chainbadge', { block: row.chain_block_index, hash: row.chain_tx_id }),
                 'col-issue_time': ({ value }) => h('span', { class: 'tiny' }, App.fmt.dt(value)),
-                'col-_act': ({ row }) => h('button', {
-                  class: 'btn sm ghost', onClick: () => App.showChainProof('核查报告链上存证核验 · ' + row.report_no, `/verifier/reports/${row.id}/chain`),
-                }, [h('x-icon', { name: 'shield', size: 13 }), '核验']),
+                /* 【2026-11-03】未上链的报告必须有补救入口。
+                 * 两阶段流程里经办提交后报告就是"未上链"状态，
+                 * 原先台账只有「核验」一个按钮，对未上链报告点了只会看到
+                 * "该报告尚未上链存证"——看得见问题、改不了状态。
+                 * 这里对未上链且未批准的记录补「批准并上链」。 */
+                'col-_act': ({ row }) => h('div', { class: 'flex gap-6' }, [
+                  !row.chain_tx_id && !row.approved_by
+                    ? h('button', {
+                      class: 'btn sm primary', disabled: busy.value,
+                      onClick: () => approveReport(row),
+                    }, [h('x-icon', { name: 'check', size: 13 }), busy.value ? '批准中…' : '批准并上链'])
+                    : null,
+                  h('button', {
+                    class: 'btn sm ghost', onClick: () => App.showChainProof('核查报告链上存证核验 · ' + row.report_no, `/verifier/reports/${row.id}/chain`),
+                  }, [h('x-icon', { name: 'shield', size: 13 }), '核验']),
+                ]),
               }),
               h('x-pager', { page: pager.state.page, pages: pager.state.pages, total: pager.state.total, size: pager.state.size, onChange: pager.goto }),
             ],

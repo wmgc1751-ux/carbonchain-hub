@@ -626,6 +626,9 @@
     },
     taskStatus: {
       PENDING: ['待受理', 't-warn'], PROCESSING: ['核查中', 't-info'], DONE: ['已完成', 't-ok'], REJECTED: ['已驳回', 't-danger'],
+      /* 【2026-11-03】两阶段复核：经办提交后任务落 VERIFYING（待复核）。
+       * 缺这一项时列表徽章会把原始英文码直接印出来。 */
+      VERIFYING: ['待复核', 't-violet'],
     },
     taskType: { ROUTINE: ['常规核查', 't-mute'], RECHECK: ['复查', 't-info'], RANDOM: ['抽查', 't-violet'] },
     priority: { HIGH: ['高', 't-danger'], NORMAL: ['中', 't-mute'], LOW: ['低', 't-mute'] },
@@ -634,6 +637,11 @@
     alertType: {
       OVER_QUOTA: ['配额超限', 't-danger'], DATA_ABNORMAL: ['数据异常', 't-warn'], MISSING_REPORT: ['漏报', 't-violet'],
       CHAIN_RISK: ['链上风险', 't-chain'], PRICE_ANOMALY: ['价格异常', 't-warn'],
+      /* 【2026-11-03】这三类由监管侧产生，此前未入字典，
+       * 预警分布卡与类型筛选都直接显示英文码（DATA_QUALITY 等），
+       * 且筛选下拉缺项 → 选了也筛不到。 */
+      DATA_QUALITY: ['数据质量', 't-warn'], DERIVATION_RISK: ['派生核算风险', 't-violet'],
+      COMPLIANCE_GAP: ['履约缺口', 't-danger'],
     },
     alertLevel: { HIGH: ['高', 't-danger'], MEDIUM: ['中', 't-warn'], LOW: ['低', 't-mute'] },
     alertStatus: { OPEN: ['待处理', 't-danger'], HANDLING: ['处理中', 't-warn'], CLOSED: ['已关闭', 't-ok'] },

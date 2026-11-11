@@ -216,8 +216,11 @@
                     h('td', { style: 'font-family:var(--mono);font-size:11px' }, `${a.from_id} ~ ${a.to_id}`),
                     h('td', { style: 'font-family:var(--mono)' }, String(a.row_count)),
                     h('td', { style: 'font-family:var(--mono);font-size:10.4px' }, String(a.merkle_root).slice(0, 16) + '…'),
-                    h('td', { style: 'font-family:var(--mono)' }, String(a.block_index || '—')),
-                    h('td', { style: 'font-size:11px' }, String(a.created_at).slice(0, 19)),
+                    h('td', { style: 'font-family:var(--mono)' }, String(a.block_index ?? '—')),
+                    /* 【2026-11-03】`String(null).slice(0,19)` 会把字面量 "null" 印到时间列
+                     * （实测 11 条锚定批次的 created_at 为空，表格右列全是 null）。
+                     * 空值一律走 App.fmt.dt 的兜底「—」。 */
+                    h('td', { style: 'font-size:11px' }, a.created_at ? App.fmt.dt(a.created_at) : '—'),
                   ]))),
                 ])
                 : h('div', { class: 'empty' }, '尚未锚定任何批次'),

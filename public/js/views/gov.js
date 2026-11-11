@@ -506,7 +506,9 @@
               { label: '读数总量', value: App.fmt.num(total), unit: '条', tone: 'sky', icon: 'db', foot: `窗口 ${windowHours.value} 小时内 ${p ? App.fmt.num(p.points) : 0} 个测点` },
               { label: '有效数据占比', value: total ? ((normal / total) * 100).toFixed(2) : '—', unit: '%', tone: 'carbon', icon: 'shield', foot: `${App.fmt.num(normal)} 条 NORMAL` },
               { label: '非正常数据', value: App.fmt.num(abnormal), unit: '条', tone: abnormal ? 'rose' : 'carbon', icon: 'alert', foot: '缺数 / 漂移 / 停机 / 校准' },
-              { label: '全场数据获取率', value: p ? p.overallPct : '—', unit: '%', tone: 'violet', icon: 'chart', foot: p ? '分母 = max(应得, 实收)' : 'PMA 指标' },
+              /* 【2026-11-03】p.overallPct 为 null 表示"分母 0，无法评估"（后端已改），
+               * 显示「—」而不是 0% —— 0% 会被读成"数据全丢"。 */
+              { label: '全场数据获取率', value: (p && p.overallPct != null) ? p.overallPct : '—', unit: (p && p.overallPct != null) ? '%' : '', tone: 'violet', icon: 'chart', foot: p ? (p.assessable === false ? '窗口内无应得数据，不可评估' : '分母 = max(应得, 实收)') : 'PMA 指标' },
               { label: '核算纳入有效点', value: App.fmt.num(accounts.reduce((s, a) => s + (a.validPoints || 0), 0)), unit: '点', tone: 'chain', icon: 'leaf', foot: `动态核算已按质量门控取数` },
               { label: '核算排除点数', value: App.fmt.num(excludedTotal), unit: '点', tone: excludedTotal ? 'rose' : 'carbon', icon: 'alert', foot: '被质量门控挡在核算之外' },
             ]),

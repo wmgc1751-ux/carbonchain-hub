@@ -138,7 +138,17 @@
                 ]),
               ]),
 
-              /* KPI */
+              /* 【2026-11-03】必须显式说明"这个年度是本企业的业务年度，不是系统当年"。
+               * 实测河北恒能（易州恒新）只有 2025/2024 上报单，接口 reportYear=2025，
+               * 页面 KPI 全部按 2025 出数；若读者以为是"2026 年至今"，会得出
+               * "今年排放 10.4 万吨"的完全错误结论。 */
+              ...(YEAR.value !== new Date().getFullYear() ? [h('div', {
+                class: 'alertbar info mb-16', style: 'margin-bottom:16px',
+              }, [
+                h('x-icon', { name: 'alert', size: 15 }),
+                `本页按 ${YEAR.value} 年度口径展示（该年度为本企业最近一个已核查年度）。`
+                + `${new Date().getFullYear()} 年度尚无已核查上报单，提交并完成核查后自动切换。`,
+              ])] : []),
               h('div', { class: 'grid g4 mb-16' }, [
                 h('x-kpi', {
                   label: `${YEAR.value} 年度累计排放`,
@@ -760,11 +770,18 @@
             const quotaFoot = q.assigned
               ? ''
               : (lq ? `本年度未分配配额 · 最近一次为 ${lq.year} 年度 ${App.fmt.num(lq.total_allocated)} t` : '本年度未分配配额');
+            /* 【2026-11-03】2026 年度已分配但尚未清缴时，「已履约使用 0」与
+             * 「碳配额账户」页（2025 年度已用 302,858）并读会被当成矛盾。
+             * 把"本年度的 0"和最近一次清缴年度写进卡脚，说清口径差异。 */
+            const usedFoot = q.assigned
+              ? (Number(q.used) > 0 ? ''
+                : (lq ? `本年度尚未清缴 · 最近一次为 ${lq.year} 年度` : '本年度尚未清缴'))
+              : quotaFoot;
             return [
               h('div', { class: 'grid g4 mb-16' }, [
                 h('x-kpi', { label: '免费分配配额', value: App.fmt.num(q.total_allocated), unit: 'tCO₂e', icon: 'coin', tone: 'sky', foot: quotaFoot }),
-                h('x-kpi', { label: '已履约使用', value: App.fmt.num(q.used), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: q.assigned ? '' : quotaFoot }),
-                h('x-kpi', { label: '已清缴 / 配额结余', value: `${App.fmt.num(q.used)} / ${App.fmt.num(Math.max(0, (q.total_allocated || 0) - (q.used || 0)))}`, unit: 'tCO₂e', icon: 'target', tone: 'violet', foot: q.assigned ? '' : quotaFoot }),
+                h('x-kpi', { label: '已履约使用', value: App.fmt.num(q.used), unit: 'tCO₂e', icon: 'fire', tone: 'carbon', foot: usedFoot }),
+                h('x-kpi', { label: '已清缴 / 配额结余', value: `${App.fmt.num(q.used)} / ${App.fmt.num(Math.max(0, (q.total_allocated || 0) - (q.used || 0)))}`, unit: 'tCO₂e', icon: 'target', tone: 'violet', foot: usedFoot }),
                 h('x-kpi', { label: '账户可用余额', value: App.fmt.num(q.available), unit: 'tCO₂e', icon: 'wallet', tone: q.assigned ? (Number(q.available) >= 0 ? 'carbon' : 'rose') : 'sky', foot: q.assigned ? '' : quotaFoot }),
               ]),
               h('div', { class: 'grid g-2-1 mb-16' }, [

@@ -242,12 +242,12 @@
                   ? h('div', { class: 'alertbar info' }, [h('x-icon', { name: 'info', size: 15 }), '填写参数后点「试算」查看逐步代入过程与成本影响。'])
                   : [
                     kpiGrid([
-                      { label: '隐含碳强度', value: num(calc.value.embeddedIntensity, 4), unit: `tCO2e/${calc.value.unit || 't'}`, tone: 'carbon', icon: 'leaf', foot: `EU 默认 ${num(bench.euDefaultIntensity, 4)}` },
-                      { label: '总排放', value: num(calc.value.totalEmission, 2), unit: 'tCO2e', tone: 'sky', icon: 'fire', foot: `直接 ${num(calc.value.directEmission, 2)} + 间接 ${num(calc.value.indirectEmission, 2)}` },
+                      { label: '隐含碳强度', value: num(calc.value.embeddedIntensity, 4), unit: `tCO₂e/${calc.value.unit || 't'}`, tone: 'carbon', icon: 'leaf', foot: `EU 默认 ${num(bench.euDefaultIntensity, 4)}` },
+                      { label: '总排放', value: num(calc.value.totalEmission, 2), unit: 'tCO₂e', tone: 'sky', icon: 'fire', foot: `直接 ${num(calc.value.directEmission, 2)} + 间接 ${num(calc.value.indirectEmission, 2)}` },
                       { label: '出口产量', value: num(calc.value.quantity, 2), unit: calc.value.unit || '', tone: 'violet', icon: 'factory', foot: qp.kind ? (qp.label || qp.kind) : '' },
                       { label: '绿电匹配率', value: pct(elec.greenRatio), unit: '', tone: (elec.greenRatio || 0) > 0.5 ? 'carbon' : 'amber', icon: 'leaf', foot: `绿电 ${num(elec.greenMatchedMwh, 1)} / 用电 ${num(elec.mwh, 1)} MWh` },
-                      { label: '相对 EU 默认值', value: bench.penaltyTco2 > 0 ? '+' + num(bench.penaltyTco2, 2) : num(bench.penaltyTco2, 2), unit: 'tCO2e', tone: bench.penaltyTco2 > 0 ? 'rose' : 'carbon', icon: 'target', foot: bench.verdict || '' },
-                      { label: '电网因子', value: num(elec.gridFactor, 4), unit: 'tCO2e/MWh', tone: 'chain', icon: 'db', foot: elec.gridFactorSource || '' },
+                      { label: '相对 EU 默认值', value: bench.penaltyTco2 > 0 ? '+' + num(bench.penaltyTco2, 2) : num(bench.penaltyTco2, 2), unit: 'tCO₂e', tone: bench.penaltyTco2 > 0 ? 'rose' : 'carbon', icon: 'target', foot: bench.verdict || '' },
+                      { label: '电网因子', value: num(elec.gridFactor, 4), unit: 'tCO₂e/MWh', tone: 'chain', icon: 'db', foot: elec.gridFactorSource || '' },
                     ]),
 
                     h('div', { class: 'grid mt-16', style: 'grid-template-columns:1fr 1fr' }, [
@@ -256,10 +256,10 @@
                         h('x-card', { title: '与 EU 默认值的对照' }, {
                           default: () => h('div', { class: 'card-body' }, [
                             h('dl', { class: 'intl-kv' }, [
-                              h('dt', {}, '本平台实测强度'), h('dd', {}, `${num(calc.value.embeddedIntensity, 4)} tCO2e/${calc.value.unit}`),
-                              h('dt', {}, 'EU 默认强度'), h('dd', {}, `${num(bench.euDefaultIntensity, 4)} tCO2e/${calc.value.unit}`),
-                              h('dt', {}, 'EU 默认对应总量'), h('dd', {}, `${num(bench.euDefaultTotal, 2)} tCO2e`),
-                              h('dt', {}, '差额（正=我更有优势）'), h('dd', {}, `${num(bench.penaltyTco2, 2)} tCO2e`),
+                              h('dt', {}, '本平台实测强度'), h('dd', {}, `${num(calc.value.embeddedIntensity, 4)} tCO₂e/${calc.value.unit}`),
+                              h('dt', {}, 'EU 默认强度'), h('dd', {}, `${num(bench.euDefaultIntensity, 4)} tCO₂e/${calc.value.unit}`),
+                              h('dt', {}, 'EU 默认对应总量'), h('dd', {}, `${num(bench.euDefaultTotal, 2)} tCO₂e`),
+                              h('dt', {}, '差额（正=我更有优势）'), h('dd', {}, `${num(bench.penaltyTco2, 2)} tCO₂e`),
                             ]),
                             bench.note ? h('div', { class: 'intl-quote mt-16' }, App.fmt.md(bench.note)) : null,
                           ]),
@@ -360,7 +360,7 @@
                         it.saving != null ? h('x-tag', { text: `规避支出 ${App.fmt.big(it.saving)} 元`, tone: 't-ok' }) : null,
                       ]),
                       it.carbonPrice != null ? h('div', { class: 'tiny dim mb-8' },
-                        `当期碳价 ${App.fmt.num(it.carbonPrice, 2)} 元/tCO2e · ${it.carbonPriceSource || ''}`) : null,
+                        `当期碳价 ${App.fmt.num(it.carbonPrice, 2)} 元/tCO₂e · ${it.carbonPriceSource || ''}`) : null,
                       h('div', { class: 'intl-formula mb-8' }, (it.steps || []).map((st) =>
                         `【${st.step}】${st.formula}：${st.calc}  ⇒  ${num(st.value, 2)} ${st.unit || ''}`).join('\n')),
                       it.caveat ? h('div', { class: 'intl-warn' }, App.fmt.md(it.caveat)) : null,
@@ -460,9 +460,9 @@
               { label: '绿电总量', value: num(s.greenMwh, 1), unit: 'MWh', tone: 'carbon', icon: 'leaf', foot: `凭证 ${(s.byCert || []).length} 张` },
               { label: '绿电覆盖率', value: pct(s.coverageRatio), unit: '', tone: (s.coverageRatio || 0) > 0.5 ? 'carbon' : 'amber', icon: 'target', foot: '小时级匹配口径，非年度总量口径' },
               { label: '完全匹配小时', value: App.fmt.num(s.hoursMatched || 0), unit: '小时', tone: 'violet', icon: 'check', foot: `部分匹配 ${s.hoursPartial || 0} · 未匹配 ${s.hoursUnmatched || 0}` },
-              { label: '平均电网因子', value: num(s.avgGridFactor, 4), unit: 'tCO2e/MWh', tone: 'chain', icon: 'db', foot: '区域电网基准线因子' },
-              { label: '残余混合因子', value: num(s.avgResidualFactor, 4), unit: 'tCO2e/MWh', tone: 'amber', icon: 'layers', foot: '扣除绿电后的实际用电排放强度' },
-              { label: '减碳量', value: num(s.savedTco2, 2), unit: 'tCO2e', tone: 'carbon', icon: 'leaf', foot: '绿电替代电网电力的减排量' },
+              { label: '平均电网因子', value: num(s.avgGridFactor, 4), unit: 'tCO₂e/MWh', tone: 'chain', icon: 'db', foot: '区域电网基准线因子' },
+              { label: '残余混合因子', value: num(s.avgResidualFactor, 4), unit: 'tCO₂e/MWh', tone: 'amber', icon: 'layers', foot: '扣除绿电后的实际用电排放强度' },
+              { label: '减碳量', value: num(s.savedTco2, 2), unit: 'tCO₂e', tone: 'carbon', icon: 'leaf', foot: '绿电替代电网电力的减排量' },
             ]),
 
             h('div', { class: 'grid mt-16', style: 'grid-template-columns:1.25fr .75fr' }, [
@@ -500,7 +500,7 @@
                 h('div', { class: 'flex gap-12 wrap' }, [
                   h('x-readout', { pass: (m.summary.coverageRatio || 0) > 0.3, label: '绿电覆盖率', detail: pct(m.summary.coverageRatio) }),
                   h('x-readout', { pass: true, label: '匹配小时数', detail: App.fmt.num(m.summary.hours) }),
-                  h('x-readout', { pass: true, label: '减碳量', detail: num(m.summary.savedTco2, 2) + ' tCO2e' }),
+                  h('x-readout', { pass: true, label: '减碳量', detail: num(m.summary.savedTco2, 2) + ' tCO₂e' }),
                 ]),
                 h('div', { class: 'intl-quote mt-16' },
                   '小时级匹配的意义：若用年度总量相减，一家企业白天外购电网电、夜里买绿电，也会被算成"100% 绿电"。'
@@ -603,7 +603,7 @@
               default: () => h('div', { class: 'card-body' }, [
                 h('div', { class: 'flex gap-12 wrap mb-16' }, [
                   h('x-readout', { pass: true, label: '已上链存证', detail: '区块 #' + ((last.value.chain && last.value.chain.blockIndex) || '—') }),
-                  h('x-readout', { pass: last.value.crossCheck.orgTotal >= last.value.crossCheck.productTotal, label: '两轨互证（组织 ≥ 产品）', detail: `组织 ${num(last.value.crossCheck.orgTotal, 2)} / 产品 ${num(last.value.crossCheck.productTotal, 2)} tCO2e` }),
+                  h('x-readout', { pass: last.value.crossCheck.orgTotal >= last.value.crossCheck.productTotal, label: '两轨互证（组织 ≥ 产品）', detail: `组织 ${num(last.value.crossCheck.orgTotal, 2)} / 产品 ${num(last.value.crossCheck.productTotal, 2)} tCO₂e` }),
                   h('x-readout', { pass: true, label: '文件指纹', detail: String(last.value.fileFingerprint || '').slice(0, 20) + '…' }),
                 ]),
                 h('div', { class: 'tiny dim mb-6' }, '报告内容（可据此另存为交付文件）'),
@@ -621,7 +621,7 @@
                     { key: 'ent_name', title: '企业' },
                     { key: 'report_scope', title: '范围', width: '96px' },
                     { key: 'period', title: '期间', width: '92px' },
-                    { key: 'total_emission', title: '总量(tCO2e)', align: 'right', width: '128px' },
+                    { key: 'total_emission', title: '总量(tCO₂e)', align: 'right', width: '128px' },
                     { key: 'file_fingerprint', title: '文件指纹', width: '130px' },
                     { key: 'block_index', title: '链上存证', width: '100px' },
                     { key: 'created_at', title: '导出时间', width: '146px' },

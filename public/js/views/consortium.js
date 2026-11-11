@@ -189,15 +189,24 @@
                     h('td', {}, String(n.status).toUpperCase() === 'REVOKED'
                       ? h('span', { class: 'tag t-mute' }, '不参与比对')
                       : (n.consistent ? h('span', { class: 'tag ok' }, '一致') : h('span', { class: 'tag warn' }, n.lag > 0 ? '待同步' : '不一致'))),
-                    h('td', {}, [
-                      h('button', { class: 'btn xs', disabled: busy.value, onClick: () => desync(n.nodeId) }, '模拟落后'),
-                      ' ',
-                      h('button', { class: 'btn xs chain', disabled: busy.value, onClick: () => syncOne(n.nodeId) }, '同步'),
-                      ' ',
-                      n.status !== 'ACTIVE'
-                        ? h('button', { class: 'btn xs primary', disabled: busy.value, onClick: () => approve(n.nodeId) }, '授予出块权')
-                        : h('button', { class: 'btn xs danger', disabled: busy.value, onClick: () => revoke(n.nodeId) }, '吊销'),
-                    ]),
+                    h('td', {}, (() => {
+                      /* 2026-11-01：治理决议按钮（授予/吊销/模拟落后）仅监管端可见可点——
+                       * 服务端始终只授权 REGULATOR；管理端页面此前同样渲染这些按钮，
+                       * 点击必吃 403（"看得见点不动"）。管理端保留「同步」（运维动作，服务端已放开）。 */
+                      const isRegulator = App.Store.user && App.Store.user.role === 'REGULATOR';
+                      if (!isRegulator) {
+                        return h('span', { class: 'tag t-mute' }, '监管决议操作');
+                      }
+                      return [
+                        h('button', { class: 'btn xs', disabled: busy.value, onClick: () => desync(n.nodeId) }, '模拟落后'),
+                        ' ',
+                        h('button', { class: 'btn xs chain', disabled: busy.value, onClick: () => syncOne(n.nodeId) }, '同步'),
+                        ' ',
+                        n.status !== 'ACTIVE'
+                          ? h('button', { class: 'btn xs primary', disabled: busy.value, onClick: () => approve(n.nodeId) }, '授予出块权')
+                          : h('button', { class: 'btn xs danger', disabled: busy.value, onClick: () => revoke(n.nodeId) }, '吊销'),
+                      ];
+                    })()),
                   ]))),
                 ]),
               ]),

@@ -141,7 +141,7 @@
           tooltip: { trigger: 'axis', backgroundColor: 'rgba(10,16,32,.96)', borderColor: 'rgba(255,255,255,.16)',
             textStyle: { color: '#eef4ff', fontSize: 12 } },
           xAxis: App.catAxis(s.map((x) => String(x.day).slice(5))),
-          yAxis: App.valAxis({ name: 'tCO2e/日', nameTextStyle: { color: '#8d9cb5', fontSize: 11 } }),
+          yAxis: App.valAxis({ name: 'tCO₂e/日', nameTextStyle: { color: '#8d9cb5', fontSize: 11 } }),
           series: [{
             type: 'line', name: '日均排放', smooth: true, symbol: 'circle', symbolSize: 5,
             data: s.map((x) => x.emission),
@@ -202,13 +202,13 @@
                 : null,
               /* ── 概览 KPI ── */
               kpiGrid([
-                { label: '年度排放（后验均值）', value: an ? App.fmt.num(an.mean, 0) : '-', unit: 'tCO2e', tone: 'carbon', icon: 'leaf', foot: an ? `95% 区间 ${App.fmt.num(an.low, 0)} ~ ${App.fmt.num(an.high, 0)}` : '' },
+                { label: '年度排放（后验均值）', value: an ? App.fmt.num(an.mean, 0) : '-', unit: 'tCO₂e', tone: 'carbon', icon: 'leaf', foot: an ? `95% 区间 ${App.fmt.num(an.low, 0)} ~ ${App.fmt.num(an.high, 0)}` : '' },
                 { label: '年化相对半宽', value: relHalf != null ? (relHalf * 100).toFixed(2) : '-', unit: '%', tone: relHalf != null && relHalf < 0.05 ? 'carbon' : 'amber', icon: 'target', foot: '抽样随机性 · 观测增多可收窄' },
                 { label: '合成相对不确定度', value: pr.relativeUncertainty != null ? (pr.relativeUncertainty * 100).toFixed(2) : '-', unit: '%', tone: 'sky', icon: 'layers', foot: 'GUM 口径 · 含不随观测变小的系统项' },
                 { label: '有效观测天数', value: App.fmt.num(s.days || 0), unit: '天', tone: 'violet', icon: 'clock', foot: s.incompleteDays ? `排除残缺日 ${s.incompleteDays} 天` : '无残缺日' },
                 { label: '时间覆盖度', value: cov.ratio != null ? (cov.ratio * 100).toFixed(2) : '-', unit: '%', tone: covTone, icon: 'shield', foot: `缺口 ${App.fmt.num(cov.gapMinutes || 0, 0)} 分钟 · 最大连续缺口 ${App.fmt.num(cov.maxGapMinutes || 0, 0)} 分钟` },
                 { label: '数据剔除率', value: g.excludeRate != null ? (g.excludeRate * 100).toFixed(2) : '-', unit: '%', tone: (g.excludeRate || 0) > 0.15 ? 'rose' : 'carbon', icon: 'filter', foot: `原始 ${App.fmt.num(g.raw || 0)} 条 → 保留 ${App.fmt.num(g.kept || 0)} 条` },
-                { label: '配额年化', value: p.quotaAnnual ? App.fmt.num(p.quotaAnnual, 0) : '-', unit: 'tCO2e', tone: 'chain', icon: 'coin', foot: p.quotaRatio ? `排放/配额 = ${(p.quotaRatio * 100).toFixed(1)}%` : '' },
+                { label: '配额年化', value: p.quotaAnnual ? App.fmt.num(p.quotaAnnual, 0) : '-', unit: 'tCO₂e', tone: 'chain', icon: 'coin', foot: p.quotaRatio ? `排放/配额 = ${(p.quotaRatio * 100).toFixed(1)}%` : '' },
                 { label: '结论口径', value: p.available === false ? '数据不足' : (p.priorSafe ? '数据主导' : '先验敏感'), unit: '', tone: p.available === false ? 'amber' : (p.priorSafe ? 'carbon' : 'amber'), icon: 'check', foot: p.available === false ? '观测点不足，无法评估' : (p.priorSafe ? '弱先验自证通过' : '须复核先验取值') },
               ]),
 
@@ -291,14 +291,14 @@
                 h('x-card', { title: '贝叶斯后验区间（Normal-Inverse-Gamma 共轭）', sub: '均值与方差同时未知；均值边缘后验为 t 分布' }, {
                   default: () => h('div', { class: 'card-body' }, [
                     h('div', { class: 'grid g2' }, [
-                      h('div', {}, [h('div', { class: 'tiny dim' }, '日均排放均值'), h('div', { class: 'mono', style: 'font-size:15px' }, num(p.mean, 3) + ' tCO2e/日')]),
+                      h('div', {}, [h('div', { class: 'tiny dim' }, '日均排放均值'), h('div', { class: 'mono', style: 'font-size:15px' }, num(p.mean, 3) + ' tCO₂e/日')]),
                       h('div', {}, [h('div', { class: 'tiny dim' }, '日均标准差'), h('div', { class: 'mono', style: 'font-size:15px' }, num(p.sd, 3))]),
                       h('div', {}, [h('div', { class: 'tiny dim' }, `${((p.level || 0.95) * 100).toFixed(0)}% 区间`), h('div', { class: 'mono', style: 'font-size:13.5px' }, `${num(p.ciLow, 2)} ~ ${num(p.ciHigh, 2)}`)]),
                       h('div', {}, [h('div', { class: 'tiny dim' }, '观测点数'), h('div', { class: 'mono', style: 'font-size:15px' }, App.fmt.num(p.nObs || 0))]),
                     ]),
                     an ? h('div', { class: 'unc-formula mt-16' },
-                      `年度 = 日均均值 × 365 = ${num(p.mean, 3)} × 365 = ${App.fmt.num(an.mean, 1)} tCO2e\n`
-                      + `区间 = [${App.fmt.num(an.low, 0)}, ${App.fmt.num(an.high, 0)}] tCO2e（半宽 ${rel(an.relHalfWidth)}）`) : null,
+                      `年度 = 日均均值 × 365 = ${num(p.mean, 3)} × 365 = ${App.fmt.num(an.mean, 1)} tCO₂e\n`
+                      + `区间 = [${App.fmt.num(an.low, 0)}, ${App.fmt.num(an.high, 0)}] tCO₂e（半宽 ${rel(an.relHalfWidth)}）`) : null,
                     p.classical ? h('div', { class: 'mt-12' }, [
                       h('div', { class: 'tiny dim mb-8' }, '与经典 t 区间的对照（α₀ = 0.5 使自由度 ≈ n + 1，两者可比）'),
                       h('div', { class: 'flex gap-12' }, [
