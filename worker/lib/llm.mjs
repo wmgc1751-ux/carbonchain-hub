@@ -22,8 +22,9 @@
  * 一、服务商注册表
  * ================================================================================== */
 export const PROVIDERS = [
+  /* 优先级与 server/services/llmProviders.js 保持一致：DeepSeek 主用，智谱兜底 */
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-flash', keys: ['DEEPSEEK_API_KEY'] },
   { id: 'zhipu', name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash', keys: ['ZHIPU_API_KEY', 'GLM_API_KEY', 'BIGMODEL_API_KEY'] },
-  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keys: ['DEEPSEEK_API_KEY'] },
   { id: 'dashscope', name: '阿里云百炼·通义千问', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', keys: ['DASHSCOPE_API_KEY', 'QWEN_API_KEY'] },
   { id: 'moonshot', name: 'Moonshot · Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', keys: ['MOONSHOT_API_KEY', 'KIMI_API_KEY'] },
   { id: 'siliconflow', name: '硅基流动 SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct', keys: ['SILICONFLOW_API_KEY'] },

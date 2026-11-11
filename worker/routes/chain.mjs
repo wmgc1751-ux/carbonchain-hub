@@ -241,6 +241,21 @@ export function attachChainRoutes(r) {
       }
     } catch { /* 载荷非 JSON 时不做复算 */ }
 
+    /* 载荷是否对本次请求方可见（2026-11-01 P0 修复）：
+     *   · 已登录用户                 → 可见
+     *   · 持有效内部令牌的可信调用方 → 可见（小程序后端代理这类同主体调用）
+     *   · 其余匿名请求               → 只见 payloadHash，不见明文
+     *
+     * 原因：payload_json 含 entName（真实企业名）与排放数值，而本接口匿名可访问。
+     * 哈希链承诺的是"存证不可改"，不是"存证明文对公网公开"。
+     * 收敛明文不削弱验真：payloadHash / 签名 / 复算结论仍然全部公开。 */
+    const internalOk = (() => {
+      const want = String((ctx.env && ctx.env.INTERNAL_ANCHOR_TOKEN) || '');
+      const got = String((ctx.headers && (ctx.headers['x-internal-token'] || ctx.headers['X-Internal-Token'])) || '');
+      return !!want && !!got && want === got;
+    })();
+    const payloadVisible = !!ctx.user || internalOk;
+
     const blk = t.block_index === null ? null
       : await ctx.db.one('SELECT block_index, block_hash, merkle_root, block_time FROM chain_block WHERE block_index = ?', [t.block_index]);
 
@@ -252,7 +267,11 @@ export function attachChainRoutes(r) {
       from: t.from_address,
       to: t.to_address,
       payloadHash: t.payload_hash,
-      payload,
+      payload: payloadVisible ? payload : null,
+      payloadRedacted: !payloadVisible,
+      payloadRedactedReason: payloadVisible
+        ? null
+        : '存证明文需登录后查看；payloadHash 与签名始终公开，可据此独立验真。',
       nonce: num(t.nonce),
       status: t.status,
       createdAt: t.created_at,

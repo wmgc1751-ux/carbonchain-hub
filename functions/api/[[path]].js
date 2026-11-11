@@ -1,73 +1,61 @@
 /**
  * functions/api/[[path]].js —— Pages Functions 入口（捕获所有 /api/* 请求）
  * ==================================================================================
- * 【为什么需要这个文件】
+ * 【2026-11-01 重大口径变更：D1 数据面 → ECS 权威链全量代理】
  *
- * Worker 已部署到 carbonchain-hub.wmgc1751.workers.dev 并运行正常，
- * 但在本项目的目标网络环境下 **workers.dev 域名不可达**（实测 3/3 超时），
- * 而碳链通小程序/平台一直使用的 **pages.dev 与 dpdns.org 域名可达**。
+ * 此前本文件把 /api/* 委托给 worker/index.mjs 读 D1。D1 里是一份**早期演示
+ * 快照**（833 块 / 102 家企业 / 21 个演示账号），与权威链（ECS MySQL，
+ * 2187 块 / 67 家 / 8 个演示账号）长期漂移 —— 用户实测「线上线下内容完全
+ * 不一样、演示账号一键登录直接失败」，根因即此。
  *
- * 这不是部署问题，是网络层的域名可达性差异。解决方案不是换域名，
- * 而是让同一份 Worker 代码同时挂在 Pages 上 —— Pages Functions
- * 与 Worker 共享同一套运行时、同一套绑定（D1 / ASSETS）。
- *
- * 【为什么复用而不是重写】
- * 如果把 API 逻辑复制一份到 functions/，两份实现必然漂移：
- * 改了一边忘了另一边，线上表现是"某些端点行为不一致"，且不报错。
- * 因此这里只做**适配层**：
- *   · 把 Pages Functions 的 context 转成 worker/index.mjs 认识的 (request, env, ctx)
- *   · 其余全部委托给 worker/index.mjs 的默认导出
- *
- * 这样唯一的真相仍是 worker/index.mjs 与 worker/routes/*。
- *
- * ⚠ Pages Functions 的 env 里，D1 绑定的名字取决于 Pages 项目的
- *   Settings → Functions → D1 database bindings 配置。本文件兼容两种常见命名
- *   （DB / carbonchain_platform），并在都缺失时给出明确提示，
- *   而不是抛一个看不懂的 TypeError。
+ * 修复：本文件改为**纯反向代理**，把 /api/* 原样转发到 ECS 权威链。
+ *   · 数据、账号、链高度、JWT 与 ECS / 本地平台完全同源（一 token 三端通用）；
+ *   · D1 保留作历史存档，不再参与任何请求路径；
+ *   · 权威链地址由环境变量 AUTHORITY_ORIGIN 覆盖，缺省为 ECS 公网入口。
  *
  * @module functions/api/[[path]]
  */
 
-import worker from '../../worker/index.mjs';
+/* ⚠ 不能用裸 IP：Cloudflare 边缘会拦截 Worker 发往 IP 形态 Host 的请求
+ *（error 1003 Direct IP access not allowed）。sslip.io 泛域名解析到同一
+ * ECS 公网 IP，nginx 以 default server 接住，行为与直连 IP 完全一致。 */
+const DEFAULT_ORIGIN = 'http://47.86.28.202.sslip.io';
 
 export async function onRequest(context) {
-  const { request, env, next, params } = context;
+  const { request, env, params } = context;
 
-  /* D1 绑定归一化：Pages 的绑定名可能与 wrangler.json 里的不同 */
-  const db = env.DB || env.carbonchain_platform || env.carbonchain_platform_db || null;
-  if (!db) {
-    return new Response(JSON.stringify({
-      code: 500,
-      msg: 'Pages Functions 未绑定 D1 数据库。'
-        + '请在 Cloudflare 控制台 → Pages → 项目 → Settings → Functions → '
-        + 'D1 database bindings 添加绑定（Variable name 建议填 DB），或改用 Worker 部署。',
-      data: null,
-    }), { status: 500, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+  const origin = String(env && env.AUTHORITY_ORIGIN || DEFAULT_ORIGIN).replace(/\/+$/, '');
+  const subpath = Array.isArray(params.path) ? params.path.join('/') : String(params.path || '');
+  const target = `${origin}/api/${subpath}${new URL(request.url).search}`;
+
+  /* 逐跳头不转发；Host 由 fetch 按目标重写 */
+  const HOP = new Set(['host', 'connection', 'cf-connecting-ip', 'cf-ray', 'cf-visitor',
+    'cf-ipcountry', 'cf-worker', 'x-forwarded-proto', 'x-forwarded-for', 'x-real-ip',
+    'accept-encoding', 'content-length']);
+  const headers = new Headers();
+  request.headers.forEach((v, k) => { if (!HOP.has(k.toLowerCase())) headers.set(k, v); });
+
+  const init = {
+    method: request.method,
+    headers,
+    redirect: 'manual',
+  };
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    init.body = await request.arrayBuffer();
   }
 
-  /* 构造一个与 Worker 一致的 env：补齐绑定名，并给出 waitUntil */
-  const workerEnv = {
-    ...env,
-    DB: db,
-    /* 演示账号开关交给 worker/routes/auth.mjs 判断（默认开放）。
-     * 此处不再改写 DEMO_ACCOUNTS —— 曾经在这里做"环境变量兜底"，
-     * 反而让 Pages 侧的旧 env 快照覆盖了代码里的默认值，排查成本很高。
-     * 只用 DELETE 语义：把 env 里的字符串原样传下去即可。 */
-    /* 静态资源：Pages 自己处理静态文件，Functions 只接管 /api/*，
-     * 因此这里不需要 ASSETS 绑定；若代码走到静态兜底分支，返回 404 更符合语义。 */
-    ASSETS: env.ASSETS || null,
-  };
-
-  /* Pages Functions 的 context 有 waitUntil，但没有 ctx 对象；
-   * worker/index.mjs 期望 ctx.waitUntil 存在。 */
-  const ctxShim = {
-    waitUntil: (p) => {
-      try { context.waitUntil(p); } catch { /* 非关键任务 */ }
-    },
-    passThroughOnException: () => {
-      try { context.passThroughOnException(); } catch { /* ignore */ }
-    },
-  };
-
-  return worker.fetch(request, workerEnv, ctxShim);
+  try {
+    const upstream = await fetch(target, init);
+    const resHeaders = new Headers();
+    upstream.headers.forEach((v, k) => {
+      const lk = k.toLowerCase();
+      if (lk === 'transfer-encoding' || lk === 'connection' || lk === 'content-encoding') return;
+      resHeaders.set(k, v);
+    });
+    return new Response(upstream.body, { status: upstream.status, headers: resHeaders });
+  } catch (e) {
+    return new Response(JSON.stringify({
+      code: 502, message: '权威链不可达（' + origin + '）：' + (e && e.message || e), data: null,
+    }), { status: 502, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
+  }
 }

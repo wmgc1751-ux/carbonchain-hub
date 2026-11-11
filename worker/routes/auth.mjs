@@ -364,38 +364,18 @@ export function attachAuthRoutes(r) {
      * 可从本端点获取并直接登录现网（有效 ADMIN JWT）。ent/ver/reg 演示切换
      * 不受影响；管理员登录由使用人手输口令。将来扩充列表同样不得包含 ADMIN 系。 */
     return json([
-      /* 演示账号按「角色 + 主体 + 岗位」三层组织，与 server/routes/auth.js
-       * 的 DEMO_USERNAMES 白名单一一对应（23 个）。
-       *
-       * 为什么不再是"每角色一个代表账号"：平台卖点是职责分离与双人复核 ——
-       * 填报员提交、履约管理员审批；核查录入员出结论、核查审核员批准。
-       * 只有分别登录两个岗位账号才演示得出来，一个角色一个账号恰好把最
-       * 能讲的东西挡住了。
-       *
-       * post/postCn 供登录页分组与标签使用；AUDIT 提示前端按 role 分组。 */
-      /* CCD-001（2026-10-31）：admin / admin_backup 已从公开列表移除 ——
-       * 管理员凭据不下发；登录页对 ADMIN 无一键切换，属有意行为。 */
+      /* 2026-11-01 统一口径：与 server/routes/auth.js DEMO_USERNAMES 完全一致
+       * 的 8 个答辩动线账号（一类一席）。此前这里是 21 账号老清单，与权威链
+       * 侧对不上，一键填入后登不进去。档案字段以权威链 /demo-accounts 实测
+       * 返回为准（2026-11-01 抓取）。 */
+      { username: 'admin', password: 'admin123', realName: '系统管理员', role: 'ADMIN', roleCn: '管理端', orgName: '碳链通平台运营方', post: null, postCn: null },
       { username: 'reg001', password: '123456', realName: '王振邦', role: 'REGULATOR', roleCn: '监管端', orgName: '省级生态环境厅应对气候变化处', post: 'REG_CLERK', postCn: '监管经办人' },
-      { username: 'reg_review', password: '123456', realName: '监管复核人', role: 'REGULATOR', roleCn: '监管端', orgName: '省级生态环境厅应对气候变化处', post: 'REG_REVIEWER', postCn: '监管复核人' },
-      { username: 'ver_dl_admin', password: '123456', realName: '机构管理员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '大连碳中和技术研究院有限公司', post: 'ORG_ADMIN', postCn: '机构管理员' },
-      { username: 'ver_clerk', password: '123456', realName: '核查录入员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '大连碳中和技术研究院有限公司', post: 'VER_CLERK', postCn: '核查录入员' },
-      { username: 'ver_review', password: '123456', realName: '核查审核员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '大连碳中和技术研究院有限公司', post: 'VER_REVIEWER', postCn: '核查审核员' },
-      { username: 'ver001', password: '123456', realName: '机构管理员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '河北省绿链碳排放核查有限公司', post: 'ORG_ADMIN', postCn: '机构管理员' },
-      { username: 'ver_hblv_clerk', password: '123456', realName: '核查录入员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '河北省绿链碳排放核查有限公司', post: 'VER_CLERK', postCn: '核查录入员' },
-      { username: 'ver_hblv_review', password: '123456', realName: '核查审核员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '河北省绿链碳排放核查有限公司', post: 'VER_REVIEWER', postCn: '核查审核员' },
-      { username: 'ent_zjbd', password: '123456', realName: '企业管理员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（保定）环保能源有限公司', post: 'ENT_ADMIN', postCn: '企业管理员' },
-      { username: 'ent_zjbd_clerk', password: '123456', realName: '排放填报员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（保定）环保能源有限公司', post: 'ENT_CLERK', postCn: '排放填报员' },
-      { username: 'ent_zjbd_quota', password: '123456', realName: '履约管理员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（保定）环保能源有限公司', post: 'QUOTA_MANAGER', postCn: '履约管理员' },
+      { username: 'ver_cz_review', password: '123456', realName: '沧州节能核查复核员', role: 'VERIFIER', roleCn: '核查机构端', orgName: '沧州节能技术服务有限公司', post: 'VER_REVIEWER', postCn: '核查审核员' },
+      { username: 'ent_zjbd', password: '123456', realName: '陈立恒', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（保定）环保能源有限公司', post: 'ENT_ADMIN', postCn: '企业管理员' },
       { username: 'ent_yfkw', password: '123456', realName: '环保负责人', role: 'ENTERPRISE', roleCn: '企业端', orgName: '保定瑞丰环保电力有限公司', post: 'ENT_ADMIN', postCn: '企业管理员' },
-      { username: 'ent_yfkw_clerk', password: '123456', realName: '排放填报员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '保定瑞丰环保电力有限公司', post: 'ENT_CLERK', postCn: '排放填报员' },
-      { username: 'ent_yfkw_quota', password: '123456', realName: '履约管理员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '保定瑞丰环保电力有限公司', post: 'QUOTA_MANAGER', postCn: '履约管理员' },
       { username: 'ent_yxyf', password: '123456', realName: '环保负责人', role: 'ENTERPRISE', roleCn: '企业端', orgName: '保定易州恒新环保电力有限公司', post: 'ENT_ADMIN', postCn: '企业管理员' },
-      { username: 'ent_yxyf_clerk', password: '123456', realName: '排放填报员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '保定易州恒新环保电力有限公司', post: 'ENT_CLERK', postCn: '排放填报员' },
-      { username: 'ent_yxyf_quota', password: '123456', realName: '履约管理员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '保定易州恒新环保电力有限公司', post: 'QUOTA_MANAGER', postCn: '履约管理员' },
       { username: 'ent_zjyls', password: '123456', realName: '环保负责人', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（涞水）环保能源有限公司', post: 'ENT_ADMIN', postCn: '企业管理员' },
-      { username: 'ent_zjyls_clerk', password: '123456', realName: '排放填报员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（涞水）环保能源有限公司', post: 'ENT_CLERK', postCn: '排放填报员' },
-      { username: 'ent_zjyls_quota', password: '123456', realName: '履约管理员', role: 'ENTERPRISE', roleCn: '企业端', orgName: '河北恒能（涞水）环保能源有限公司', post: 'QUOTA_MANAGER', postCn: '履约管理员' },
-      { username: 'trader01', password: '123456', realName: '韩雪梅', role: 'TRADER', roleCn: '交易端', orgName: '碳资产交易服务中心（平台代理交易席位）', post: null, postCn: '代理交易席位' },
+      { username: 'trader01', password: '123456', realName: '韩雪梅', role: 'TRADER', roleCn: '交易端', orgName: '碳链通碳资产交易中心', post: null, postCn: '代理交易席位' },
     ]);
   });
 

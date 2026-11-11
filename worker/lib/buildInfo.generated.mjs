@@ -4,7 +4,7 @@
  */
 export const BUILD_INFO = {
   version: '2.0.0-worker',
-  builtAt: '2026-10-31 05:09:45 UTC',
-  gitSha: 'e0be45504',
+  builtAt: '2026-11-01 04:49:12 UTC',
+  gitSha: '80c24b433',
   gitBranch: 'main',
 };
