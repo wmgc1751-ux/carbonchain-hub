@@ -85,7 +85,7 @@ export function assertClean(files, label = '脱敏环境') {
     console.error(
       `\n[leak-guard] 共 ${bad} 处命中。${label}禁止继续执行。\n` +
         '  请先把企业名 / 统一社会信用代码 / 认证机构替换回脱敏值；\n' +
-        '  替换规则见 D:/workspace/_carbonchain-sensitive-backup-20261101/replace-rules.txt',
+        '  替换规则见 D:/workspace/Challenge Cup/_脱敏对照表-保留/replace-rules.txt',
     );
     process.exit(1);
   }

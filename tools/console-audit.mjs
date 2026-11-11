@@ -24,6 +24,7 @@
    ===================================================================== */
 import { spawn } from 'node:child_process';
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -55,18 +56,28 @@ const ACCOUNTS = [
    * （现以保定四家真实企业为主体，ent_zjbd 等 12 个岗位账号）。脚本按此
    * 登录会 401，整轮企业端被静默跳过 —— 零缺陷的假象正来自这里。 */
   { role: 'ENTERPRISE', user: 'ent_zjbd', pass: '123456' },
-  { role: 'VERIFIER', user: 'ver001', pass: '123456' },
+  { role: 'ADMIN', user: 'admin', pass: 'admin123' },
+  /* 2026-11-01 统一口径：登录页下拉就是这 8 个，审计必须逐账号全覆盖。
+   * ver001 已不在演示清单（核查端席位 = ver_cz_review）；四家企业同 UI
+   * 不同数据，逐家全跑才能回答"每一个演示账号的每一个界面"。 */
+  { role: 'VERIFIER', user: 'ver_cz_review', pass: '123456' },
   { role: 'REGULATOR', user: 'reg001', pass: '123456' },
   { role: 'TRADER', user: 'trader01', pass: '123456' },
-  { role: 'ADMIN', user: 'admin', pass: 'admin123' },
+  { role: 'ENTERPRISE', user: 'ent_yfkw', pass: '123456' },
+  { role: 'ENTERPRISE', user: 'ent_yxyf', pass: '123456' },
+  { role: 'ENTERPRISE', user: 'ent_zjyls', pass: '123456' },
 ];
 
 /* ---------------------------------------------------------------- HTTP */
 function httpJson(pathname, method = 'GET', body) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
-    const req = http.request({
-      host: '127.0.0.1', port: new URL(BASE).port || 8300, path: pathname, method,
+    /* 2026-11-01：支持远程 --base（ECS / www）。原实现写死 127.0.0.1，
+     * --base 指向线上时登录请求仍打到本机，整轮审计全部 401。 */
+    const u = new URL(BASE);
+    const lib = u.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      host: u.hostname, port: u.port || (u.protocol === 'https:' ? 443 : 80), path: pathname, method,
       headers: { 'Content-Type': 'application/json', 'Content-Length': data ? Buffer.byteLength(data) : 0 },
     }, (r) => {
       let d = ''; r.on('data', (c) => { d += c; });
@@ -224,10 +235,44 @@ async function main() {
        *   初始停在 about:blank 时 localStorage 是 "Access is denied"，
        *   直接 eval 会抛 SecurityError，整个角色被跳过。 */
       await cdp.send('Page.navigate', { url: `${BASE}/?_=${Date.now()}#/login` }, 45000);
-      await sleep(2200);
+      /* 2026-11-01：等 SPA 真正就绪（App 挂载 + 侧边栏/登录表单出现），
+       * 不再写死 2.2 s——远程审计时网络稍慢 App 未定义，
+       * 下一句 eval 直接 ReferenceError 把整个角色打没（上一轮 6 个角色 0 页的元凶）。 */
+      {
+        let ready = false;
+        for (let i = 0; i < 30 && !ready; i++) {
+          await sleep(500);
+          try {
+            ready = await cdp.eval(`(function(){ return typeof App !== 'undefined' && !!document.body.querySelector('a[href^="#/"], form'); })()`) === true;
+          } catch (e) { ready = false; }
+        }
+        if (!ready) log('  ⚠ 页面就绪等待超时，继续尝试');
+      }
       await cdp.eval(`(function(){ localStorage.setItem('cch_token', ${JSON.stringify(token)}); localStorage.setItem('cch_user', ${JSON.stringify(JSON.stringify(user))}); return 1; })()`);
       await cdp.send('Page.navigate', { url: `${BASE}/?_=${Date.now()}#${(user && user.role === 'TRADER') ? '/trade/market' : '/login'}` }, 45000);
-      await sleep(2200);
+      /* 第二次跳转等待会话恢复；⚠ 必须同时校验 username 与 role——
+       * 2026-11-01 实测：SPA 自身的会话持久化可能与本工具的 setItem 竞态，
+       * 偶发恢复出上一个角色的会话（trader01 轮跑出监管菜单 36 页的假象）。
+       * 校验失败就重写 localStorage 并再导航一次，最多重试 2 轮。 */
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let ok2 = false;
+        for (let i = 0; i < 20 && !ok2; i++) {
+          await sleep(500);
+          try {
+            /* ⚠ 必须等到 routeAccess.MENUS[role] 就位：Store 恢复（core.js，早）
+             * 与菜单表定义（app.js 末尾，大文件跨网慢）是两个时刻——
+             * 只等 Store 会话恢复就提取菜单，偶发拿到 0（上几轮 0 页元凶之二）。 */
+            ok2 = await cdp.eval(`(function(){ return typeof App !== 'undefined' && !!(App.Store && App.Store.user && App.Store.user.username === ${JSON.stringify(acc.user)} && App.Store.user.role === ${JSON.stringify(acc.role)} && App.routeAccess && App.routeAccess.MENUS && (App.routeAccess.MENUS[${JSON.stringify(acc.role)}] || []).length > 0); })()`) === true;
+          } catch (e) { ok2 = false; }
+        }
+        if (ok2) break;
+        log(`  ⚠ 会话恢复第 ${attempt + 1} 次未确认（${acc.user}/${acc.role}），重写凭据重试`);
+        try {
+          await cdp.eval(`(function(){ localStorage.setItem('cch_token', ${JSON.stringify(token)}); localStorage.setItem('cch_user', ${JSON.stringify(JSON.stringify(user))}); return 1; })()`);
+          await cdp.send('Page.navigate', { url: `${BASE}/?_=${Date.now()}#login` }, 45000);
+          await sleep(1500);
+        } catch (e) { /* 导航失败继续下一轮 */ }
+      }
 
       const routes = await cdp.json(`
         var ra = App.routeAccess || {};
@@ -241,6 +286,13 @@ async function main() {
         });
         return out;
       `);
+      if (!routes.length) {
+        /* 2026-11-01 诊断：菜单为 0 时打出页面真实状态，别再猜 */
+        try {
+          const dbg = await cdp.eval(`JSON.stringify({href: location.href, uname: (window.App&&App.Store&&App.Store.user&&App.Store.user.username)||null, role: (window.App&&App.Store&&App.Store.user&&App.Store.user.role)||null, roleKeys: window.App&&App.routeAccess?Object.keys(App.routeAccess.MENUS||{}):null, lsUser: (localStorage.getItem('cch_user')||'').slice(0,60), errs: (window.__audit&&window.__audit.logs||[]).slice(0,4)})`);
+          log(`  ⚠ 菜单 0 诊断: ${String(dbg).slice(0, 260)}`);
+        } catch (e) { log(`  ⚠ 菜单 0 诊断失败: ${String(e.message).slice(0, 120)}`); }
+      }
       log(`  菜单入口 ${routes.length} 个`);
       const targets = ONLY_PATHS.length ? routes.filter((r) => ONLY_PATHS.indexOf(r.path) > -1) : routes;
 

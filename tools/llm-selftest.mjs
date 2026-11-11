@@ -127,16 +127,16 @@ console.log(`假服务商已启动：${BASE}`);
 /* ==================================================================================
  * 二、环境注入（必须在 require 业务模块之前）
  * ==================================================================================
- * 每家服务商单独指向本地不同路径：
- *   智谱 → /bad（500）       DeepSeek → /ok（正常）
- *   通义 → /unauth（401）    Kimi → /midfail（断流）
+ * 每家服务商单独指向本地不同路径（2026-11-09 起注册表 DeepSeek 为主用）：
+ *   DeepSeek → /bad（500，模拟主用故障）   智谱 → /ok（正常，兜底）
+ *   通义 → /unauth（401）                  Kimi → /midfail（断流）
  */
 process.env.ZHIPU_API_KEY = 'mock-key-zhipu';
 process.env.DEEPSEEK_API_KEY = 'mock-key-deepseek';
 process.env.DASHSCOPE_API_KEY = 'mock-key-dashscope';
 process.env.MOONSHOT_API_KEY = 'mock-key-moonshot';
-process.env.ZHIPU_BASE_URL = `${BASE}/bad`;
-process.env.DEEPSEEK_BASE_URL = `${BASE}/ok`;
+process.env.DEEPSEEK_BASE_URL = `${BASE}/bad`;
+process.env.ZHIPU_BASE_URL = `${BASE}/ok`;
 process.env.DASHSCOPE_BASE_URL = `${BASE}/unauth`;
 process.env.MOONSHOT_BASE_URL = `${BASE}/midfail`;
 process.env.LLM_TIMEOUT_MS = '4000';
@@ -158,12 +158,12 @@ section('配置解析');
   const s = P.snapshot();
   ok('四家密钥全部被识别', s.providers.filter((p) => p.hasKey).length === 4,
     '实际 ' + s.providers.filter((p) => p.hasKey).length);
-  ok('可用链按注册表优先级排序（智谱→DeepSeek→通义→Kimi）',
-    s.chain.map((c) => c.id).join(',') === 'zhipu,deepseek,dashscope,moonshot',
+  ok('可用链按注册表优先级排序（DeepSeek→智谱→通义→Kimi）',
+    s.chain.map((c) => c.id).join(',') === 'deepseek,zhipu,dashscope,moonshot',
     s.chain.map((c) => c.id).join(','));
-  ok('主用为链首（智谱）', s.providerId === 'zhipu', s.providerId);
+  ok('主用为链首（DeepSeek）', s.providerId === 'deepseek', s.providerId);
   ok('备用家数 = 3', s.fallbacks.length === 3, String(s.fallbacks.length));
-  ok('密钥变量名如实回显（便于排查贴错位置）', s.keyVar === 'ZHIPU_API_KEY', s.keyVar);
+  ok('密钥变量名如实回显（便于排查贴错位置）', s.keyVar === 'DEEPSEEK_API_KEY', s.keyVar);
   ok('快照不含密钥本体', !JSON.stringify(s).includes('mock-key-'), '快照出现明文密钥');
   ok('单家 baseUrl 覆盖生效', s.baseUrl === `${BASE}/bad`, s.baseUrl);
 }
@@ -177,14 +177,15 @@ LLM.resetBreakers();
 {
   const r = await LLM.chat([{ role: 'user', content: '缺口多少' }], { system: 'sys' });
   ok('回答拿到正文', typeof r.text === 'string' && r.text.includes('3208'), String(r.text).slice(0, 40));
-  ok('实际由 DeepSeek 回答（首字前换家）', r.providerId === 'deepseek', r.providerId);
+  ok('实际由智谱回答（首字前换家）', r.providerId === 'zhipu', r.providerId);
   ok('attempts 记录了两家', r.attempts.length === 2, String(r.attempts.length));
-  ok('首家标记失败且带错误摘要',
-    r.attempts[0].ok === false && /500/.test(r.attempts[0].error || ''),
+  ok('首家（DeepSeek）标记失败且带错误摘要',
+    r.attempts[0].ok === false && r.attempts[0].providerId === 'deepseek'
+      && /500/.test(r.attempts[0].error || ''),
     JSON.stringify(r.attempts[0]));
   ok('次家标记成功且有时延', r.attempts[1].ok === true && r.attempts[1].ms >= 0,
     JSON.stringify(r.attempts[1]));
-  ok('backend 字符串可用于观测', r.backend.startsWith('deepseek:'), r.backend);
+  ok('backend 字符串可用于观测', r.backend.startsWith('zhipu:'), r.backend);
 }
 
 /* ==================================================================================
@@ -196,14 +197,14 @@ section('熔断（连续失败 2 次后冷却 60 秒）');
   /* 上一节已经失败 1 次；再打一次 → 达到阈值 */
   await LLM.chat([{ role: 'user', content: '再来一次' }]);
   const b = LLM.breakerSnapshot();
-  ok('智谱熔断器已跳开', !!(b.zhipu && b.zhipu.open), JSON.stringify(b.zhipu));
-  ok('冷却窗口 > 0 秒', b.zhipu.openForSec > 0, String(b.zhipu && b.zhipu.openForSec));
-  ok('失败原因已留存', /500/.test(String(b.zhipu.lastError || '')), String(b.zhipu && b.zhipu.lastError));
+  ok('DeepSeek 熔断器已跳开', !!(b.deepseek && b.deepseek.open), JSON.stringify(b.deepseek));
+  ok('冷却窗口 > 0 秒', b.deepseek.openForSec > 0, String(b.deepseek && b.deepseek.openForSec));
+  ok('失败原因已留存', /500/.test(String(b.deepseek.lastError || '')), String(b.deepseek && b.deepseek.lastError));
 
   const r3 = await LLM.chat([{ role: 'user', content: '第三次' }]);
   ok('熔断期内跳过该家（不再撞已挂端点）',
     r3.attempts[0].skipped === 'circuit-open', JSON.stringify(r3.attempts[0]));
-  ok('熔断期内仍能由备用家回答', r3.providerId === 'deepseek', r3.providerId);
+  ok('熔断期内仍能由备用家回答', r3.providerId === 'zhipu', r3.providerId);
 }
 
 /* ==================================================================================
@@ -218,6 +219,8 @@ LLM.resetBreakers();
   delete process.env.ZHIPU_API_KEY;
   delete process.env.DEEPSEEK_API_KEY;
   delete process.env.MOONSHOT_API_KEY;
+  /* 本机 .env 可能填了真 key —— 关闭文件回退，否则"全部不可用"永远走不到 */
+  P.setIgnoreEnvFile(true);
   try {
     let err = null;
     try { await LLM.chat([{ role: 'user', content: 'hi' }]); } catch (e) { err = e; }
@@ -225,6 +228,7 @@ LLM.resetBreakers();
     ok('错误信息含 401', /401/.test(String(err && err.message)), String(err && err.message).slice(0, 80));
     ok('错误里列出尝试过的服务商', /通义/.test(String(err && err.message)), String(err && err.message).slice(0, 80));
   } finally {
+    P.setIgnoreEnvFile(false);
     Object.assign(process.env, saved);
     LLM.resetBreakers();
   }
@@ -237,9 +241,12 @@ section('流式输出');
 LLM.resetBreakers();
 
 {
-  /* 让 DeepSeek 成为主用（智谱熔断失效 → 直接跳过；也可清 key 更干净） */
-  const savedZhipu = process.env.ZHIPU_API_KEY;
-  delete process.env.ZHIPU_API_KEY;
+  /* 让智谱成为链首可用家（清掉 DeepSeek 的 key；DeepSeek 在 mock 里指向 /bad）。
+   * 必须同时关闭 .env 回退——开发机 .env 里有真 DeepSeek key，
+   * 只删 process.env 挡不住文件回退，DeepSeek 仍会留在链首。 */
+  const savedDeepseek = process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
+  P.setIgnoreEnvFile(true);
   try {
     const chunks = [];
     const r = await LLM.chatStream([{ role: 'user', content: '流式' }], (t) => chunks.push(t), {});
@@ -247,20 +254,22 @@ LLM.resetBreakers();
     ok('片段拼接与全文一致', r.fullText === chunks.join(''), '拼接不一致');
     ok('全文内容正确', r.fullText.includes('3208'), r.fullText.slice(0, 30));
     ok('未发生降级（首选即成功）', r.degraded === false, String(r.degraded));
-    ok('流式也记录 backend', String(r.backend).startsWith('deepseek:'), r.backend);
+    ok('流式也记录 backend', String(r.backend).startsWith('zhipu:'), r.backend);
   } finally {
-    if (savedZhipu) process.env.ZHIPU_API_KEY = savedZhipu;
+    P.setIgnoreEnvFile(false);
+    if (savedDeepseek) process.env.DEEPSEEK_API_KEY = savedDeepseek;
     LLM.resetBreakers();
   }
 }
 
 {
-  /* 流式降级：首选 500 → 备用家接着流 */
+  /* 流式降级：主用（DeepSeek）500 → 备用家（智谱）接着流 */
   const chunks = [];
   const r = await LLM.chatStream([{ role: 'user', content: '流式降级' }], (t) => chunks.push(t), {});
   ok('流式可换家（degraded=true）', r.degraded === true, String(r.degraded));
-  ok('换家后 providerId 为备用家', r.providerId === 'deepseek', r.providerId);
+  ok('换家后 providerId 为备用家', r.providerId === 'zhipu', r.providerId);
   ok('换家后仍输出完整正文', r.fullText.includes('占配额约 12%'), r.fullText);
+  LLM.resetBreakers();
 }
 
 section('流式中途断流（不得换家拼接）');
@@ -272,6 +281,8 @@ LLM.resetBreakers();
   delete process.env.DEEPSEEK_API_KEY;
   delete process.env.DASHSCOPE_API_KEY;
   process.env.MOONSHOT_BASE_URL = `${BASE}/midfail`;
+  /* 同上：屏蔽 .env 文件回退，让链上只剩 Kimi（断流）一家 */
+  P.setIgnoreEnvFile(true);
   try {
     let err = null;
     let emitted = '';
@@ -285,6 +296,7 @@ LLM.resetBreakers();
       !!(err && err.attempts && err.attempts[0] && err.attempts[0].partialChars > 0),
       JSON.stringify(err && err.attempts && err.attempts[0]));
   } finally {
+    P.setIgnoreEnvFile(false);
     process.env = { ...saved };
     LLM.resetBreakers();
   }
@@ -296,13 +308,13 @@ LLM.resetBreakers();
 section('连通性探测（/models）');
 
 {
-  const good = await LLM.probe('deepseek');
+  const good = await LLM.probe('zhipu');
   ok('/ok 探测成功', good.ok === true, JSON.stringify(good).slice(0, 80));
   ok('返回可用模型清单', Array.isArray(good.models) && good.models.length === 2,
     JSON.stringify(good.models));
   ok('给出时延', typeof good.ms === 'number' && good.ms >= 0, String(good.ms));
 
-  const bad = await LLM.probe('zhipu');
+  const bad = await LLM.probe('deepseek');
   ok('/bad 探测失败且带状态码', bad.ok === false && bad.status === 500, JSON.stringify(bad).slice(0, 80));
 
   const un = await LLM.probe('dashscope');
@@ -325,8 +337,18 @@ section('数字溯源（防编造）');
   const g2 = G.verify('缺口约 3208.4 吨。', facts, {});
   ok('带小数原样命中', g2.unverified.length === 0, JSON.stringify(g2.unverified));
 
+  /* ⚠ 这条用例的预期在 2026-11-09 被反转，原因是真实事故：
+   * 线上 DeepSeek 把真实富余 68,925.37 写成 68,873.14（差 52 吨），
+   * 而当时 0.5% 容差把它当"四舍五入"放行了 —— 一个碳数据平台不该允许
+   * 这种偏差通过。容差收至 0.01% 后，3208→3200（0.25%）必须被抓出。
+   * 真正合法的舍入记法由下一条用例守住（3208.4 可写成 3208）。 */
   const g3 = G.verify('缺口约 3200 吨。', facts, {});
-  ok('容差内（0.26%）判为命中', g3.unverified.length === 0, JSON.stringify(g3.unverified));
+  ok('近似改写（0.25%）被抓出，不再当舍入放行', g3.unverified.length === 1,
+    JSON.stringify(g3.unverified.map((u) => u.raw)));
+
+  const g3b = G.verify('缺口约 3208 吨（原值 3208.4）。', facts, {});
+  ok('真舍入到整数仍判为命中', g3b.unverified.length === 0,
+    JSON.stringify(g3b.unverified.map((u) => u.raw)));
 
   const g4 = G.verify('缺口 3208 吨，约占配额 12%，预计超排 9999 吨。', facts, {});
   ok('编造数字被抓出（12%、9999）', g4.unverified.length === 2,
